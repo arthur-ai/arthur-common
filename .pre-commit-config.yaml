@@ -1,0 +1,61 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: debug-statements
+      - id: name-tests-test
+        args: ["--pytest-test-first"]
+        exclude: |
+          (?x)^(
+            tests/test_data/|
+            tests/unit/aggregation_functions/helpers.py
+          )
+  - repo: https://github.com/pycqa/autoflake
+    rev: v2.2.1
+    hooks:
+      - id: autoflake
+        args:
+          - "--in-place"
+          - "--remove-all-unused-imports"
+          - "--recursive"
+        fail_fast: true
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        name: "sort imports"
+        args: ["--profile", "black"]
+        fail_fast: true
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.12
+        fail_fast: true
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v3.1.0
+    hooks:
+      - id: add-trailing-comma
+        name: "add trailing commas"
+        fail_fast: true
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: "pytest unit tests and coverage"
+        entry: poetry run pytest tests/ --cov=arthur_common --cov-fail-under=45
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: false
+        files: ^src/arthur_common/
+      - id: mypy
+        name: "mypy type checking"
+        entry: poetry run mypy src/arthur_common/ --ignore-missing-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: false
+        files: ^src/arthur_common/

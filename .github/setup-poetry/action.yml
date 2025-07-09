@@ -1,0 +1,17 @@
+name: 'Setup Poetry'
+description: 'Installs and configures Poetry'
+
+inputs:
+  poetry-version:
+    description: 'Poetry version to install'
+    required: true
+    default: '2.2.2'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Setup Poetry'
+      shell: bash
+      run: |
+        pip install poetry==${{ inputs.poetry-version }}
+        poetry install
