@@ -82,6 +82,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: ${{ env.GIT_DEPTH }}
+          ref: main
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
@@ -92,6 +93,7 @@ jobs:
         run: |
           pip install bump2version
           bump2version patch
+          git push origin main
           git push --tags
 
   pypi-build:
