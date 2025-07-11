@@ -9,7 +9,6 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   run-linter:
@@ -73,83 +72,3 @@ jobs:
             path: |
               report.xml
               pytest-coverage.txt
-
-  bump-version:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    container: python:3.12.9-bullseye
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ env.GIT_DEPTH }}
-          ref: main
-      - uses: ./.github/workflows/composite-actions/setup-git
-        with:
-          safe-directory: ${{ runner.workspace }}
-      - uses: ./.github/workflows/composite-actions/setup-poetry
-        with:
-          poetry-version: 2.1.3
-      - name: Bump version
-        run: |
-          pip install bump2version
-          bump2version patch
-          git push origin main
-          git push --tags
-
-  pypi-build:
-    # Should be separate from publish job: https://docs.pypi.org/trusted-publishers/security-model/#:~:text=Retrieve%20the%20publishable%20distribution%20files%20from%20a%20separate%20build%20job%3B
-    # written from guide: https://johnfraney.ca/blog/how-to-publish-a-python-package-with-poetry-and-github-actions/
-    name: Build release for PyPI
-    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Bump version')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ env.GIT_DEPTH }}
-          ref: ${{ github.event.inputs.branch || github.ref_name }}
-      - uses: ./.github/workflows/composite-actions/setup-git
-        with:
-          safe-directory: ${{ runner.workspace }}
-      - uses: actions/setup-python@v5
-        # can't use container with python instead: https://github.com/pypa/gh-action-pypi-publish/tree/unstable/v1#:~:text=Running%20the%20action,that%20publishes%20them.
-        with:
-          python-version: 3.12
-      - uses: ./.github/workflows/composite-actions/setup-poetry
-        with:
-          poetry-version: 2.1.3
-      - name: Package project
-        run: cd arthur-common && poetry build
-      - name: Archive package
-        uses: actions/upload-artifact@v4
-        with:
-          name: arthur-common
-          path: arthur-common/dist
-          retention-days: 1
-          if-no-files-found: error
-
-  pypi-publish:
-    # don't add more steps to this job—it should only publish so that steps with access to the OIDC token for use with
-    # PyPI are as limited as possible
-    needs: pypi-build
-    # does not run on dev—https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers:~:text=Local%20version%20identifiers%20SHOULD%20NOT%20be%20used%20when%20publishing%20upstream%20projects%20to%20a%20public%20index%20server%2C%20but%20MAY%20be%20used%20to%20identify%20private%20builds%20created%20directly%20from%20the%20project%20source.
-    name: Upload release to PyPI
-    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'Bump version')
-    runs-on: ubuntu-latest
-    environment:  # must be the same as what is set for the trusted publisher in PyPI
-      name: shared-protected-branch-secrets
-      url: https://pypi.org/project/arthur-common/
-    permissions:
-      contents: read
-      id-token: write  # needed for PyPI trusted publishing to create short-lived ID token to verify authority to publish
-    steps:
-        - name: Download distribution from pypi-build job
-          uses: actions/download-artifact@v4
-          with:
-            name: arthur-common
-            path: arthur-common
-        - name: Publish package distributions to PyPI
-          uses: pypa/gh-action-pypi-publish@release/v1
-          with:
-            packages-dir: arthur-common

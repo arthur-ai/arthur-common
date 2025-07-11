@@ -1,0 +1,35 @@
+name: Arthur Common Version Bump
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  bump-version:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container: python:3.12.9-bullseye
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ env.GIT_DEPTH }}
+          ref: main
+      - uses: ./.github/workflows/composite-actions/setup-git
+        with:
+          safe-directory: ${{ runner.workspace }}
+      - uses: ./.github/workflows/composite-actions/setup-poetry
+        with:
+          poetry-version: 2.1.3
+      - name: Bump version
+        run: |
+          pip install bump2version
+          bump2version patch
+          git push origin main
+          git push --tags
