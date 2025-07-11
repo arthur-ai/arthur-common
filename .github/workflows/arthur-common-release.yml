@@ -33,11 +33,13 @@ jobs:
           poetry-version: 2.1.3
       - name: Package project
         run: poetry build
+      - name: List build artifacts
+        run: ls -la dist/
       - name: Archive package
         uses: actions/upload-artifact@v4
         with:
           name: arthur-common
-          path: dist
+          path: dist/
           retention-days: 1
           if-no-files-found: error
 
@@ -60,7 +62,9 @@ jobs:
           uses: actions/download-artifact@v4
           with:
             name: arthur-common
-            path: .
+            path: dist
+        - name: List downloaded artifacts
+          run: ls -la dist/
         - name: Publish package distributions to PyPI
           uses: pypa/gh-action-pypi-publish@release/v1
           with:
