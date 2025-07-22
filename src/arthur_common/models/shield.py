@@ -10,9 +10,7 @@ DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
 
 class RuleType(str, Enum):
     KEYWORD = "KeywordRule"
-    MODEL_HALLUCINATION = "ModelHallucinationRule"
     MODEL_HALLUCINATION_V2 = "ModelHallucinationRuleV2"
-    MODEL_HALLUCINATION_V3 = "ModelHallucinationRuleV3"
     MODEL_SENSITIVE_DATA = "ModelSensitiveDataRule"
     PII_DATA = "PIIDataRule"
     PROMPT_INJECTION = "PromptInjectionRule"
