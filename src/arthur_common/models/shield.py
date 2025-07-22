@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional, Self, Type, Union
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from arthur_common.models.schema_definitions import MetricType
+
 DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
 
@@ -240,6 +242,28 @@ class RuleResponse(BaseModel):
     )
 
 
+class MetricResponse(BaseModel):
+    id: str = Field(description="ID of the Metric")
+    name: str = Field(description="Name of the Metric")
+    type: MetricType = Field(description="Type of the Metric")
+    metric_metadata: str = Field(description="Metadata of the Metric")
+    config: Optional[str] = Field(
+        description="JSON-serialized configuration for the Metric",
+        default=None,
+    )
+    # TODO: change to timestamp
+    created_at: str = Field(
+        description="Time the Metric was created in unix milliseconds",
+    )
+    updated_at: str = Field(
+        description="Time the Metric was updated in unix milliseconds",
+    )
+    enabled: Optional[bool] = Field(
+        description="Whether the Metric is enabled",
+        default=None,
+    )
+
+
 class TaskResponse(BaseModel):
     id: str = Field(description=" ID of the task")
     name: str = Field(description="Name of the task")
@@ -249,7 +273,12 @@ class TaskResponse(BaseModel):
     updated_at: int = Field(
         description="Time the task was created in unix milliseconds",
     )
+    is_agentic: bool = Field(description="Whether the task is agentic or not")
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
+    metrics: Optional[List[MetricResponse]] = Field(
+        description="List of all the metrics for the task.",
+        default=None,
+    )
 
 
 class UpdateRuleRequest(BaseModel):
@@ -454,14 +483,6 @@ class NewRuleRequest(BaseModel):
                 detail="PromptInjectionRule can only be enabled for prompt. Please set the 'apply_to_response' field "
                 "to false.",
             )
-        if (self.type == RuleType.MODEL_HALLUCINATION) and (
-            self.apply_to_prompt is True
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="ModelHallucinationRule can only be enabled for response. Please set the 'apply_to_prompt' "
-                "field to false.",
-            )
         if (self.type == RuleType.MODEL_HALLUCINATION_V2) and (
             self.apply_to_prompt is True
         ):
@@ -469,14 +490,6 @@ class NewRuleRequest(BaseModel):
                 status_code=400,
                 detail="ModelHallucinationRuleV2 can only be enabled for response. Please set the 'apply_to_prompt' "
                 "field to false.",
-            )
-        if (self.type == RuleType.MODEL_HALLUCINATION_V3) and (
-            self.apply_to_prompt is True
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="ModelHallucinationRuleV3 can only be enabled for response. Please set the "
-                "'apply_to_prompt' field to false.",
             )
         if (self.apply_to_prompt is False) and (self.apply_to_response is False):
             raise HTTPException(

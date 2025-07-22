@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Self, Union
+from typing import Optional, Self, Union
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -488,8 +487,12 @@ def SHIELD_SCHEMA() -> DatasetSchema:
 SHIELD_RESPONSE_SCHEMA = create_shield_response_schema().to_base_type()
 SHIELD_PROMPT_SCHEMA = create_shield_prompt_schema().to_base_type()
 
-QUERY_SPANS_WITH_METRICS_RESPONSE_SCHEMA = create_query_spans_with_metrics_response_schema().to_base_type()
-SPAN_WITH_METRICS_RESPONSE_SCHEMA = create_span_with_metrics_response_schema().to_base_type()
+QUERY_SPANS_WITH_METRICS_RESPONSE_SCHEMA = (
+    create_query_spans_with_metrics_response_schema().to_base_type()
+)
+SPAN_WITH_METRICS_RESPONSE_SCHEMA = (
+    create_span_with_metrics_response_schema().to_base_type()
+)
 METRIC_RESULT_RESPONSE_SCHEMA = create_metric_result_response_schema().to_base_type()
 
 SEGMENTATION_ALLOWED_DTYPES = [DType.INT, DType.BOOL, DType.STRING, DType.UUID]
