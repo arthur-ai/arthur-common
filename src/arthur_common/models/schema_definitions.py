@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
-from typing import Optional, Self, Union
+from typing import List, Optional, Self, Union
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -33,6 +34,15 @@ class DType(str, Enum):
     DATE = "date"
     JSON = "json"
     IMAGE = "image"
+
+
+class MetricType(str, Enum):
+    QUERY_RELEVANCE = "QueryRelevance"
+    RESPONSE_RELEVANCE = "ResponseRelevance"
+    TOOL_SELECTION = "ToolSelection"
+
+    def __str__(self):
+        return self.value
 
 
 class MetricParameterAnnotation(BaseModel):
@@ -367,6 +377,61 @@ def create_shield_inference_feedback_schema() -> DatasetListType:
     )
 
 
+def create_metric_result_response_schema() -> DatasetObjectType:
+    return create_dataset_object_type(
+        {
+            "id": create_dataset_scalar_type(DType.STRING),
+            "metric_type": create_dataset_scalar_type(DType.STRING),
+            "details": create_dataset_scalar_type(DType.JSON),
+            "prompt_tokens": create_dataset_scalar_type(DType.INT),
+            "completion_tokens": create_dataset_scalar_type(DType.INT),
+            "latency_ms": create_dataset_scalar_type(DType.INT),
+            "span_id": create_dataset_scalar_type(DType.STRING),
+            "metric_id": create_dataset_scalar_type(DType.STRING),
+            "created_at": create_dataset_scalar_type(DType.TIMESTAMP),
+            "updated_at": create_dataset_scalar_type(DType.TIMESTAMP),
+        },
+    )
+
+
+def create_span_with_metrics_response_schema() -> DatasetObjectType:
+    return create_dataset_object_type(
+        {
+            "id": create_dataset_scalar_type(DType.STRING),
+            "trace_id": create_dataset_scalar_type(DType.STRING),
+            "span_id": create_dataset_scalar_type(DType.STRING),
+            "parent_span_id": create_dataset_scalar_type(DType.STRING),
+            "span_kind": create_dataset_scalar_type(DType.STRING),
+            "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
+            "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
+            "task_id": create_dataset_scalar_type(DType.STRING),
+            "created_at": create_dataset_scalar_type(DType.TIMESTAMP),
+            "updated_at": create_dataset_scalar_type(DType.TIMESTAMP),
+            "raw_data": create_dataset_scalar_type(DType.JSON),
+            "system_prompt": create_dataset_scalar_type(DType.STRING),
+            "user_query": create_dataset_scalar_type(DType.STRING),
+            "response": create_dataset_scalar_type(DType.STRING),
+            "context": create_dataset_list_type(
+                create_dataset_scalar_type(DType.JSON),
+            ),
+            "metric_results": create_dataset_list_type(
+                create_metric_result_response_schema(),
+            ),
+        },
+    )
+
+
+def create_query_spans_with_metrics_response_schema() -> DatasetObjectType:
+    return create_dataset_object_type(
+        {
+            "count": create_dataset_scalar_type(DType.INT),
+            "spans": create_dataset_list_type(
+                create_span_with_metrics_response_schema(),
+            ),
+        },
+    )
+
+
 def SHIELD_SCHEMA() -> DatasetSchema:
     return DatasetSchema(
         alias_mask={},
@@ -422,6 +487,10 @@ def SHIELD_SCHEMA() -> DatasetSchema:
 
 SHIELD_RESPONSE_SCHEMA = create_shield_response_schema().to_base_type()
 SHIELD_PROMPT_SCHEMA = create_shield_prompt_schema().to_base_type()
+
+QUERY_SPANS_WITH_METRICS_RESPONSE_SCHEMA = create_query_spans_with_metrics_response_schema().to_base_type()
+SPAN_WITH_METRICS_RESPONSE_SCHEMA = create_span_with_metrics_response_schema().to_base_type()
+METRIC_RESULT_RESPONSE_SCHEMA = create_metric_result_response_schema().to_base_type()
 
 SEGMENTATION_ALLOWED_DTYPES = [DType.INT, DType.BOOL, DType.STRING, DType.UUID]
 SEGMENTATION_ALLOWED_COLUMN_TYPES = [
