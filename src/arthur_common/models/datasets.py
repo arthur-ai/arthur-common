@@ -7,7 +7,7 @@ class ModelProblemType(str, Enum):
     ARTHUR_SHIELD = "arthur_shield"
     CUSTOM = "custom"
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
-    AGENTIC = "agentic"
+    AGENTIC_TRACE = "agentic_trace"
 
 
 class DatasetFileType(str, Enum):
