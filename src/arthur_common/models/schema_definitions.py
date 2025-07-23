@@ -430,6 +430,17 @@ def create_query_spans_with_metrics_response_schema() -> DatasetObjectType:
         },
     )
 
+# TODO: add agentic trace schema
+def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
+    return DatasetSchema(
+        alias_mask={},
+        columns=[
+            DatasetColumn(
+                id=uuid4(),
+                source_name="id",
+            )
+        ]
+    )
 
 def SHIELD_SCHEMA() -> DatasetSchema:
     return DatasetSchema(
