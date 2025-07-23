@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
 from arthur_common.models.datasets import ModelProblemType
@@ -280,7 +280,7 @@ class ReportedCustomAggregation(BaseReportedAggregation):
 
     @field_validator('dimension_columns')
     @classmethod
-    def validate_dimension_columns_length(cls, v: List[str]) -> str:
+    def validate_dimension_columns_length(cls, v: list[str]) -> str:
         if len(v) > 1:
             raise ValueError('Only one dimension column can be specified.')
         return v
