@@ -21,7 +21,7 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    is_agentic: bool = Field(default=False, description="Whether this task should be agentic")
+    is_agentic: bool = Field(default=False, description="Whether this task is related to an agentic model")
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):
