@@ -454,14 +454,6 @@ class NewRuleRequest(BaseModel):
                 detail="PromptInjectionRule can only be enabled for prompt. Please set the 'apply_to_response' field "
                 "to false.",
             )
-        if (self.type == RuleType.MODEL_HALLUCINATION) and (
-            self.apply_to_prompt is True
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="ModelHallucinationRule can only be enabled for response. Please set the 'apply_to_prompt' "
-                "field to false.",
-            )
         if (self.type == RuleType.MODEL_HALLUCINATION_V2) and (
             self.apply_to_prompt is True
         ):
@@ -469,14 +461,6 @@ class NewRuleRequest(BaseModel):
                 status_code=400,
                 detail="ModelHallucinationRuleV2 can only be enabled for response. Please set the 'apply_to_prompt' "
                 "field to false.",
-            )
-        if (self.type == RuleType.MODEL_HALLUCINATION_V3) and (
-            self.apply_to_prompt is True
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="ModelHallucinationRuleV3 can only be enabled for response. Please set the "
-                "'apply_to_prompt' field to false.",
             )
         if (self.apply_to_prompt is False) and (self.apply_to_response is False):
             raise HTTPException(

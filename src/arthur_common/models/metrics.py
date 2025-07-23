@@ -276,7 +276,7 @@ class ReportedCustomAggregation(BaseReportedAggregation):
     metric_kind: AggregationMetricType = Field(
         description="Return type of the reported aggregation metric value.",
     )
-    dimension_columns: List[str] = Field(description="Name of any dimension columns returned from the SQL query. Max length is 1.")
+    dimension_columns: list[str] = Field(description="Name of any dimension columns returned from the SQL query. Max length is 1.")
 
     @field_validator('dimension_columns')
     @classmethod
