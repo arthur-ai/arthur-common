@@ -242,28 +242,6 @@ class RuleResponse(BaseModel):
     )
 
 
-class MetricResponse(BaseModel):
-    id: str = Field(description="ID of the Metric")
-    name: str = Field(description="Name of the Metric")
-    type: MetricType = Field(description="Type of the Metric")
-    metric_metadata: str = Field(description="Metadata of the Metric")
-    config: Optional[str] = Field(
-        description="JSON-serialized configuration for the Metric",
-        default=None,
-    )
-    # TODO: change to timestamp
-    created_at: str = Field(
-        description="Time the Metric was created in unix milliseconds",
-    )
-    updated_at: str = Field(
-        description="Time the Metric was updated in unix milliseconds",
-    )
-    enabled: Optional[bool] = Field(
-        description="Whether the Metric is enabled",
-        default=None,
-    )
-
-
 class TaskResponse(BaseModel):
     id: str = Field(description=" ID of the task")
     name: str = Field(description="Name of the task")
@@ -513,6 +491,27 @@ class NewRuleRequest(BaseModel):
                     detail="Examples must be provided to onboard a ModelSensitiveDataRule",
                 )
         return self
+
+class MetricResponse(BaseModel):
+    id: str = Field(description="ID of the Metric")
+    name: str = Field(description="Name of the Metric")
+    type: MetricType = Field(description="Type of the Metric")
+    metric_metadata: str = Field(description="Metadata of the Metric")
+    config: Optional[str] = Field(
+        description="JSON-serialized configuration for the Metric",
+        default=None,
+    )
+    # TODO: change to timestamp
+    created_at: str = Field(
+        description="Time the Metric was created in unix milliseconds",
+    )
+    updated_at: str = Field(
+        description="Time the Metric was updated in unix milliseconds",
+    )
+    enabled: Optional[bool] = Field(
+        description="Whether the Metric is enabled",
+        default=None,
+    )
 
 class NewMetricRequest(BaseModel):
     type: MetricType = Field(
