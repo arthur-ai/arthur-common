@@ -60,7 +60,7 @@ jobs:
             poetry run pytest tests/unit/ --cov --cov=src/arthur_common \
             --cov-report term \
             --junitxml=report.xml \
-            -m "unit_tests" | tee pytest-coverage.txt
+            | tee pytest-coverage.txt
         - name: Pytest coverage comment
           if: always()
           uses: MishaKav/pytest-coverage-comment@main
