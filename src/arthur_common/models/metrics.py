@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
 from arthur_common.models.datasets import ModelProblemType
@@ -112,12 +112,9 @@ class AggregationMetricType(Enum):
     NUMERIC = "numeric"
 
 
-class MetricsParameterSchema(BaseModel):
+class BaseAggregationParameterSchema(BaseModel):
+    # fields for aggregation parameters shared across all parameter types and between default and custom metrics
     parameter_key: str = Field(description="Name of the parameter.")
-    optional: bool = Field(
-        False,
-        description="Boolean denoting if the parameter is optional.",
-    )
     friendly_name: str = Field(
         description="User facing name of the parameter.",
     )
@@ -126,7 +123,16 @@ class MetricsParameterSchema(BaseModel):
     )
 
 
-class MetricsDatasetParameterSchema(MetricsParameterSchema):
+class MetricsParameterSchema(BaseAggregationParameterSchema):
+    # specific to default metrics/Python metrics—not available to custom aggregations
+    optional: bool = Field(
+        False,
+        description="Boolean denoting if the parameter is optional.",
+    )
+
+
+class BaseDatasetParameterSchema(BaseAggregationParameterSchema):
+    # fields specific to dataset parameters shared across default and custom metrics
     parameter_type: Literal["dataset"] = "dataset"
     model_problem_type: Optional[ModelProblemType] = Field(
         default=None,
@@ -134,12 +140,24 @@ class MetricsDatasetParameterSchema(MetricsParameterSchema):
     )
 
 
-class MetricsLiteralParameterSchema(MetricsParameterSchema):
+class MetricsDatasetParameterSchema(MetricsParameterSchema, BaseDatasetParameterSchema):
+    # dataset parameter schema including fields specific to default metrics
+    pass
+
+
+class BaseLiteralParameterSchema(BaseAggregationParameterSchema):
+    # fields specific to literal parameters shared across default and custom metrics
     parameter_type: Literal["literal"] = "literal"
     parameter_dtype: DType = Field(description="Data type of the parameter.")
 
 
-class MetricsColumnBaseParameterSchema(MetricsParameterSchema):
+class MetricsLiteralParameterSchema(MetricsParameterSchema, BaseLiteralParameterSchema):
+    # literal parameter schema including fields specific to default metrics
+    pass
+
+
+class BaseColumnBaseParameterSchema(BaseAggregationParameterSchema):
+    # fields specific to all single or multiple column parameters shared across default and custom metrics
     tag_hints: list[ScopeSchemaTag] = Field(
         [],
         description="List of tags that are applicable to this parameter. Datasets with columns that have matching tags can be inferred this way.",
@@ -165,12 +183,18 @@ class MetricsColumnBaseParameterSchema(MetricsParameterSchema):
         return self
 
 
-class MetricsColumnParameterSchema(MetricsColumnBaseParameterSchema):
+class BaseColumnParameterSchema(BaseColumnBaseParameterSchema):
+    # single column parameter schema common across default and custom metrics
     parameter_type: Literal["column"] = "column"
 
 
-# Not used /implemented yet. Might turn into group by column list
-class MetricsColumnListParameterSchema(MetricsColumnBaseParameterSchema):
+class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSchema):
+    # single column parameter schema specific to default metrics
+    parameter_type: Literal["column"] = "column"
+
+
+class MetricsColumnListParameterSchema(MetricsParameterSchema, BaseColumnParameterSchema):
+    # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
 
 
@@ -183,6 +207,13 @@ MetricsParameterSchemaUnion = (
 
 MetricsColumnSchemaUnion = (
     MetricsColumnParameterSchema | MetricsColumnListParameterSchema
+)
+
+
+CustomAggregationParametersSchemaUnion = (
+    BaseDatasetParameterSchema
+    | BaseLiteralParameterSchema
+    | BaseColumnParameterSchema
 )
 
 
@@ -229,3 +260,28 @@ class AggregationSpecSchema(BaseModel):
                     f"Column parameter '{param.parameter_key}' references dataset parameter '{param.source_dataset_parameter_key}' which does not exist.",
                 )
         return self
+
+
+class BaseReportedAggregation(BaseModel):
+    # in future will be used by default metrics
+    metric_name: str = Field(description="Name of the reported aggregation metric.")
+    description: str = Field(
+        description="Description of the reported aggregation metric and what it aggregates.",
+    )
+
+
+class ReportedCustomAggregation(BaseReportedAggregation):
+    value_column: str = Field(description="Name of the column returned from the SQL query holding the metric value.")
+    timestamp_column: str = Field(description="Name of the column returned from the SQL query holding the timestamp buckets.")
+    metric_kind: AggregationMetricType = Field(
+        description="Return type of the reported aggregation metric value.",
+    )
+    dimension_columns: list[str] = Field(description="Name of any dimension columns returned from the SQL query. Max length is 1.")
+
+    @field_validator('dimension_columns')
+    @classmethod
+    def validate_dimension_columns_length(cls, v: list[str]) -> str:
+        if len(v) > 1:
+            raise ValueError('Only one dimension column can be specified.')
+        return v
+
