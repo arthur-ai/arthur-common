@@ -207,7 +207,7 @@ class FunctionAnalyzer:
             )
         # Check if X implements the required methods
         required_methods = ["aggregate", "id", "description", "display_name"]
-        static_methods = ["description", "id", "display_name"]
+        static_methods = ["description", "id", "display_name", "reported_aggregations"]
         for method in required_methods:
             if not hasattr(agg_func, method) or not callable(getattr(agg_func, method)):
                 raise AttributeError(
@@ -253,6 +253,7 @@ class FunctionAnalyzer:
             metric_type=metric_type,
             init_args=aggregation_init_args,
             aggregate_args=aggregate_args,
+            reported_aggregations=agg_func.reported_aggregations(),
         )
 
 

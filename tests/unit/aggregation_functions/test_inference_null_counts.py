@@ -40,6 +40,7 @@ def test_inference_null_count(
         timestamp_col="flight start",
         nullable_col=column_name,
     )
+    validate_expected_metric_names(inference_null_counter, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "null_count"
 

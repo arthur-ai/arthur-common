@@ -7,7 +7,11 @@ from arthur_common.aggregations.functions.inference_count_by_class import (
     BinaryClassifierCountByClassAggregationFunction,
 )
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -46,6 +50,15 @@ class MulticlassClassifierCountByClassAggregationFunction(
     @staticmethod
     def _metric_name() -> str:
         return "multiclass_classifier_count_by_class"
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=MulticlassClassifierCountByClassAggregationFunction._metric_name(),
+                description=MulticlassClassifierCountByClassAggregationFunction.description(),
+            )
+        ]
 
     def aggregate(
         self,

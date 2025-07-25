@@ -4,7 +4,11 @@ from uuid import UUID
 from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
-from arthur_common.models.metrics import DatasetReference, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -31,6 +35,15 @@ class InferenceCountAggregationFunction(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that counts the number of inferences per time window."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=InferenceCountAggregationFunction.METRIC_NAME,
+                description=InferenceCountAggregationFunction.description(),
+            )
+        ]
 
     def aggregate(
         self,

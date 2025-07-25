@@ -38,6 +38,7 @@ def test_inference_sum(
         timestamp_col="flight start",
         numeric_col=column_name,
     )
+    validate_expected_metric_names(inference_sum, metric)
     assert metric[0].name == "numeric_sum"
     result = metric[0].numeric_series[0]
     assert result.dimensions[0].value == column_name
@@ -81,6 +82,7 @@ def test_inference_numeric_sketch(
         "flight start",
         column_name,
     )
+    validate_expected_metric_names(numeric_sketch_func, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "numeric_sketch"
 
