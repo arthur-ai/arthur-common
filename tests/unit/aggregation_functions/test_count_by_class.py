@@ -34,6 +34,7 @@ def test_int_bool_count_by_class(
         timestamp_col="sent timestamp",
         prediction_col=prediction_col,
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "binary_classifier_count_by_class"
 
@@ -99,6 +100,7 @@ def test_prediction_threshold_count_by_class(
         true_label="yeetyeetyes",
         false_label="no",
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
 
     assert len(metrics) == 1
     assert metrics[0].name == "binary_classifier_count_by_class"
@@ -125,3 +127,4 @@ def test_prediction_threshold_count_by_class(
         segmentation_cols=["packet type"],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
+    validate_expected_metric_names(cm_aggregator, metrics)

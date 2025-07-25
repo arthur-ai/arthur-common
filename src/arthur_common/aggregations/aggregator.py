@@ -29,6 +29,12 @@ class AggregationFunction(ABC):
     def aggregation_type(self) -> Type[SketchMetric] | Type[NumericMetric]:
         raise NotImplementedError
 
+    @staticmethod
+    @abstractmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        """Returns the list of aggregations reported by the aggregate function."""
+        raise NotImplementedError
+
     @abstractmethod
     def aggregate(
         self,

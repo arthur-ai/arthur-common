@@ -1,6 +1,7 @@
 from typing import Annotated, Optional
 from uuid import uuid4
 
+import pydantic_core
 import pytest
 from duckdb import DuckDBPyConnection
 
@@ -12,7 +13,7 @@ from arthur_common.models.metrics import (
     MetricsColumnParameterSchema,
     MetricsDatasetParameterSchema,
     MetricsLiteralParameterSchema,
-    SketchTimeSeries,
+    SketchTimeSeries, BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import (
     DType,
@@ -54,6 +55,15 @@ class HappyPathAggregation(SketchAggregationFunction):
     @staticmethod
     def description():
         return "desc"
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name="happy_path_aggregation",
+                description="Test happy path aggregation.",
+            )
+        ]
 
     def aggregate(
         self,
@@ -253,6 +263,15 @@ def test_aggregation_analyzer_no_init():
         def display_name():
             return "whatever"
 
+        @staticmethod
+        def reported_aggregations() -> list[BaseReportedAggregation]:
+            return [
+                BaseReportedAggregation(
+                    metric_name="unhappy_path_aggregation",
+                    description="Test unhappy path aggregation.",
+                )
+            ]
+
         def aggregate(
             self,
             ddb_conn: DuckDBPyConnection,
@@ -313,6 +332,112 @@ def test_aggregation_analyzer_missing_base_class_methods():
         FunctionAnalyzer.analyze_aggregation_function(UnhappyPathAggregation)
     # Missing name() function
     assert "does not implement" in str(e)
+
+
+def test_aggregation_analyzer_missing_reported_aggregation_method():
+    id1 = uuid4()
+
+    class UnhappyPathAggregation(SketchAggregationFunction):
+        def __init__(
+            self,
+            str_arg: Annotated[
+                str,
+                MetricLiteralParameterAnnotation(
+                    parameter_dtype=DType.STRING,
+                    friendly_name="String Argument",
+                    description="A string parameter",
+                ),
+            ],
+        ):
+            pass
+
+        @staticmethod
+        def id():
+            return id1
+
+        @staticmethod
+        def display_name():
+            return "whatever"
+
+        @staticmethod
+        def description():
+            return "whatever"
+
+        def aggregate(
+            self,
+            ddb_conn: DuckDBPyConnection,
+            int_arg: int,
+            annotated_str_arg: Annotated[
+                str,
+                MetricLiteralParameterAnnotation(
+                    parameter_dtype=DType.STRING,
+                    tag_hints=[ScopeSchemaTag.LLM_RESPONSE],
+                    friendly_name="Response String",
+                    description="A string containing LLM response",
+                ),
+            ],
+        ) -> list[SketchTimeSeries]:
+            pass
+
+    with pytest.raises(TypeError) as e:
+        FunctionAnalyzer.analyze_aggregation_function(UnhappyPathAggregation)
+    # Missing reported_aggregations() function
+    assert "does not implement" in str(e)
+
+
+def test_aggregation_analyzer_empty_reported_aggregations_list():
+    id1 = uuid4()
+
+    class UnhappyPathAggregation(SketchAggregationFunction):
+        def __init__(
+            self,
+            str_arg: Annotated[
+                str,
+                MetricLiteralParameterAnnotation(
+                    parameter_dtype=DType.STRING,
+                    friendly_name="String Argument",
+                    description="A string parameter",
+                ),
+            ],
+        ):
+            pass
+
+        @staticmethod
+        def id():
+            return id1
+
+        @staticmethod
+        def display_name():
+            return "whatever"
+
+        @staticmethod
+        def description():
+            return "whatever"
+
+        @staticmethod
+        def reported_aggregations() -> list[BaseReportedAggregation]:
+            return []
+
+        def aggregate(
+            self,
+            ddb_conn: DuckDBPyConnection,
+            int_arg: int,
+            annotated_str_arg: Annotated[
+                str,
+                MetricLiteralParameterAnnotation(
+                    parameter_dtype=DType.STRING,
+                    tag_hints=[ScopeSchemaTag.LLM_RESPONSE],
+                    friendly_name="Response String",
+                    description="A string containing LLM response",
+                ),
+            ],
+        ) -> list[SketchTimeSeries]:
+            pass
+
+    with pytest.raises(pydantic_core._pydantic_core.ValidationError) as e:
+        FunctionAnalyzer.analyze_aggregation_function(UnhappyPathAggregation)
+    # empty list returned by reported_aggregations() function
+    assert "Aggregation spec must specify at least one reported aggregation." in str(e.value)
 
 
 def test_aggregation_analyzer_non_static_base_methods():

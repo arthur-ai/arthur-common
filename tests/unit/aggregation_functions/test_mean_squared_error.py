@@ -46,6 +46,7 @@ def test_mean_squared_error(
         prediction_col="expected energy consumption",
         ground_truth_col="energy usage consumption",
     )
+    validate_expected_metric_names(mae_aggregator, metrics)
 
     assert len(metrics) == 2
     assert metrics[0].name == "squared_error_count"
@@ -70,3 +71,4 @@ def test_mean_squared_error(
         segmentation_cols=["city"],
     )
     assert_dimension_in_metric(metrics[0], "city")
+    validate_expected_metric_names(mae_aggregator, metrics)

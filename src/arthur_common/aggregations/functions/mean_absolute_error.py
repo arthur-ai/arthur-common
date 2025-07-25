@@ -5,7 +5,11 @@ from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -19,6 +23,9 @@ from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 
 class MeanAbsoluteErrorAggregationFunction(NumericAggregationFunction):
+    ABSOLUTE_ERROR_COUNT_METRIC_NAME = "absolute_error_count"
+    ABSOLUTE_ERROR_SUM_METRIC_NAME = "absolute_error_sum"
+
     @staticmethod
     def id() -> UUID:
         return UUID("00000000-0000-0000-0000-00000000000e")
@@ -30,6 +37,19 @@ class MeanAbsoluteErrorAggregationFunction(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that sums the absolute error of a prediction and ground truth column. It omits any rows where either the prediction or ground truth are null. It reports the count of non-null rows used in the calculation in a second metric."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=MeanAbsoluteErrorAggregationFunction.ABSOLUTE_ERROR_COUNT_METRIC_NAME,
+                description="Sum of the absolute error of a prediction and ground truth column, omitting rows where either column is null.",
+            ),
+            BaseReportedAggregation(
+                metric_name=MeanAbsoluteErrorAggregationFunction.ABSOLUTE_ERROR_SUM_METRIC_NAME,
+                description=f"Count of non-null rows used in the calculation of the {MeanAbsoluteErrorAggregationFunction.ABSOLUTE_ERROR_SUM_METRIC_NAME} metric.",
+            ),
+        ]
 
     def aggregate(
         self,
@@ -138,9 +158,11 @@ class MeanAbsoluteErrorAggregationFunction(NumericAggregationFunction):
             "ts",
         )
 
-        count_metric = self.series_to_metric("absolute_error_count", count_series)
+        count_metric = self.series_to_metric(
+            self.ABSOLUTE_ERROR_COUNT_METRIC_NAME, count_series
+        )
         absolute_error_metric = self.series_to_metric(
-            "absolute_error_sum",
+            self.ABSOLUTE_ERROR_SUM_METRIC_NAME,
             absolute_error_series,
         )
 

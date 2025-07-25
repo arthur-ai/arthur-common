@@ -37,6 +37,7 @@ def test_multiclass_single_class_confusion_matrix(
         gt_values_col="TrueLabel",
         positive_class_label=positive_label,
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 4
     assert (
         metrics[0].name
@@ -89,3 +90,4 @@ def test_multiclass_with_segmentation(
         segmentation_cols=["prompt_version_id"],
     )
     assert_dimension_in_metric(metrics[0], "prompt_version_id")
+    validate_expected_metric_names(cm_aggregator, metrics)

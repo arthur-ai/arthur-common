@@ -5,7 +5,11 @@ from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -19,6 +23,9 @@ from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 
 class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
+    SQUARED_ERROR_COUNT_METRIC_NAME = "squared_error_count"
+    SQUARED_ERROR_SUM_METRIC_NAME = "squared_error_sum"
+
     @staticmethod
     def id() -> UUID:
         return UUID("00000000-0000-0000-0000-000000000010")
@@ -30,6 +37,19 @@ class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that sums the squared error of a prediction and ground truth column. It omits any rows where either the prediction or ground truth are null. It reports the count of non-null rows used in the calculation in a second metric."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=MeanSquaredErrorAggregationFunction.SQUARED_ERROR_SUM_METRIC_NAME,
+                description="Sum of the squared error of a prediction and ground truth column, omitting rows where either column is null.",
+            ),
+            BaseReportedAggregation(
+                metric_name=MeanSquaredErrorAggregationFunction.SQUARED_ERROR_COUNT_METRIC_NAME,
+                description=f"Count of non-null rows used in the calculation of the {MeanSquaredErrorAggregationFunction.SQUARED_ERROR_SUM_METRIC_NAME} metric.",
+            ),
+        ]
 
     def aggregate(
         self,
@@ -138,9 +158,11 @@ class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
             "ts",
         )
 
-        count_metric = self.series_to_metric("squared_error_count", count_series)
+        count_metric = self.series_to_metric(
+            self.SQUARED_ERROR_COUNT_METRIC_NAME, count_series
+        )
         absolute_error_metric = self.series_to_metric(
-            "squared_error_sum",
+            self.SQUARED_ERROR_SUM_METRIC_NAME,
             squared_error_series,
         )
 

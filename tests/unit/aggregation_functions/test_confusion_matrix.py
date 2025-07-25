@@ -38,6 +38,7 @@ def test_int_bool_confusion_matrix(
         prediction_col=prediction_col,
         gt_values_col="malicious",
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 4
     assert metrics[0].name == "confusion_matrix_true_positive_count"
     assert metrics[1].name == "confusion_matrix_false_positive_count"
@@ -124,6 +125,7 @@ def test_str_label_confusion_matrix(
         true_label="MALICIOUS",
         false_label="NOT_MALICIOUS",
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 4
     assert metrics[0].name == "confusion_matrix_true_positive_count"
     assert metrics[1].name == "confusion_matrix_false_positive_count"
@@ -199,6 +201,7 @@ def test_prediction_threshold_confusion_matrix(
         gt_values_col="malicious",
         threshold=0.93,
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 4
     assert metrics[0].name == "confusion_matrix_true_positive_count"
     assert metrics[1].name == "confusion_matrix_false_positive_count"

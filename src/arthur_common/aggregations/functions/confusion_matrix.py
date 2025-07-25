@@ -5,7 +5,11 @@ from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -20,6 +24,32 @@ from arthur_common.tools.duckdb_data_loader import escape_identifier, escape_str
 
 
 class ConfusionMatrixAggregationFunction(NumericAggregationFunction):
+    TRUE_POSITIVE_METRIC_NAME = "confusion_matrix_true_positive_count"
+    FALSE_POSITIVE_METRIC_NAME = "confusion_matrix_false_positive_count"
+    FALSE_NEGATIVE_METRIC_NAME = "confusion_matrix_false_negative_count"
+    TRUE_NEGATIVE_METRIC_NAME = "confusion_matrix_true_negative_count"
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ConfusionMatrixAggregationFunction.TRUE_POSITIVE_METRIC_NAME,
+                description="Confusion matrix true positives count.",
+            ),
+            BaseReportedAggregation(
+                metric_name=ConfusionMatrixAggregationFunction.FALSE_POSITIVE_METRIC_NAME,
+                description="Confusion matrix false positives count.",
+            ),
+            BaseReportedAggregation(
+                metric_name=ConfusionMatrixAggregationFunction.FALSE_NEGATIVE_METRIC_NAME,
+                description="Confusion matrix false negatives count.",
+            ),
+            BaseReportedAggregation(
+                metric_name=ConfusionMatrixAggregationFunction.TRUE_NEGATIVE_METRIC_NAME,
+                description="Confusion matrix true negatives count.",
+            ),
+        ]
+
     def generate_confusion_matrix_metrics(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -129,10 +159,10 @@ class ConfusionMatrixAggregationFunction(NumericAggregationFunction):
             dim_columns=segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
-        tp_metric = self.series_to_metric("confusion_matrix_true_positive_count", tp)
-        fp_metric = self.series_to_metric("confusion_matrix_false_positive_count", fp)
-        fn_metric = self.series_to_metric("confusion_matrix_false_negative_count", fn)
-        tn_metric = self.series_to_metric("confusion_matrix_true_negative_count", tn)
+        tp_metric = self.series_to_metric(self.TRUE_POSITIVE_METRIC_NAME, tp)
+        fp_metric = self.series_to_metric(self.FALSE_POSITIVE_METRIC_NAME, fp)
+        fn_metric = self.series_to_metric(self.FALSE_NEGATIVE_METRIC_NAME, fn)
+        tn_metric = self.series_to_metric(self.TRUE_NEGATIVE_METRIC_NAME, tn)
         return [tp_metric, fp_metric, fn_metric, tn_metric]
 
 

@@ -20,6 +20,7 @@ def test_multiclass_str_count_by_class(
         timestamp_col="Timestamp",
         prediction_col="PredictedLabel",
     )
+    validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "multiclass_classifier_count_by_class"
 
@@ -54,3 +55,4 @@ def test_multiclass_str_count_by_class(
         segmentation_cols=["prompt_version_id"],
     )
     assert_dimension_in_metric(metrics[0], "prompt_version_id")
+    validate_expected_metric_names(cm_aggregator, metrics)

@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.shield_aggregations import (
     ShieldInferenceHallucinationCountAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
+from .helpers import *
 
 
 def test_shield_inference_hallucination_count(
@@ -17,6 +18,7 @@ def test_shield_inference_hallucination_count(
         dataset_ref,
         shield_response_column="shield_response",
     )
+    validate_expected_metric_names(hallucination_count_aggregator, metrics)
 
     # validate there's a single hallucination count metric
     hallucination_count_metrics = [

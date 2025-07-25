@@ -1,6 +1,19 @@
 from typing import Any, Optional
 
+from arthur_common.aggregations import AggregationFunction
 from arthur_common.models.metrics import NumericMetric, SketchMetric
+
+
+def validate_expected_metric_names(
+    agg_function: AggregationFunction,
+    received_metrics: list[NumericMetric | SketchMetric],
+) -> None:
+    """Validates all metrics have a name listed in the reported_aggregations field defining expected aggregations."""
+    expected_metric_names = [
+        metric.metric_name for metric in agg_function.reported_aggregations()
+    ]
+    for metric in received_metrics:
+        assert metric.name in expected_metric_names
 
 
 def assert_dimension_in_metric(

@@ -4,7 +4,12 @@ from uuid import UUID
 from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
-from arthur_common.models.metrics import DatasetReference, Dimension, NumericMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    Dimension,
+    NumericMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -31,6 +36,15 @@ class NumericSumAggregationFunction(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports the sum of the numeric column per time window."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=NumericSumAggregationFunction.METRIC_NAME,
+                description=NumericSumAggregationFunction.description(),
+            )
+        ]
 
     def aggregate(
         self,

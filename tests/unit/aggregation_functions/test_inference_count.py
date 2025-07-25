@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.inference_count import (
     InferenceCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from .helpers import *
 
 
 def test_inference_count(
@@ -14,6 +15,7 @@ def test_inference_count(
     conn, dataset_ref = get_balloons_dataset_conn
     inference_counter = InferenceCountAggregationFunction()
     metrics = inference_counter.aggregate(conn, dataset_ref, "flight start")
+    validate_expected_metric_names(inference_counter, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "inference_count"
     results = metrics[0].numeric_series
