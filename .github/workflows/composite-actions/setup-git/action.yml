@@ -26,7 +26,6 @@ runs:
     - name: add-to-know-hosts
       shell: bash
       run: |
-        # Force refresh - updated 2024-07-28
         host='github.com'
         echo "Adding keys for $host"
         # Create known_hosts file if it doesn't exist
