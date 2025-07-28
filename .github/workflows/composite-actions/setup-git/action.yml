@@ -17,7 +17,6 @@ runs:
       run: |
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
-
     - name: write-ssh-key
       shell: bash
       run: |
@@ -34,7 +33,6 @@ runs:
         # Add GitHub's host key
         ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
         echo "$host registered successfully"
-
     - name: 'Configure Git user'
       shell: bash
       run: |
