@@ -5,6 +5,9 @@ inputs:
   safe-directory:
     description: 'Directory to mark as safe for Git operations'
     required: true
+  ssh-key:
+    description: 'SSH private key for Git operations'
+    required: true
 
 runs:
   using: 'composite'
@@ -13,7 +16,7 @@ runs:
       shell: bash
       run: |
         install -m 600 -D /dev/null ~/.ssh/id_rsa
-        echo "${{ secrets.AUTOMATOR_SSH_KEY }}" > ~/.ssh/id_rsa
+        echo "${{ inputs.ssh-key }}" > ~/.ssh/id_rsa
     - name: add-to-know-hosts
       shell: bash
       run: |
