@@ -9,11 +9,15 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Inject SSH Key
+      uses: dym-ok/inject-ssh-key@v2
+      with:
+        private-key: ${{ secrets.AUTOMATION_SSH_KEY }}
     - name: 'Configure Git user'
       shell: bash
       run: |
-        git config --global user.email "github_ci@arthur.ai"
-        git config --global user.name "GitHub CI"
+        git config --global user.email "automator@arthur.ai"
+        git config --global user.name "Arthur Automator"
 
     - name: 'Configure safe directory'
       shell: bash
