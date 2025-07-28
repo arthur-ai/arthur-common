@@ -12,12 +12,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: 'Setup SSH'
-      shell: bash
-      run: |
-        # Force refresh - updated 2024-07-28
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
     - name: write-ssh-key
       shell: bash
       run: |
@@ -26,14 +20,13 @@ runs:
     - name: add-to-know-hosts
       shell: bash
       run: |
+        install -m 600 -D /dev/null ~/.ssh/known_hosts
         host='github.com'
         echo "Adding keys for $host"
-        # Create known_hosts file if it doesn't exist
-        touch ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/known_hosts
-        # Add GitHub's host key
-        ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
-        echo "$host registered successfully"
+        ssh-keyscan -H "$host" > ~/.ssh/known_hosts
+        (ssh-keygen -F "$host" > /dev/null && echo "$host registered") \
+          || echo "Failed to register $host"
+
     - name: 'Configure Git user'
       shell: bash
       run: |
