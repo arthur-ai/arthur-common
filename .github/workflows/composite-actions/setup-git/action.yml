@@ -28,12 +28,11 @@ runs:
       run: |
         host='github.com'
         echo "Adding keys for $host"
-        ssh-keyscan -H "$host" >> ~/.ssh/known_hosts 2>/dev/null || {
-          echo "Failed to add $host to known_hosts, creating file first"
-          touch ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
-        }
+        # Create known_hosts file if it doesn't exist
+        touch ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/known_hosts
+        # Add GitHub's host key
+        ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
         echo "$host registered successfully"
 
     - name: 'Configure Git user'
