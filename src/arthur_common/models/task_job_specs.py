@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from arthur_common.models.shield import NewRuleRequest
+from arthur_common.models.shield import NewMetricRequest, NewRuleRequest
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
 
@@ -21,7 +21,14 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    is_agentic: bool = Field(default=False, description="Whether this task is related to an agentic model")
+    is_agentic: bool = Field(
+        default=False,
+        description="Whether this task should be created as an agentic trace task. If True, initial_metrics will be used instead of initial_rules.",
+    )
+    initial_metrics: list[NewMetricRequest] = Field(
+        default_factory=list,
+        description="The initial metrics to apply to the created agentic task. Only used when is_agentic is True.",
+    )
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):

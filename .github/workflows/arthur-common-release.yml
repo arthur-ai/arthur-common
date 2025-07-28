@@ -27,6 +27,7 @@ jobs:
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
+          ssh-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
       - uses: actions/setup-python@v5
         # can't use container with python instead: https://github.com/pypa/gh-action-pypi-publish/tree/unstable/v1#:~:text=Running%20the%20action,that%20publishes%20them.
         with:
