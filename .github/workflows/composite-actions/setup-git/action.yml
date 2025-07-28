@@ -12,6 +12,12 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: 'Setup SSH'
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+
     - name: write-ssh-key
       shell: bash
       run: |
