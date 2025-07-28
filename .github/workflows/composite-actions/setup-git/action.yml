@@ -12,7 +12,7 @@ runs:
     - name: Inject SSH Key
       uses: dym-ok/inject-ssh-key@v2
       with:
-        private-key: ${{ secrets.AUTOMATION_SSH_KEY }}
+        private-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
     - name: 'Configure Git user'
       shell: bash
       run: |
