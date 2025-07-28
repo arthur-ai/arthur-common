@@ -5,40 +5,15 @@ inputs:
   safe-directory:
     description: 'Directory to mark as safe for Git operations'
     required: true
-  ssh-key:
-    description: 'SSH private key for Git operations'
-    required: true
 
 runs:
   using: 'composite'
   steps:
-    - name: 'Setup SSH'
-      shell: bash
-      run: |
-        # Force refresh - updated 2024-07-28
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-    - name: write-ssh-key
-      shell: bash
-      run: |
-        install -m 600 -D /dev/null ~/.ssh/id_rsa
-        echo "${{ inputs.ssh-key }}" > ~/.ssh/id_rsa
-    - name: add-to-know-hosts
-      shell: bash
-      run: |
-        host='github.com'
-        echo "Adding keys for $host"
-        # Create known_hosts file if it doesn't exist
-        touch ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/known_hosts
-        # Add GitHub's host key
-        ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
-        echo "$host registered successfully"
     - name: 'Configure Git user'
       shell: bash
       run: |
-        git config --global user.email "automator@arthur.ai"
-        git config --global user.name "Arthur Automator"
+        git config --global user.email "github_ci@arthur.ai"
+        git config --global user.name "GitHub CI"
 
     - name: 'Configure safe directory'
       shell: bash
