@@ -9,10 +9,22 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Inject SSH Key
-      uses: dym-ok/inject-ssh-key@v2
-      with:
-        private-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
+    - name: write-ssh-key
+      shell: bash
+      run: |
+        install -m 600 -D /dev/null ~/.ssh/id_rsa
+        echo "${{ secrets.AUTOMATOR_SSH_KEY }}" > ~/.ssh/id_rsa
+    - name: add-to-know-hosts
+      shell: bash
+      run: |
+        install -m 600 -D /dev/null ~/.ssh/known_hosts
+        host='github.com'
+        hosts="$(dig +short "$host" | grep -v '\.$' | sed -z 's|\n|,|g')$host"
+        echo "Adding keys for $hosts"
+        ssh-keyscan -H "$hosts" > ~/.ssh/known_hosts
+        (ssh-keygen -F "$host" > /dev/null && echo "$host registered") \
+          || echo "Failed to register $host"
+
     - name: 'Configure Git user'
       shell: bash
       run: |
