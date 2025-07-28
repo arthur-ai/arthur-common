@@ -22,9 +22,8 @@ runs:
       run: |
         install -m 600 -D /dev/null ~/.ssh/known_hosts
         host='github.com'
-        hosts="$(dig +short "$host" | grep -v '\.$' | sed -z 's|\n|,|g')$host"
-        echo "Adding keys for $hosts"
-        ssh-keyscan -H "$hosts" > ~/.ssh/known_hosts
+        echo "Adding keys for $host"
+        ssh-keyscan -H "$host" > ~/.ssh/known_hosts
         (ssh-keygen -F "$host" > /dev/null && echo "$host registered") \
           || echo "Failed to register $host"
 
