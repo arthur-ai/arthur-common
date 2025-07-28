@@ -28,6 +28,7 @@ jobs:
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
+          ssh-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
       - uses: ./.github/workflows/composite-actions/setup-poetry
         with:
           poetry-version: 2.1.3
@@ -50,6 +51,7 @@ jobs:
         - uses: ./.github/workflows/composite-actions/setup-git
           with:
             safe-directory: ${{ runner.workspace }}
+            ssh-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
         - uses: ./.github/workflows/composite-actions/setup-poetry
           with:
             poetry-version: 2.1.3
