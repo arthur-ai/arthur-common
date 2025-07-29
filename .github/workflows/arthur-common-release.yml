@@ -1,19 +1,18 @@
 name: Arthur Common Release
 
 on:
-  workflow_run:
-    workflows: ["Arthur Common Version Bump"]
-    types:
-      - completed
+  pull_request:
     branches:
       - main
+    types:
+      - closed
 
 jobs:
   pypi-build:
     # Should be separate from publish job: https://docs.pypi.org/trusted-publishers/security-model/#:~:text=Retrieve%20the%20publishable%20distribution%20files%20from%20a%20separate%20build%20job%3B
     # written from guide: https://johnfraney.ca/blog/how-to-publish-a-python-package-with-poetry-and-github-actions/
     name: Build release for PyPI
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Bump version to')
     runs-on: ubuntu-latest
     env:
       GIT_DEPTH: 100
@@ -27,7 +26,6 @@ jobs:
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
-          ssh-key: ${{ secrets.AUTOMATOR_SSH_KEY }}
       - uses: actions/setup-python@v5
         # can't use container with python instead: https://github.com/pypa/gh-action-pypi-publish/tree/unstable/v1#:~:text=Running%20the%20action,that%20publishes%20them.
         with:
@@ -53,7 +51,7 @@ jobs:
     needs: pypi-build
     # does not run on dev—https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers:~:text=Local%20version%20identifiers%20SHOULD%20NOT%20be%20used%20when%20publishing%20upstream%20projects%20to%20a%20public%20index%20server%2C%20but%20MAY%20be%20used%20to%20identify%20private%20builds%20created%20directly%20from%20the%20project%20source.
     name: Upload release to PyPI
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Bump version to')
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
