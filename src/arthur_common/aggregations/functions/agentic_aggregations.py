@@ -1,7 +1,7 @@
+import json
+import logging
 from typing import Annotated
 from uuid import UUID
-import json
-from datetime import datetime
 
 import pandas as pd
 from duckdb import DuckDBPyConnection
@@ -12,52 +12,50 @@ from arthur_common.aggregations.aggregator import (
 )
 from arthur_common.models.datasets import ModelProblemType
 from arthur_common.models.metrics import DatasetReference, NumericMetric, SketchMetric
-from arthur_common.models.schema_definitions import (
-    DType,
-    MetricColumnParameterAnnotation,
-    MetricDatasetParameterAnnotation,
-    ScalarType,
-    ScopeSchemaTag,
-)
+from arthur_common.models.schema_definitions import MetricDatasetParameterAnnotation
 
 # Global threshold for pass/fail determination
 RELEVANCE_SCORE_THRESHOLD = 0.5
 TOOL_SCORE_PASS_VALUE = 1
 TOOL_SCORE_NO_TOOL_VALUE = 2
 
+logger = logging.getLogger(__name__)
+
 
 def extract_spans_with_metrics_and_agents(root_spans):
     """Recursively extract all spans with metrics and their associated agent names from the span tree.
-    
+
     Returns:
         List of tuples: (span, agent_name)
     """
     spans_with_metrics_and_agents = []
-    
-    def traverse_spans(spans, current_agent_name='unknown'):
+
+    def traverse_spans(spans, current_agent_name="unknown"):
         for span in spans:
             # Update current agent name if this span is an AGENT
-            if span.get('span_kind') == 'AGENT':
+            if span.get("span_kind") == "AGENT":
                 try:
-                    raw_data = span.get('raw_data', {})
+                    raw_data = span.get("raw_data", {})
                     if isinstance(raw_data, str):
                         raw_data = json.loads(raw_data)
-                    
+
                     # Try to get agent name from the span's name field
-                    agent_name = raw_data.get('name', 'unknown')
-                    if agent_name != 'unknown':
+                    agent_name = raw_data.get("name", "unknown")
+                    if agent_name != "unknown":
                         current_agent_name = agent_name
                 except (json.JSONDecodeError, KeyError, TypeError):
-                    pass
-            
+                    logger.error(
+                        f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
+                    )
+
             # Check if this span has metrics
-            if span.get('metric_results') and len(span.get('metric_results', [])) > 0:
+            if span.get("metric_results") and len(span.get("metric_results", [])) > 0:
                 spans_with_metrics_and_agents.append((span, current_agent_name))
-            
+
             # Recursively traverse children with the current agent name
-            if span.get('children'):
-                traverse_spans(span['children'], current_agent_name)
-    
+            if span.get("children", []):
+                traverse_spans(span["children"], current_agent_name)
+
     traverse_spans(root_spans)
     return spans_with_metrics_and_agents
 
@@ -65,15 +63,15 @@ def extract_spans_with_metrics_and_agents(root_spans):
 def calculate_average_relevance_score(relevance_data):
     """Calculate average relevance score from llm, reranker, and bert scores"""
     scores = []
-    
+
     # Add available scores to the list
-    if relevance_data.get('llm_relevance_score') is not None:
-        scores.append(relevance_data['llm_relevance_score'])
-    if relevance_data.get('reranker_relevance_score') is not None:
-        scores.append(relevance_data['reranker_relevance_score'])
-    if relevance_data.get('bert_f_score') is not None:
-        scores.append(relevance_data['bert_f_score'])
-    
+    if relevance_data.get("llm_relevance_score") is not None:
+        scores.append(relevance_data["llm_relevance_score"])
+    if relevance_data.get("reranker_relevance_score") is not None:
+        scores.append(relevance_data["reranker_relevance_score"])
+    if relevance_data.get("bert_f_score") is not None:
+        scores.append(relevance_data["bert_f_score"])
+
     # Return average if we have any scores, otherwise None
     return sum(scores) / len(scores) if scores else None
 
@@ -82,7 +80,7 @@ def determine_relevance_pass_fail(score):
     """Determine pass/fail for relevance scores using global threshold"""
     if score is None:
         return None
-    return 'pass' if score >= RELEVANCE_SCORE_THRESHOLD else 'fail'
+    return "pass" if score >= RELEVANCE_SCORE_THRESHOLD else "fail"
 
 
 def determine_tool_pass_fail(score):
@@ -90,16 +88,16 @@ def determine_tool_pass_fail(score):
     if score is None:
         return None
     if score == TOOL_SCORE_PASS_VALUE:
-        return 'pass'
+        return "pass"
     elif score == TOOL_SCORE_NO_TOOL_VALUE:
-        return 'no_tool'
+        return "no_tool"
     else:
-        return 'fail'
+        return "fail"
 
 
 class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
     """Combined aggregation for tool selection, tool usage, query relevance, and response relevance over time"""
-    
+
     METRIC_NAME = "agentic_metrics_over_time"
 
     @staticmethod
@@ -129,13 +127,13 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
         # Query traces by timestamp
         results = ddb_conn.sql(
             f"""
-            SELECT 
+            SELECT
                 time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         # Process traces and extract spans with metrics
@@ -143,87 +141,115 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
         tool_usage_data = []
         query_relevance_data = []
         response_relevance_data = []
-        
+
         for _, row in results.iterrows():
-            ts = row['ts']
-            root_spans = row['root_spans']
-            
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
             # Parse root_spans if it's a string
             if isinstance(root_spans, str):
                 root_spans = json.loads(root_spans)
-            
+
             # Extract all spans with metrics and their agent names from the tree
-            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(root_spans)
-            
+            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(
+                root_spans,
+            )
+
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-                metric_results = span.get('metric_results', [])
-                
+                metric_results = span.get("metric_results", [])
+
                 for metric_result in metric_results:
-                    metric_type = metric_result.get('metric_type')
-                    details = metric_result.get('details', {})
-                    
-                    if metric_type == 'ToolSelection':
-                        tool_selection = details.get('tool_selection', {})
-                        
+                    metric_type = metric_result.get("metric_type")
+                    details = metric_result.get("details", {})
+
+                    if metric_type == "ToolSelection":
+                        tool_selection = details.get("tool_selection", {})
+
                         # Extract tool selection data
-                        tool_selection_score = tool_selection.get('tool_selection')
-                        tool_selection_reason = tool_selection.get('tool_selection_reason', 'Unknown')
-                        
+                        tool_selection_score = tool_selection.get("tool_selection")
+                        tool_selection_reason = tool_selection.get(
+                            "tool_selection_reason",
+                            "Unknown",
+                        )
+
                         if tool_selection_score is not None:
-                            tool_selection_data.append({
-                                'ts': ts,
-                                'tool_selection_score': tool_selection_score,
-                                'tool_selection_reason': tool_selection_reason
-                            })
-                        
+                            tool_selection_data.append(
+                                {
+                                    "ts": ts,
+                                    "tool_selection_score": tool_selection_score,
+                                    "tool_selection_reason": tool_selection_reason,
+                                },
+                            )
+
                         # Extract tool usage data
-                        tool_usage_score = tool_selection.get('tool_usage')
-                        tool_usage_reason = tool_selection.get('tool_usage_reason', 'Unknown')
-                        
+                        tool_usage_score = tool_selection.get("tool_usage")
+                        tool_usage_reason = tool_selection.get(
+                            "tool_usage_reason",
+                            "Unknown",
+                        )
+
                         if tool_usage_score is not None:
-                            tool_usage_data.append({
-                                'ts': ts,
-                                'tool_usage_score': tool_usage_score,
-                                'tool_usage_reason': tool_usage_reason
-                            })
-                    
-                    elif metric_type == 'QueryRelevance':
-                        query_relevance = details.get('query_relevance', {})
-                        
+                            tool_usage_data.append(
+                                {
+                                    "ts": ts,
+                                    "tool_usage_score": tool_usage_score,
+                                    "tool_usage_reason": tool_usage_reason,
+                                },
+                            )
+
+                    elif metric_type == "QueryRelevance":
+                        query_relevance = details.get("query_relevance", {})
+
                         # Calculate average relevance score
                         avg_score = calculate_average_relevance_score(query_relevance)
-                        reason = query_relevance.get('reason', 'Unknown')
-                        
+                        reason = query_relevance.get("reason", "Unknown")
+
                         if avg_score is not None:
-                            query_relevance_data.append({
-                                'ts': ts,
-                                'average_relevance_score': avg_score,
-                                'llm_relevance_score': query_relevance.get('llm_relevance_score'),
-                                'reranker_relevance_score': query_relevance.get('reranker_relevance_score'),
-                                'bert_f_score': query_relevance.get('bert_f_score'),
-                                'reason': reason
-                            })
-                    
-                    elif metric_type == 'ResponseRelevance':
-                        response_relevance = details.get('response_relevance', {})
-                        
+                            query_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "average_relevance_score": avg_score,
+                                    "llm_relevance_score": query_relevance.get(
+                                        "llm_relevance_score",
+                                    ),
+                                    "reranker_relevance_score": query_relevance.get(
+                                        "reranker_relevance_score",
+                                    ),
+                                    "bert_f_score": query_relevance.get("bert_f_score"),
+                                    "reason": reason,
+                                },
+                            )
+
+                    elif metric_type == "ResponseRelevance":
+                        response_relevance = details.get("response_relevance", {})
+
                         # Calculate average relevance score
-                        avg_score = calculate_average_relevance_score(response_relevance)
-                        reason = response_relevance.get('reason', 'Unknown')
-                        
+                        avg_score = calculate_average_relevance_score(
+                            response_relevance,
+                        )
+                        reason = response_relevance.get("reason", "Unknown")
+
                         if avg_score is not None:
-                            response_relevance_data.append({
-                                'ts': ts,
-                                'average_relevance_score': avg_score,
-                                'llm_relevance_score': response_relevance.get('llm_relevance_score'),
-                                'reranker_relevance_score': response_relevance.get('reranker_relevance_score'),
-                                'bert_f_score': response_relevance.get('bert_f_score'),
-                                'reason': reason
-                            })
+                            response_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "average_relevance_score": avg_score,
+                                    "llm_relevance_score": response_relevance.get(
+                                        "llm_relevance_score",
+                                    ),
+                                    "reranker_relevance_score": response_relevance.get(
+                                        "reranker_relevance_score",
+                                    ),
+                                    "bert_f_score": response_relevance.get(
+                                        "bert_f_score",
+                                    ),
+                                    "reason": reason,
+                                },
+                            )
 
         metrics = []
-        
+
         # Create tool selection metric
         if tool_selection_data:
             df = pd.DataFrame(tool_selection_data)
@@ -234,7 +260,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(self.series_to_metric("tool_selection_over_time", series))
-        
+
         # Create tool usage metric
         if tool_usage_data:
             df = pd.DataFrame(tool_usage_data)
@@ -245,7 +271,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(self.series_to_metric("tool_usage_over_time", series))
-        
+
         # Create comprehensive query relevance metric (includes all score data)
         if query_relevance_data:
             df = pd.DataFrame(query_relevance_data)
@@ -255,8 +281,10 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 ["reason"],
                 "ts",
             )
-            metrics.append(self.series_to_metric("query_relevance_scores_over_time", series))
-        
+            metrics.append(
+                self.series_to_metric("query_relevance_scores_over_time", series),
+            )
+
         # Create comprehensive response relevance metric (includes all score data)
         if response_relevance_data:
             df = pd.DataFrame(response_relevance_data)
@@ -266,14 +294,16 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 ["reason"],
                 "ts",
             )
-            metrics.append(self.series_to_metric("response_relevance_scores_over_time", series))
-        
+            metrics.append(
+                self.series_to_metric("response_relevance_scores_over_time", series),
+            )
+
         return metrics
 
 
 class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
     """Combined aggregation for query and response relevance pass/fail counts by agent"""
-    
+
     METRIC_NAME = "relevance_pass_fail_count"
 
     @staticmethod
@@ -303,74 +333,96 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
         # Query traces by timestamp
         results = ddb_conn.sql(
             f"""
-            SELECT 
+            SELECT
                 time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         # Process traces and extract spans with metrics
         processed_data = []
         for _, row in results.iterrows():
-            ts = row['ts']
-            root_spans = row['root_spans']
-            
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
             # Parse root_spans if it's a string
             if isinstance(root_spans, str):
                 root_spans = json.loads(root_spans)
-            
+
             # Extract all spans with metrics and their agent names from the tree
-            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(root_spans)
-            
+            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(
+                root_spans,
+            )
+
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-                
-                metric_results = span.get('metric_results', [])
-                
-                for metric_result in metric_results:
-                    metric_type = metric_result.get('metric_type')
-                    details = metric_result.get('details', {})
 
-                    if metric_type in ['QueryRelevance', 'ResponseRelevance']:
-                        relevance_data = details.get('query_relevance' if metric_type == 'QueryRelevance' else 'response_relevance', {})
+                metric_results = span.get("metric_results", [])
+
+                for metric_result in metric_results:
+                    metric_type = metric_result.get("metric_type")
+                    details = metric_result.get("details", {})
+
+                    if metric_type in ["QueryRelevance", "ResponseRelevance"]:
+                        relevance_data = details.get(
+                            (
+                                "query_relevance"
+                                if metric_type == "QueryRelevance"
+                                else "response_relevance"
+                            ),
+                            {},
+                        )
                         # Check average score
                         avg_score = calculate_average_relevance_score(relevance_data)
                         if avg_score is not None:
                             result = determine_relevance_pass_fail(avg_score)
-                            processed_data.append({
-                                'ts': ts,
-                                'agent_name': agent_name,
-                                'metric_type': metric_type,
-                                'score_type': 'average',
-                                'result': result,
-                                'count': 1
-                            })
-                        
+                            processed_data.append(
+                                {
+                                    "ts": ts,
+                                    "agent_name": agent_name,
+                                    "metric_type": metric_type,
+                                    "score_type": "average",
+                                    "result": result,
+                                    "count": 1,
+                                },
+                            )
+
                         # Check individual scores
-                        for score_type in ['llm_relevance_score', 'reranker_relevance_score', 'bert_f_score']:
+                        for score_type in [
+                            "llm_relevance_score",
+                            "reranker_relevance_score",
+                            "bert_f_score",
+                        ]:
                             score = relevance_data.get(score_type)
                             if score is not None:
                                 result = determine_relevance_pass_fail(score)
-                                processed_data.append({
-                                    'ts': ts,
-                                    'agent_name': agent_name,
-                                    'metric_type': metric_type,
-                                    'score_type': score_type,
-                                    'result': result,
-                                    'count': 1
-                                })
+                                processed_data.append(
+                                    {
+                                        "ts": ts,
+                                        "agent_name": agent_name,
+                                        "metric_type": metric_type,
+                                        "score_type": score_type,
+                                        "result": result,
+                                        "count": 1,
+                                    },
+                                )
 
         if not processed_data:
             return []
-        
 
         # Convert to DataFrame and aggregate
         df = pd.DataFrame(processed_data)
-        aggregated = df.groupby(['ts', 'agent_name', 'metric_type', 'score_type', 'result'])['count'].sum().reset_index()
-        
+        aggregated = (
+            df.groupby(["ts", "agent_name", "metric_type", "score_type", "result"])[
+                "count"
+            ]
+            .sum()
+            .reset_index()
+        )
+
         series = self.group_query_results_to_numeric_metrics(
             aggregated,
             "count",
@@ -383,7 +435,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
 class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
     """Combined aggregation for tool selection and usage pass/fail counts by agent"""
-    
+
     METRIC_NAME = "tool_pass_fail_count"
 
     @staticmethod
@@ -413,70 +465,80 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
         # Query traces by timestamp
         results = ddb_conn.sql(
             f"""
-            SELECT 
+            SELECT
                 time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         # Process traces and extract spans with metrics
         processed_data = []
         for _, row in results.iterrows():
-            ts = row['ts']
-            root_spans = row['root_spans']
-            
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
             # Parse root_spans if it's a string
             if isinstance(root_spans, str):
                 root_spans = json.loads(root_spans)
-            
+
             # Extract all spans with metrics and their agent names from the tree
-            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(root_spans)
-            
+            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(
+                root_spans,
+            )
+
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-                
-                metric_results = span.get('metric_results', [])
-                
+
+                metric_results = span.get("metric_results", [])
+
                 for metric_result in metric_results:
-                    if metric_result.get('metric_type') == 'ToolSelection':
-                        details = metric_result.get('details', {})
-                        tool_selection = details.get('tool_selection', {})
-                        
-                        tool_selection_score = tool_selection.get('tool_selection')
-                        tool_usage_score = tool_selection.get('tool_usage')
-                        
+                    if metric_result.get("metric_type") == "ToolSelection":
+                        details = metric_result.get("details", {})
+                        tool_selection = details.get("tool_selection", {})
+
+                        tool_selection_score = tool_selection.get("tool_selection")
+                        tool_usage_score = tool_selection.get("tool_usage")
+
                         # Process tool selection
                         if tool_selection_score is not None:
                             result = determine_tool_pass_fail(tool_selection_score)
-                            processed_data.append({
-                                'ts': ts,
-                                'agent_name': agent_name,
-                                'tool_metric': 'tool_selection',
-                                'result': result,
-                                'count': 1
-                            })
-                        
+                            processed_data.append(
+                                {
+                                    "ts": ts,
+                                    "agent_name": agent_name,
+                                    "tool_metric": "tool_selection",
+                                    "result": result,
+                                    "count": 1,
+                                },
+                            )
+
                         # Process tool usage
                         if tool_usage_score is not None:
                             result = determine_tool_pass_fail(tool_usage_score)
-                            processed_data.append({
-                                'ts': ts,
-                                'agent_name': agent_name,
-                                'tool_metric': 'tool_usage',
-                                'result': result,
-                                'count': 1
-                            })
+                            processed_data.append(
+                                {
+                                    "ts": ts,
+                                    "agent_name": agent_name,
+                                    "tool_metric": "tool_usage",
+                                    "result": result,
+                                    "count": 1,
+                                },
+                            )
 
         if not processed_data:
             return []
 
         # Convert to DataFrame and aggregate
         df = pd.DataFrame(processed_data)
-        aggregated = df.groupby(['ts', 'agent_name', 'tool_metric', 'result'])['count'].sum().reset_index()
-        
+        aggregated = (
+            df.groupby(["ts", "agent_name", "tool_metric", "result"])["count"]
+            .sum()
+            .reset_index()
+        )
+
         series = self.group_query_results_to_numeric_metrics(
             aggregated,
             "count",
@@ -487,8 +549,8 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
         return [metric]
 
 
-class AgenticInferenceCountAggregation(NumericAggregationFunction):
-    METRIC_NAME = "inference_count"
+class AgenticEventCountAggregation(NumericAggregationFunction):
+    METRIC_NAME = "event_count"
 
     @staticmethod
     def id() -> UUID:
@@ -496,11 +558,11 @@ class AgenticInferenceCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def display_name() -> str:
-        return "Number of Inferences"
+        return "Number of Events"
 
     @staticmethod
     def description() -> str:
-        return "Metric that counts the number of traces over time."
+        return "Metric that counts the number of events over time."
 
     def aggregate(
         self,
@@ -516,13 +578,13 @@ class AgenticInferenceCountAggregation(NumericAggregationFunction):
     ) -> list[NumericMetric]:
         results = ddb_conn.sql(
             f"""
-            SELECT 
+            SELECT
                 time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name}
             GROUP BY ts
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         series = self.group_query_results_to_numeric_metrics(
@@ -570,34 +632,34 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         # Process traces and count LLM spans
         llm_call_counts = {}
         for _, row in results.iterrows():
-            ts = row['ts']
-            root_spans = row['root_spans']
-            
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
             # Parse root_spans if it's a string
             if isinstance(root_spans, str):
                 root_spans = json.loads(root_spans)
-            
+
             # Count LLM spans in the tree
             def count_llm_spans(spans):
                 count = 0
                 for span in spans:
                     # Check if this span is an LLM span
-                    if span.get('span_kind') == 'LLM':
+                    if span.get("span_kind") == "LLM":
                         count += 1
-                    
+
                     # Recursively count children
-                    if span.get('children'):
-                        count += count_llm_spans(span['children'])
+                    if span.get("children"):
+                        count += count_llm_spans(span["children"])
                 return count
-            
+
             llm_count = count_llm_spans(root_spans)
-            
+
             if llm_count > 0:
                 if ts not in llm_call_counts:
                     llm_call_counts[ts] = 0
@@ -607,9 +669,9 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             return []
 
         # Convert to DataFrame format
-        data = [{'ts': ts, 'count': count} for ts, count in llm_call_counts.items()]
+        data = [{"ts": ts, "count": count} for ts, count in llm_call_counts.items()]
         df = pd.DataFrame(data)
-        
+
         series = self.group_query_results_to_numeric_metrics(
             df,
             "count",
@@ -650,73 +712,83 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
         # Query traces by timestamp
         results = ddb_conn.sql(
             f"""
-            SELECT 
+            SELECT
                 time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
             ORDER BY ts DESC;
-            """
+            """,
         ).df()
 
         # Process traces and extract spans with metrics
         processed_data = []
         for _, row in results.iterrows():
-            ts = row['ts']
-            root_spans = row['root_spans']
-            
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
             # Parse root_spans if it's a string
             if isinstance(root_spans, str):
                 root_spans = json.loads(root_spans)
-            
+
             # Extract all spans with metrics and their agent names from the tree
-            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(root_spans)
-            
+            spans_with_metrics_and_agents = extract_spans_with_metrics_and_agents(
+                root_spans,
+            )
+
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-                
-                metric_results = span.get('metric_results', [])
-                
+
+                metric_results = span.get("metric_results", [])
+
                 for metric_result in metric_results:
-                    if metric_result.get('metric_type') == 'ToolSelection':
-                        details = metric_result.get('details', {})
-                        tool_selection = details.get('tool_selection', {})
-                        
-                        tool_selection_score = tool_selection.get('tool_selection')
-                        tool_usage_score = tool_selection.get('tool_usage')
-                        
+                    if metric_result.get("metric_type") == "ToolSelection":
+                        details = metric_result.get("details", {})
+                        tool_selection = details.get("tool_selection", {})
+
+                        tool_selection_score = tool_selection.get("tool_selection")
+                        tool_usage_score = tool_selection.get("tool_usage")
+
                         if tool_selection_score is not None:
                             # Categorize selection
                             if tool_selection_score == 1:
-                                selection_category = 'correct_selection'
+                                selection_category = "correct_selection"
                             elif tool_selection_score == 0:
-                                selection_category = 'incorrect_selection'
+                                selection_category = "incorrect_selection"
                             else:
-                                selection_category = 'no_selection'
-                            
+                                selection_category = "no_selection"
+
                             # Categorize usage
                             if tool_usage_score == 1:
-                                usage_category = 'correct_usage'
+                                usage_category = "correct_usage"
                             elif tool_usage_score == 0:
-                                usage_category = 'incorrect_usage'
+                                usage_category = "incorrect_usage"
                             else:
-                                usage_category = 'no_usage'
-                            
-                            processed_data.append({
-                                'ts': ts,
-                                'agent_name': agent_name,
-                                'selection_category': selection_category,
-                                'usage_category': usage_category,
-                                'count': 1
-                            })
+                                usage_category = "no_usage"
+
+                            processed_data.append(
+                                {
+                                    "ts": ts,
+                                    "agent_name": agent_name,
+                                    "selection_category": selection_category,
+                                    "usage_category": usage_category,
+                                    "count": 1,
+                                },
+                            )
 
         if not processed_data:
             return []
 
         # Convert to DataFrame and aggregate
         df = pd.DataFrame(processed_data)
-        aggregated = df.groupby(['ts', 'agent_name', 'selection_category', 'usage_category'])['count'].sum().reset_index()
-        
+        aggregated = (
+            df.groupby(["ts", "agent_name", "selection_category", "usage_category"])[
+                "count"
+            ]
+            .sum()
+            .reset_index()
+        )
+
         series = self.group_query_results_to_numeric_metrics(
             aggregated,
             "count",
@@ -724,4 +796,4 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
-        return [metric] 
+        return [metric]
