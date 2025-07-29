@@ -32,6 +32,8 @@ jobs:
           poetry-version: 2.1.3
       - name: Bump version
         run: |
+          git checkout main
+          git pull origin main
           pip install bump2version
 
           NEW_VERSION=$(bump2version --dry-run --list patch | grep new_version | sed 's/new_version=//')
