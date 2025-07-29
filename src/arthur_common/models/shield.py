@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Self, Type, Union
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
 
