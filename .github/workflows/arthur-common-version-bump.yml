@@ -33,8 +33,11 @@ jobs:
       - name: Bump version
         run: |
           pip install bump2version
+          git checkout main
+          git pull origin main
+          git fetch --tags origin
 
-          NEW_VERSION=$(bump2version --dry-run --list patch | grep new_version | sed 's/new_version=//')
+          NEW_VERSION=$(bump2version --dry-run --list patch | grep "new_version=" | sed 's/new_version=//')
           BRANCH_NAME="bump-version-to-${NEW_VERSION}"
 
           git checkout -b $BRANCH_NAME origin/main
