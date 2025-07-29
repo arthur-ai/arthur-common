@@ -16,6 +16,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     container: python:3.12.9-bullseye
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +33,15 @@ jobs:
       - name: Bump version
         run: |
           pip install bump2version
+
+          NEW_VERSION=$(bump2version --dry-run --list patch | grep new_version | sed 's/new_version=//')
+          BRANCH_NAME="bump-version-to-${NEW_VERSION}"
+
+          git checkout -b $BRANCH_NAME
           bump2version patch
-          git push origin main
-          git push --tags
+          git push origin $BRANCH_NAME
+          gh pr create \
+            --title "Bump version to ${NEW_VERSION}" \
+            --body "Automated version bump to ${NEW_VERSION}" \
+            --base main \
+            --head $BRANCH_NAME
