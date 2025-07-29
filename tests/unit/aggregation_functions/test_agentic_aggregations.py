@@ -24,10 +24,10 @@ def test_agentic_metrics_over_time_with_metrics(
     Expected results:
     - tool_selection_over_time: Distribution of tool_selection_score values over time
     - tool_usage_over_time: Distribution of tool_usage_score values over time
-    - query_relevance_scores_over_time: Distribution of average relevance scores over time
-    - response_relevance_scores_over_time: Distribution of average relevance scores over time
+    - query_relevance_scores_over_time: Distribution of individual relevance scores over time
+    - response_relevance_scores_over_time: Distribution of individual relevance scores over time
 
-    Average relevance score = (llm_score + reranker_score + bert_score) / 3
+    Individual relevance scores: llm_relevance_score, reranker_relevance_score, bert_f_score
     """
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
@@ -100,8 +100,8 @@ def test_relevance_pass_fail_count_with_metrics(
     - Fail: score < 0.5
 
     The aggregation counts passes and failures for:
-    - QueryRelevance metrics (average, llm, reranker, bert scores)
-    - ResponseRelevance metrics (average, llm, reranker, bert scores)
+    - QueryRelevance metrics (llm, reranker, bert scores)
+    - ResponseRelevance metrics (llm, reranker, bert scores)
 
     Expected result: One metric with counts of passes/failures by agent, metric_type, score_type, and result.
     """
@@ -143,7 +143,7 @@ def test_relevance_pass_fail_count_dimensions(
     Math: The aggregation groups results by:
     - agent_name: Extracted from span metadata
     - metric_type: 'QueryRelevance' or 'ResponseRelevance'
-    - score_type: 'average', 'llm_relevance_score', 'reranker_relevance_score', 'bert_f_score'
+    - score_type: 'llm_relevance_score', 'reranker_relevance_score', 'bert_f_score'
     - result: 'pass' (score >= 0.5) or 'fail' (score < 0.5)
 
     Expected dimensions: All four dimension types should be present in the results.
@@ -166,25 +166,24 @@ def test_relevance_pass_fail_count_correct_values(
 ):
     """Test that relevance pass/fail count returns correct values based on test data.
 
-    Each metric contains 4 scores: average, llm_relevance_score, reranker_relevance_score, bert_f_score.
+    Each metric contains 3 scores: llm_relevance_score, reranker_relevance_score, bert_f_score.
 
     Individual scores are derived from base scores: (see test_agentic_data_helper.py)
     - llm_relevance_score: base score
     - reranker_relevance_score: base score + 0.02
     - bert_f_score: base score - 0.05
-    - average: (llm + reranker + bert) / 3
 
     Test data values:
-    - Trace 1: qrelevance=0.8 (llm=0.8, reranker=0.82, bert=0.75, avg=0.79), resprelevance=0.9 (llm=0.9, reranker=0.93, bert=0.85, avg=0.89) - all pass
-    - Trace 2: qrelevance=0.7 (llm=0.7, reranker=0.72, bert=0.65, avg=0.69), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72, avg=0.78) - all pass
-    - Trace 3: qrelevance=0.6 (llm=0.6, reranker=0.62, bert=0.55, avg=0.59), resprelevance=0.7 (llm=0.7, reranker=0.73, bert=0.62, avg=0.68) - all pass
-    - Trace 4: qrelevance=0.3 (llm=0.3, reranker=0.32, bert=0.25, avg=0.29), resprelevance=0.4 (llm=0.4, reranker=0.43, bert=0.32, avg=0.38) - all fail
-    - Trace 5: qrelevance=0.9 (llm=0.9, reranker=0.92, bert=0.85, avg=0.89), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72, avg=0.78) - all pass
+    - Trace 1: qrelevance=0.8 (llm=0.8, reranker=0.82, bert=0.75), resprelevance=0.9 (llm=0.9, reranker=0.93, bert=0.85) - all pass
+    - Trace 2: qrelevance=0.7 (llm=0.7, reranker=0.72, bert=0.65), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72) - all pass
+    - Trace 3: qrelevance=0.6 (llm=0.6, reranker=0.62, bert=0.55), resprelevance=0.7 (llm=0.7, reranker=0.73, bert=0.62) - all pass
+    - Trace 4: qrelevance=0.3 (llm=0.3, reranker=0.32, bert=0.25), resprelevance=0.4 (llm=0.4, reranker=0.43, bert=0.32) - all fail
+    - Trace 5: qrelevance=0.9 (llm=0.9, reranker=0.92, bert=0.85), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72) - all pass
 
 
-    Expected counts: 5 traces x 2 metric types x 4 score types = 40 total scores
-    - Pass: 32 scores (all scores from traces 1, 2, 3, 5)
-    - Fail: 8 scores (all scores from trace 4)
+    Expected counts: 5 traces x 2 metric types x 3 score types = 30 total scores
+    - Pass: 24 scores (all scores from traces 1, 2, 3, 5)
+    - Fail: 6 scores (all scores from trace 4)
 
     Since all agent names are "unknown", the aggregation will group by time bucket and combine results
     from different time buckets that have the same agent name, metric type, score type, and result.
@@ -235,16 +234,13 @@ def test_relevance_pass_fail_count_correct_values(
     fail_count = sum(value for key, value in metric_data.items() if key[3] == "fail")
 
     # Verify expected counts
-    assert pass_count == 32, f"Expected 32 passes, got {pass_count}"
-    assert fail_count == 8, f"Expected 8 failures, got {fail_count}"
+    assert pass_count == 24, f"Expected 24 passes, got {pass_count}"
+    assert fail_count == 6, f"Expected 6 failures, got {fail_count}"
 
     # With the new agent name extraction, we expect the following combinations:
     # Each combination represents the sum across all time buckets
     expected_values = {
         # QueryRelevance - all scores from traces 1, 2, 3, 5 pass, trace 4 fails
-        ("unknown", "QueryRelevance", "average", "pass"): 2,  # traces 1, 5 (no agent)
-        ("agent_1", "QueryRelevance", "average", "pass"): 1,  # trace 2
-        ("agent_2", "QueryRelevance", "average", "pass"): 1,  # trace 3
         ("unknown", "QueryRelevance", "llm_relevance_score", "pass"): 2,  # traces 1, 5
         ("agent_1", "QueryRelevance", "llm_relevance_score", "pass"): 1,  # trace 2
         ("agent_2", "QueryRelevance", "llm_relevance_score", "pass"): 1,  # trace 3
@@ -259,19 +255,10 @@ def test_relevance_pass_fail_count_correct_values(
         ("unknown", "QueryRelevance", "bert_f_score", "pass"): 2,  # traces 1, 5
         ("agent_1", "QueryRelevance", "bert_f_score", "pass"): 1,  # trace 2
         ("agent_2", "QueryRelevance", "bert_f_score", "pass"): 1,  # trace 3
-        ("agent_3", "QueryRelevance", "average", "fail"): 1,  # trace 4
         ("agent_3", "QueryRelevance", "llm_relevance_score", "fail"): 1,  # trace 4
         ("agent_3", "QueryRelevance", "reranker_relevance_score", "fail"): 1,  # trace 4
         ("agent_3", "QueryRelevance", "bert_f_score", "fail"): 1,  # trace 4
         # ResponseRelevance - all scores from traces 1, 2, 3, 5 pass, trace 4 fails
-        (
-            "unknown",
-            "ResponseRelevance",
-            "average",
-            "pass",
-        ): 2,  # traces 1, 5 (no agent)
-        ("agent_1", "ResponseRelevance", "average", "pass"): 1,  # trace 2
-        ("agent_2", "ResponseRelevance", "average", "pass"): 1,  # trace 3
         (
             "unknown",
             "ResponseRelevance",
@@ -301,7 +288,6 @@ def test_relevance_pass_fail_count_correct_values(
         ("unknown", "ResponseRelevance", "bert_f_score", "pass"): 2,  # traces 1, 5
         ("agent_1", "ResponseRelevance", "bert_f_score", "pass"): 1,  # trace 2
         ("agent_2", "ResponseRelevance", "bert_f_score", "pass"): 1,  # trace 3
-        ("agent_3", "ResponseRelevance", "average", "fail"): 1,  # trace 4
         ("agent_3", "ResponseRelevance", "llm_relevance_score", "fail"): 1,  # trace 4
         (
             "agent_3",
@@ -946,18 +932,13 @@ def test_agentic_metrics_over_time_correct_values(
     - Score 0 (fail): 2 traces (Trace 4, Trace 5)
     - Score 2 (no_tool): 1 trace (Trace 3)
 
-    Query Relevance Scores (average):
-    - 0.8: 1 trace (Trace 1)
-    - 0.7: 1 trace (Trace 2)
-    - 0.6: 1 trace (Trace 3)
-    - 0.3: 1 trace (Trace 4)
-    - 0.9: 1 trace (Trace 5)
+    Query Relevance Scores (individual):
+    - llm_relevance_score, reranker_relevance_score, bert_f_score for each trace
+    - Individual scores vary by trace based on the test data
 
-    Response Relevance Scores (average):
-    - 0.9: 1 trace (Trace 1)
-    - 0.8: 2 traces (Trace 2, Trace 5)
-    - 0.7: 1 trace (Trace 3)
-    - 0.4: 1 trace (Trace 4)
+    Response Relevance Scores (individual):
+    - llm_relevance_score, reranker_relevance_score, bert_f_score for each trace
+    - Individual scores vary by trace based on the test data
     """
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
@@ -986,8 +967,8 @@ def test_agentic_metrics_over_time_metric_names(
     Math: The aggregation should create 4 distinct metrics:
     - tool_selection_over_time: Distribution of tool selection scores
     - tool_usage_over_time: Distribution of tool usage scores
-    - query_relevance_scores_over_time: Distribution of query relevance scores
-    - response_relevance_scores_over_time: Distribution of response relevance scores
+    - query_relevance_scores_over_time: Distribution of individual query relevance scores
+    - response_relevance_scores_over_time: Distribution of individual response relevance scores
 
     Expected result: All 4 metric names should be present
     """
@@ -1019,22 +1000,21 @@ def test_relevance_pass_fail_count_time_buckets(
 
     Math: The test data contains relevance scores across 5 time buckets.
     Each trace has both QueryRelevance and ResponseRelevance metrics.
-    Each metric contains 4 scores: average, llm_relevance_score, reranker_relevance_score, bert_f_score.
+    Each metric contains 3 scores: llm_relevance_score, reranker_relevance_score, bert_f_score.
 
     Individual scores are derived from base scores: (see test_agentic_data_helper.py)
     - llm_relevance_score: base score
     - reranker_relevance_score: base score + 0.02
     - bert_f_score: base score - 0.05
-    - average: (llm + reranker + bert) / 3
 
     Test data values by bucket:
-    - Bucket 1 (12:00-12:05): 8 scores (4 QueryRelevance + 4 ResponseRelevance from Trace 1)
-    - Bucket 2 (12:05-12:10): 8 scores (4 QueryRelevance + 4 ResponseRelevance from Trace 2)
-    - Bucket 3 (12:10-12:15): 8 scores (4 QueryRelevance + 4 ResponseRelevance from Trace 3)
-    - Bucket 4 (12:15-12:20): 8 scores (4 QueryRelevance + 4 ResponseRelevance from Trace 4)
-    - Bucket 5 (12:20-12:25): 8 scores (4 QueryRelevance + 4 ResponseRelevance from Trace 5)
+    - Bucket 1 (12:00-12:05): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 1)
+    - Bucket 2 (12:05-12:10): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 2)
+    - Bucket 3 (12:10-12:15): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 3)
+    - Bucket 4 (12:15-12:20): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 4)
+    - Bucket 5 (12:20-12:25): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 5)
 
-    Expected result: 5 time buckets, each with 8 scores (4 QueryRelevance + 4 ResponseRelevance)
+    Expected result: 5 time buckets, each with 6 scores (3 QueryRelevance + 3 ResponseRelevance)
     """
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticRelevancePassFailCountAggregation()
@@ -1080,16 +1060,15 @@ def test_relevance_pass_fail_count_time_buckets(
     # Should have 5 time buckets
     assert len(bucket_data) == 5, f"Expected 5 time buckets, got {len(bucket_data)}"
 
-    # Each bucket should have exactly 8 scores (4 QueryRelevance + 4 ResponseRelevance)
+    # Each bucket should have exactly 6 scores (3 QueryRelevance + 3 ResponseRelevance)
     for bucket, metrics in bucket_data.items():
         total_scores = sum(metrics.values())
         assert (
-            total_scores == 8
-        ), f"Expected count 8 for bucket {bucket}, got {total_scores}"
+            total_scores == 6
+        ), f"Expected count 6 for bucket {bucket}, got {total_scores}"
 
         # Verify that each bucket has the expected score types
         expected_score_types = {
-            "average",
             "llm_relevance_score",
             "reranker_relevance_score",
             "bert_f_score",

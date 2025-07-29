@@ -60,22 +60,6 @@ def extract_spans_with_metrics_and_agents(root_spans):
     return spans_with_metrics_and_agents
 
 
-def calculate_average_relevance_score(relevance_data):
-    """Calculate average relevance score from llm, reranker, and bert scores"""
-    scores = []
-
-    # Add available scores to the list
-    if relevance_data.get("llm_relevance_score") is not None:
-        scores.append(relevance_data["llm_relevance_score"])
-    if relevance_data.get("reranker_relevance_score") is not None:
-        scores.append(relevance_data["reranker_relevance_score"])
-    if relevance_data.get("bert_f_score") is not None:
-        scores.append(relevance_data["bert_f_score"])
-
-    # Return average if we have any scores, otherwise None
-    return sum(scores) / len(scores) if scores else None
-
-
 def determine_relevance_pass_fail(score):
     """Determine pass/fail for relevance scores using global threshold"""
     if score is None:
@@ -200,50 +184,78 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                     elif metric_type == "QueryRelevance":
                         query_relevance = details.get("query_relevance", {})
-
-                        # Calculate average relevance score
-                        avg_score = calculate_average_relevance_score(query_relevance)
                         reason = query_relevance.get("reason", "Unknown")
 
-                        if avg_score is not None:
+                        # Add individual scores if they exist
+                        llm_score = query_relevance.get("llm_relevance_score")
+                        reranker_score = query_relevance.get("reranker_relevance_score")
+                        bert_score = query_relevance.get("bert_f_score")
+
+                        if llm_score is not None:
                             query_relevance_data.append(
                                 {
                                     "ts": ts,
-                                    "average_relevance_score": avg_score,
-                                    "llm_relevance_score": query_relevance.get(
-                                        "llm_relevance_score",
-                                    ),
-                                    "reranker_relevance_score": query_relevance.get(
-                                        "reranker_relevance_score",
-                                    ),
-                                    "bert_f_score": query_relevance.get("bert_f_score"),
+                                    "score_type": "llm_relevance_score",
+                                    "score_value": llm_score,
+                                    "reason": reason,
+                                },
+                            )
+
+                        if reranker_score is not None:
+                            query_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "score_type": "reranker_relevance_score",
+                                    "score_value": reranker_score,
+                                    "reason": reason,
+                                },
+                            )
+
+                        if bert_score is not None:
+                            query_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "score_type": "bert_f_score",
+                                    "score_value": bert_score,
                                     "reason": reason,
                                 },
                             )
 
                     elif metric_type == "ResponseRelevance":
                         response_relevance = details.get("response_relevance", {})
-
-                        # Calculate average relevance score
-                        avg_score = calculate_average_relevance_score(
-                            response_relevance,
-                        )
                         reason = response_relevance.get("reason", "Unknown")
 
-                        if avg_score is not None:
+                        # Add individual scores if they exist
+                        llm_score = response_relevance.get("llm_relevance_score")
+                        reranker_score = response_relevance.get("reranker_relevance_score")
+                        bert_score = response_relevance.get("bert_f_score")
+
+                        if llm_score is not None:
                             response_relevance_data.append(
                                 {
                                     "ts": ts,
-                                    "average_relevance_score": avg_score,
-                                    "llm_relevance_score": response_relevance.get(
-                                        "llm_relevance_score",
-                                    ),
-                                    "reranker_relevance_score": response_relevance.get(
-                                        "reranker_relevance_score",
-                                    ),
-                                    "bert_f_score": response_relevance.get(
-                                        "bert_f_score",
-                                    ),
+                                    "score_type": "llm_relevance_score",
+                                    "score_value": llm_score,
+                                    "reason": reason,
+                                },
+                            )
+
+                        if reranker_score is not None:
+                            response_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "score_type": "reranker_relevance_score",
+                                    "score_value": reranker_score,
+                                    "reason": reason,
+                                },
+                            )
+
+                        if bert_score is not None:
+                            response_relevance_data.append(
+                                {
+                                    "ts": ts,
+                                    "score_type": "bert_f_score",
+                                    "score_value": bert_score,
                                     "reason": reason,
                                 },
                             )
@@ -277,8 +289,8 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             df = pd.DataFrame(query_relevance_data)
             series = self.group_query_results_to_sketch_metrics(
                 df,
-                "average_relevance_score",
-                ["reason"],
+                "score_value",
+                ["score_type", "reason"],
                 "ts",
             )
             metrics.append(
@@ -290,8 +302,8 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             df = pd.DataFrame(response_relevance_data)
             series = self.group_query_results_to_sketch_metrics(
                 df,
-                "average_relevance_score",
-                ["reason"],
+                "score_value",
+                ["score_type", "reason"],
                 "ts",
             )
             metrics.append(
@@ -375,21 +387,6 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
                             ),
                             {},
                         )
-                        # Check average score
-                        avg_score = calculate_average_relevance_score(relevance_data)
-                        if avg_score is not None:
-                            result = determine_relevance_pass_fail(avg_score)
-                            processed_data.append(
-                                {
-                                    "ts": ts,
-                                    "agent_name": agent_name,
-                                    "metric_type": metric_type,
-                                    "score_type": "average",
-                                    "result": result,
-                                    "count": 1,
-                                },
-                            )
-
                         # Check individual scores
                         for score_type in [
                             "llm_relevance_score",
