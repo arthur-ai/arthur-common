@@ -40,6 +40,8 @@ jobs:
           apt-get update
           apt-get install gh -y
       - name: Bump version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           pip install bump2version
           git checkout main
