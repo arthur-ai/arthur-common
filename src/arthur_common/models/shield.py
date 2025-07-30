@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
+from datetime import datetime
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -246,6 +247,27 @@ class RuleResponse(BaseModel):
         description="Config of the rule",
         default=None,
         title="Rule Response Config",
+    )
+
+
+class MetricResponse(BaseModel):
+    id: str = Field(description="ID of the Metric")
+    name: str = Field(description="Name of the Metric")
+    type: MetricType = Field(description="Type of the Metric")
+    metric_metadata: str = Field(description="Metadata of the Metric")
+    config: Optional[str] = Field(
+        description="JSON-serialized configuration for the Metric",
+        default=None,
+    )
+    created_at: datetime = Field(
+        description="Time the Metric was created in unix milliseconds",
+    )
+    updated_at: datetime = Field(
+        description="Time the Metric was updated in unix milliseconds",
+    )
+    enabled: Optional[bool] = Field(
+        description="Whether the Metric is enabled",
+        default=None,
     )
 
 
