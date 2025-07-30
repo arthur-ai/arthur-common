@@ -1,11 +1,17 @@
-from typing import Literal, Optional
+from enum import Enum
+from typing import Literal, Optional, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from arthur_common.models.shield import NewMetricRequest, NewRuleRequest
+from arthur_common.models.shield import NewMetricRequest, NewRuleRequest, model_validator
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
+
+
+class TaskType(str, Enum):
+    TRADITIONAL = "traditional"
+    AGENTIC = "agentic"
 
 
 class CreateModelTaskJobSpec(BaseModel):
@@ -21,14 +27,24 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    is_agentic: bool = Field(
-        default=False,
-        description="Whether this task should be created as an agentic trace task. If True, initial_metrics will be used instead of initial_rules.",
+    task_type: TaskType = Field(
+        default=TaskType.TRADITIONAL,
+        description="The type of task to create.",
     )
     initial_metrics: list[NewMetricRequest] = Field(
         default_factory=list,
-        description="The initial metrics to apply to the created agentic task. Only used when is_agentic is True.",
+        description="The initial metrics to apply to agentic tasks.",
     )
+
+    @model_validator(mode="after")
+    def initial_metric_or_rule_required(self) -> Self:
+        if self.task_type == TaskType.AGENTIC:
+            if not self.initial_metrics:
+                raise ValueError("initial_metrics is required when task_type is AGENTIC")
+        else:
+            if not self.initial_rules:
+                raise ValueError("initial_rules is required when task_type is TRADITIONAL")
+        return self
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):
