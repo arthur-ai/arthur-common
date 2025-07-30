@@ -35,15 +35,6 @@ class DType(str, Enum):
     IMAGE = "image"
 
 
-class MetricType(str, Enum):
-    QUERY_RELEVANCE = "QueryRelevance"
-    RESPONSE_RELEVANCE = "ResponseRelevance"
-    TOOL_SELECTION = "ToolSelection"
-
-    def __str__(self):
-        return self.value
-
-
 class MetricParameterAnnotation(BaseModel):
     optional: bool = Field(
         False,
