@@ -4,7 +4,11 @@ from uuid import UUID
 from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import SketchAggregationFunction
-from arthur_common.models.metrics import DatasetReference, SketchMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    SketchMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
     DType,
@@ -33,6 +37,15 @@ class NumericSketchAggregationFunction(SketchAggregationFunction):
         return (
             "Metric that calculates a distribution (data sketch) on a numeric column."
         )
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=NumericSketchAggregationFunction.METRIC_NAME,
+                description=NumericSketchAggregationFunction.description(),
+            )
+        ]
 
     def aggregate(
         self,

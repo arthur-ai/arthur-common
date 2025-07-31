@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.categorical_count import (
     CategoricalCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from .helpers import *
 
 
 def test_string_categorical_count(
@@ -20,6 +21,7 @@ def test_string_categorical_count(
     )
     assert len(metric) == 1
     assert metric[0].name == "categorical_count"
+    validate_expected_metric_names(cat_counter, metric)
     # Four possibilities + null
     results = metric[0].numeric_series
     assert len(results) == 5
@@ -56,6 +58,7 @@ def test_cv_categorical_count_with_dimensions(
     )
     assert len(metric) == 1
     assert metric[0].name == "categorical_count"
+    validate_expected_metric_names(cat_counter, metric)
     # three possibilities for categorical dimensions * 3 possibilities for prompt version dimensions
     results = metric[0].numeric_series
     assert len(results) == 3 * 3

@@ -10,7 +10,12 @@ from arthur_common.aggregations.aggregator import (
     SketchAggregationFunction,
 )
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric, SketchMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    SketchMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import (
     SHIELD_RESPONSE_SCHEMA,
     MetricColumnParameterAnnotation,
@@ -32,6 +37,15 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that counts the number of Shield inferences grouped by the prompt, response, and overall check results."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferencePassFailCountAggregation.METRIC_NAME,
+                description=ShieldInferencePassFailCountAggregation.description(),
+            )
+        ]
 
     def aggregate(
         self,
@@ -92,6 +106,15 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that counts the number of Shield rule evaluations grouped by whether it was on the prompt or response, the rule type, the rule evaluation result, the rule name, and the rule id."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleCountAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleCountAggregation.description(),
+            )
+        ]
 
     def aggregate(
         self,
@@ -176,6 +199,15 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
     def description() -> str:
         return "Metric that counts the number of Shield hallucination evaluations that failed."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceHallucinationCountAggregation.METRIC_NAME,
+                description=ShieldInferenceHallucinationCountAggregation.description(),
+            )
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -230,6 +262,15 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on toxicity scores returned by the Shield toxicity rule."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleToxicityScoreAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleToxicityScoreAggregation.description(),
+            )
+        ]
 
     def aggregate(
         self,
@@ -306,6 +347,15 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on PII scores returned by the Shield PII rule."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRulePIIDataScoreAggregation.METRIC_NAME,
+                description=ShieldInferenceRulePIIDataScoreAggregation.description(),
+            )
+        ]
 
     def aggregate(
         self,
@@ -389,6 +439,15 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on over the number of claims identified by the Shield hallucination rule."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleClaimCountAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleClaimCountAggregation.description(),
+            )
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -452,6 +511,15 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on the number of valid claims determined by the Shield hallucination rule."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleClaimPassCountAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleClaimPassCountAggregation.description(),
+            )
+        ]
 
     def aggregate(
         self,
@@ -517,6 +585,15 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on the number of invalid claims determined by the Shield hallucination rule."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleClaimFailCountAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleClaimFailCountAggregation.description(),
+            )
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -581,6 +658,15 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
     def description() -> str:
         return "Metric that reports a distribution (data sketch) on the latency of Shield rule evaluations. Dimensions are the rule result, rule type, and whether the rule was applicable to a prompt or response."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceRuleLatencyAggregation.METRIC_NAME,
+                description=ShieldInferenceRuleLatencyAggregation.description(),
+            )
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -643,6 +729,18 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
 
 class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "token_count"
+    SUPPORTED_MODELS = [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-3.5-turbo",
+        "o1-mini",
+        "deepseek-chat",
+        "claude-3-5-sonnet-20241022",
+        "gemini/gemini-1.5-pro",
+        "meta.llama3-1-8b-instruct-v1:0",
+        "meta.llama3-1-70b-instruct-v1:0",
+        "meta.llama3-2-11b-instruct-v1:0",
+    ]
 
     @staticmethod
     def id() -> UUID:
@@ -655,6 +753,27 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports the number of tokens in the Shield response and prompt schemas, and their estimated cost."
+
+    @staticmethod
+    def _series_name_from_model_name(model_name: str) -> str:
+        """Calculates name of reported series based on the model name considered."""
+        return f"token_cost.{model_name}"
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        base_token_count_agg = BaseReportedAggregation(
+            metric_name=ShieldInferenceTokenCountAggregation.METRIC_NAME,
+            description=f"Metric that reports the number of tokens in the Shield response and prompt schemas.",
+        )
+        return [base_token_count_agg] + [
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceTokenCountAggregation._series_name_from_model_name(
+                    model_name
+                ),
+                description=f"Metric that reports the estimated cost for the {model_name} model of the tokens in the Shield response and prompt schemas.",
+            )
+            for model_name in ShieldInferenceTokenCountAggregation.SUPPORTED_MODELS
+        ]
 
     def aggregate(
         self,
@@ -708,25 +827,12 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         resp = [metric]
 
         # Compute Cost for each model
-        models = [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-3.5-turbo",
-            "o1-mini",
-            "deepseek-chat",
-            "claude-3-5-sonnet-20241022",
-            "gemini/gemini-1.5-pro",
-            "meta.llama3-1-8b-instruct-v1:0",
-            "meta.llama3-1-70b-instruct-v1:0",
-            "meta.llama3-2-11b-instruct-v1:0",
-        ]
-
         # Precompute input/output classification to avoid recalculating in loop
         location_type = results["location"].apply(
             lambda x: "input" if x == "prompt" else "output",
         )
 
-        for model in models:
+        for model in self.SUPPORTED_MODELS:
             # Efficient list comprehension instead of apply
             cost_values = [
                 calculate_cost_by_tokens(int(tokens), model, loc_type)
@@ -747,5 +853,9 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
                 ["location"],
                 "ts",
             )
-            resp.append(self.series_to_metric(f"token_cost.{model}", model_series))
+            resp.append(
+                self.series_to_metric(
+                    self._series_name_from_model_name(model), model_series
+                )
+            )
         return resp
