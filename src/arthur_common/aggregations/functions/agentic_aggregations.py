@@ -11,7 +11,12 @@ from arthur_common.aggregations.aggregator import (
     SketchAggregationFunction,
 )
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric, SketchMetric, BaseReportedAggregation
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    SketchMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import MetricDatasetParameterAnnotation
 
 # Global threshold for pass/fail determination
@@ -118,7 +123,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=AgenticMetricsOverTimeAggregation.RESPONSE_RELEVANCE_SCORES_METRIC_NAME,
                 description="Distribution of response relevance over time.",
-            )
+            ),
         ]
 
     def aggregate(
@@ -252,7 +257,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                         # Add individual scores if they exist
                         llm_score = response_relevance.get("llm_relevance_score")
-                        reranker_score = response_relevance.get("reranker_relevance_score")
+                        reranker_score = response_relevance.get(
+                            "reranker_relevance_score"
+                        )
                         bert_score = response_relevance.get("bert_f_score")
 
                         if llm_score is not None:
@@ -296,7 +303,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 ["tool_selection_reason"],
                 "ts",
             )
-            metrics.append(self.series_to_metric(self.TOOL_SELECTION_METRIC_NAME, series))
+            metrics.append(
+                self.series_to_metric(self.TOOL_SELECTION_METRIC_NAME, series)
+            )
 
         # Create tool usage metric
         if tool_usage_data:
@@ -332,7 +341,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(
-                self.series_to_metric(self.RESPONSE_RELEVANCE_SCORES_METRIC_NAME, series),
+                self.series_to_metric(
+                    self.RESPONSE_RELEVANCE_SCORES_METRIC_NAME, series
+                ),
             )
 
         return metrics
@@ -405,7 +416,6 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:
@@ -531,7 +541,6 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:
@@ -805,7 +814,6 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:
