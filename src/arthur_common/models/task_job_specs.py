@@ -37,14 +37,10 @@ class CreateModelTaskJobSpec(BaseModel):
     )
 
     @model_validator(mode="after")
-    def initial_metric_or_rule_required(self) -> Self:
-        if self.task_type == TaskType.AGENTIC:
-            if not self.initial_metrics:
-                raise ValueError("initial_metrics is required when task_type is AGENTIC")
-        else:
-            if not self.initial_rules:
-                raise ValueError("initial_rules is required when task_type is TRADITIONAL")
-        return self
+    def initial_metric_required(self) -> Self:
+        if self.task_type == TaskType.TRADITIONAL:
+            if not len(self.initial_metrics) == 0:
+                raise ValueError("No initial_metrics when task_type is TRADITIONAL")
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):
