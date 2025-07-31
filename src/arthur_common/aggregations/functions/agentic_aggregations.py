@@ -11,7 +11,12 @@ from arthur_common.aggregations.aggregator import (
     SketchAggregationFunction,
 )
 from arthur_common.models.datasets import ModelProblemType
-from arthur_common.models.metrics import DatasetReference, NumericMetric, SketchMetric
+from arthur_common.models.metrics import (
+    DatasetReference,
+    NumericMetric,
+    SketchMetric,
+    BaseReportedAggregation,
+)
 from arthur_common.models.schema_definitions import MetricDatasetParameterAnnotation
 
 # Global threshold for pass/fail determination
@@ -83,6 +88,10 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
     """Combined aggregation for tool selection, tool usage, query relevance, and response relevance over time"""
 
     METRIC_NAME = "agentic_metrics_over_time"
+    TOOL_SELECTION_METRIC_NAME = "tool_selection_over_time"
+    TOOL_USAGE_METRIC_NAME = "tool_usage_over_time"
+    QUERY_RELEVANCE_SCORES_METRIC_NAME = "query_relevance_scores_over_time"
+    RESPONSE_RELEVANCE_SCORES_METRIC_NAME = "response_relevance_scores_over_time"
 
     @staticmethod
     def id() -> UUID:
@@ -95,6 +104,27 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that reports distributions (data sketches) on tool selection, tool usage, query relevance, and response relevance scores over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticMetricsOverTimeAggregation.TOOL_SELECTION_METRIC_NAME,
+                description="Distribution of tool selection over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticMetricsOverTimeAggregation.TOOL_USAGE_METRIC_NAME,
+                description="Distribution of tool usage over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticMetricsOverTimeAggregation.QUERY_RELEVANCE_SCORES_METRIC_NAME,
+                description="Distribution of query relevance over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticMetricsOverTimeAggregation.RESPONSE_RELEVANCE_SCORES_METRIC_NAME,
+                description="Distribution of response relevance over time.",
+            ),
+        ]
 
     def aggregate(
         self,
@@ -227,7 +257,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                         # Add individual scores if they exist
                         llm_score = response_relevance.get("llm_relevance_score")
-                        reranker_score = response_relevance.get("reranker_relevance_score")
+                        reranker_score = response_relevance.get(
+                            "reranker_relevance_score"
+                        )
                         bert_score = response_relevance.get("bert_f_score")
 
                         if llm_score is not None:
@@ -271,7 +303,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 ["tool_selection_reason"],
                 "ts",
             )
-            metrics.append(self.series_to_metric("tool_selection_over_time", series))
+            metrics.append(
+                self.series_to_metric(self.TOOL_SELECTION_METRIC_NAME, series)
+            )
 
         # Create tool usage metric
         if tool_usage_data:
@@ -282,7 +316,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 ["tool_usage_reason"],
                 "ts",
             )
-            metrics.append(self.series_to_metric("tool_usage_over_time", series))
+            metrics.append(self.series_to_metric(self.TOOL_USAGE_METRIC_NAME, series))
 
         # Create comprehensive query relevance metric (includes all score data)
         if query_relevance_data:
@@ -294,7 +328,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(
-                self.series_to_metric("query_relevance_scores_over_time", series),
+                self.series_to_metric(self.QUERY_RELEVANCE_SCORES_METRIC_NAME, series),
             )
 
         # Create comprehensive response relevance metric (includes all score data)
@@ -307,7 +341,9 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(
-                self.series_to_metric("response_relevance_scores_over_time", series),
+                self.series_to_metric(
+                    self.RESPONSE_RELEVANCE_SCORES_METRIC_NAME, series
+                ),
             )
 
         return metrics
@@ -329,6 +365,15 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that counts the number of query and response relevance passes and failures, segmented by agent name and metric type."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticRelevancePassFailCountAggregation.METRIC_NAME,
+                description=AgenticRelevancePassFailCountAggregation.description(),
+            ),
+        ]
 
     def aggregate(
         self,
@@ -371,7 +416,6 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:
@@ -447,6 +491,15 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
     def description() -> str:
         return "Metric that counts the number of tool selection and usage passes, failures, and no-tool cases, segmented by agent name."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticToolPassFailCountAggregation.METRIC_NAME,
+                description=AgenticToolPassFailCountAggregation.description(),
+            ),
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -488,7 +541,6 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:
@@ -561,6 +613,15 @@ class AgenticEventCountAggregation(NumericAggregationFunction):
     def description() -> str:
         return "Metric that counts the number of events over time."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticEventCountAggregation.METRIC_NAME,
+                description=AgenticEventCountAggregation.description(),
+            ),
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -608,6 +669,15 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
     @staticmethod
     def description() -> str:
         return "Metric that counts the number of LLM spans (individual LLM calls) over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticLLMCallCountAggregation.METRIC_NAME,
+                description=AgenticLLMCallCountAggregation.description(),
+            ),
+        ]
 
     def aggregate(
         self,
@@ -694,6 +764,15 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
     def description() -> str:
         return "Metric that counts tool selection and usage correctness, segmented by agent name."
 
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticToolSelectionAndUsageByAgentAggregation.METRIC_NAME,
+                description=AgenticToolSelectionAndUsageByAgentAggregation.description(),
+            ),
+        ]
+
     def aggregate(
         self,
         ddb_conn: DuckDBPyConnection,
@@ -735,7 +814,6 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
 
             # Process each span with metrics
             for span, agent_name in spans_with_metrics_and_agents:
-
                 metric_results = span.get("metric_results", [])
 
                 for metric_result in metric_results:

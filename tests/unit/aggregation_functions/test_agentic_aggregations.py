@@ -9,6 +9,7 @@ from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticToolSelectionAndUsageByAgentAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
+from .helpers import *
 
 
 def test_agentic_metrics_over_time_with_metrics(
@@ -32,6 +33,7 @@ def test_agentic_metrics_over_time_with_metrics(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return multiple sketch metrics
     assert len(metrics) > 0
@@ -79,6 +81,7 @@ def test_agentic_metrics_over_time_various_structures(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should process traces regardless of structure
     assert len(metrics) > 0
@@ -108,6 +111,7 @@ def test_relevance_pass_fail_count_with_metrics(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticRelevancePassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric
     assert len(metrics) == 1
@@ -151,6 +155,7 @@ def test_relevance_pass_fail_count_dimensions(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticRelevancePassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     if len(metrics) > 0:
         metric = metrics[0]
@@ -191,6 +196,7 @@ def test_relevance_pass_fail_count_correct_values(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticRelevancePassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -329,6 +335,7 @@ def test_tool_pass_fail_count_with_metrics(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolPassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric
     assert len(metrics) == 1
@@ -371,6 +378,7 @@ def test_tool_pass_fail_count_dimensions(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolPassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     if len(metrics) > 0:
         metric = metrics[0]
@@ -403,6 +411,7 @@ def test_tool_pass_fail_count_correct_values(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolPassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -489,6 +498,7 @@ def test_event_count_with_traces(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticEventCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric
     assert len(metrics) == 1
@@ -514,6 +524,7 @@ def test_event_count_no_traces(
     conn, dataset_ref = get_agentic_dataset_conn_no_metrics
     aggregation = AgenticEventCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric even with minimal data
     assert len(metrics) == 1
@@ -539,6 +550,7 @@ def test_event_count_total(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticEventCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     metric = metrics[0]
 
@@ -584,6 +596,7 @@ def test_event_count_time_buckets(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticEventCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -618,6 +631,7 @@ def test_llm_call_count_with_traces(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticLLMCallCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric
     assert len(metrics) == 1
@@ -644,6 +658,7 @@ def test_llm_call_count_no_traces(
     conn, dataset_ref = get_agentic_dataset_conn_no_metrics
     aggregation = AgenticLLMCallCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric even with minimal data
     assert len(metrics) == 1
@@ -669,6 +684,7 @@ def test_llm_call_count_total(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticLLMCallCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     metric = metrics[0]
 
@@ -714,6 +730,7 @@ def test_llm_call_count_time_buckets(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticLLMCallCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -755,6 +772,7 @@ def test_tool_selection_and_usage_by_agent_with_metrics(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly one metric
     assert len(metrics) == 1
@@ -797,6 +815,7 @@ def test_tool_selection_and_usage_by_agent_dimensions(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     if len(metrics) > 0:
         metric = metrics[0]
@@ -831,6 +850,7 @@ def test_tool_selection_and_usage_by_agent_correct_values(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -943,6 +963,7 @@ def test_agentic_metrics_over_time_correct_values(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return multiple sketch metrics
     assert len(metrics) > 0
@@ -975,6 +996,7 @@ def test_agentic_metrics_over_time_metric_names(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticMetricsOverTimeAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     # Should return exactly 4 metrics
     assert len(metrics) == 4, f"Expected 4 metrics, got {len(metrics)}"
@@ -1019,6 +1041,7 @@ def test_relevance_pass_fail_count_time_buckets(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticRelevancePassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -1103,6 +1126,7 @@ def test_tool_pass_fail_count_time_buckets(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolPassFailCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
@@ -1179,6 +1203,7 @@ def test_tool_selection_and_usage_by_agent_time_buckets(
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
+    validate_expected_metric_names(aggregation, metrics)
 
     assert len(metrics) == 1
     metric = metrics[0]
