@@ -193,7 +193,9 @@ class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSc
     parameter_type: Literal["column"] = "column"
 
 
-class MetricsColumnListParameterSchema(MetricsParameterSchema, BaseColumnParameterSchema):
+class MetricsColumnListParameterSchema(
+    MetricsParameterSchema, BaseColumnParameterSchema
+):
     # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
 
@@ -211,9 +213,7 @@ MetricsColumnSchemaUnion = (
 
 
 CustomAggregationParametersSchemaUnion = (
-    BaseDatasetParameterSchema
-    | BaseLiteralParameterSchema
-    | BaseColumnParameterSchema
+    BaseDatasetParameterSchema | BaseLiteralParameterSchema | BaseColumnParameterSchema
 )
 
 
@@ -222,6 +222,14 @@ class DatasetReference:
     dataset_name: str
     dataset_table_name: str
     dataset_id: UUID
+
+
+class BaseReportedAggregation(BaseModel):
+    # in future will be used by default metrics
+    metric_name: str = Field(description="Name of the reported aggregation metric.")
+    description: str = Field(
+        description="Description of the reported aggregation metric and what it aggregates.",
+    )
 
 
 class AggregationSpecSchema(BaseModel):
@@ -240,6 +248,17 @@ class AggregationSpecSchema(BaseModel):
     aggregate_args: list[MetricsParameterSchemaUnion] = Field(
         description="List of parameters to the aggregation's aggregate function.",
     )
+    reported_aggregations: list[BaseReportedAggregation] = Field(
+        description="List of aggregations reported by the metric."
+    )
+
+    @model_validator(mode="after")
+    def at_least_one_reported_agg(self) -> Self:
+        if len(self.reported_aggregations) < 1:
+            raise ValueError(
+                "Aggregation spec must specify at least one reported aggregation."
+            )
+        return self
 
     @model_validator(mode="after")
     def column_dataset_references_exist(self) -> Self:
@@ -262,26 +281,23 @@ class AggregationSpecSchema(BaseModel):
         return self
 
 
-class BaseReportedAggregation(BaseModel):
-    # in future will be used by default metrics
-    metric_name: str = Field(description="Name of the reported aggregation metric.")
-    description: str = Field(
-        description="Description of the reported aggregation metric and what it aggregates.",
-    )
-
-
 class ReportedCustomAggregation(BaseReportedAggregation):
-    value_column: str = Field(description="Name of the column returned from the SQL query holding the metric value.")
-    timestamp_column: str = Field(description="Name of the column returned from the SQL query holding the timestamp buckets.")
+    value_column: str = Field(
+        description="Name of the column returned from the SQL query holding the metric value."
+    )
+    timestamp_column: str = Field(
+        description="Name of the column returned from the SQL query holding the timestamp buckets."
+    )
     metric_kind: AggregationMetricType = Field(
         description="Return type of the reported aggregation metric value.",
     )
-    dimension_columns: list[str] = Field(description="Name of any dimension columns returned from the SQL query. Max length is 1.")
+    dimension_columns: list[str] = Field(
+        description="Name of any dimension columns returned from the SQL query. Max length is 1."
+    )
 
-    @field_validator('dimension_columns')
+    @field_validator("dimension_columns")
     @classmethod
     def validate_dimension_columns_length(cls, v: list[str]) -> str:
         if len(v) > 1:
-            raise ValueError('Only one dimension column can be specified.')
+            raise ValueError("Only one dimension column can be specified.")
         return v
-

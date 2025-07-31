@@ -5,6 +5,7 @@ from arthur_common.aggregations.functions.shield_aggregations import (
     ShieldInferenceTokenCountAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
+from .helpers import *
 
 
 @pytest.mark.parametrize(
@@ -52,6 +53,7 @@ def test_shield_token_count(
         dataset_ref,
         shield_response_column="shield_response",
     )
+    validate_expected_metric_names(token_count_aggregator, metrics)
 
     # Check for a single token count metric, and two token count series within those metrics
     token_count_metrics = [m for m in metrics if m.name == "token_count"]
@@ -139,6 +141,7 @@ def test_shield_empty_token_count(
         dataset_ref,
         shield_response_column="shield_response",
     )
+    validate_expected_metric_names(token_count_aggregator, metrics)
 
     # Check for a single token count metric, and two token count series within those metrics
     token_count_metrics = [m for m in metrics if m.name == "token_count"]
