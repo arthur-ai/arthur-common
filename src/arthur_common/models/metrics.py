@@ -193,7 +193,10 @@ class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSc
     parameter_type: Literal["column"] = "column"
 
 
-class MetricsColumnListParameterSchema(MetricsParameterSchema, BaseColumnParameterSchema):
+class MetricsColumnListParameterSchema(
+    MetricsParameterSchema,
+    BaseColumnBaseParameterSchema,
+):
     # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
 
@@ -211,9 +214,7 @@ MetricsColumnSchemaUnion = (
 
 
 CustomAggregationParametersSchemaUnion = (
-    BaseDatasetParameterSchema
-    | BaseLiteralParameterSchema
-    | BaseColumnParameterSchema
+    BaseDatasetParameterSchema | BaseLiteralParameterSchema | BaseColumnParameterSchema
 )
 
 
@@ -271,17 +272,22 @@ class BaseReportedAggregation(BaseModel):
 
 
 class ReportedCustomAggregation(BaseReportedAggregation):
-    value_column: str = Field(description="Name of the column returned from the SQL query holding the metric value.")
-    timestamp_column: str = Field(description="Name of the column returned from the SQL query holding the timestamp buckets.")
+    value_column: str = Field(
+        description="Name of the column returned from the SQL query holding the metric value.",
+    )
+    timestamp_column: str = Field(
+        description="Name of the column returned from the SQL query holding the timestamp buckets.",
+    )
     metric_kind: AggregationMetricType = Field(
         description="Return type of the reported aggregation metric value.",
     )
-    dimension_columns: list[str] = Field(description="Name of any dimension columns returned from the SQL query. Max length is 1.")
+    dimension_columns: list[str] = Field(
+        description="Name of any dimension columns returned from the SQL query. Max length is 1.",
+    )
 
-    @field_validator('dimension_columns')
+    @field_validator("dimension_columns")
     @classmethod
-    def validate_dimension_columns_length(cls, v: list[str]) -> str:
+    def validate_dimension_columns_length(cls, v: list[str]) -> list[str]:
         if len(v) > 1:
-            raise ValueError('Only one dimension column can be specified.')
+            raise ValueError("Only one dimension column can be specified.")
         return v
-
