@@ -122,6 +122,20 @@ class BaseAggregationParameterSchema(BaseModel):
         description="Description of the parameter.",
     )
 
+    @field_validator("parameter_key")
+    @classmethod
+    def validate_parameter_key_allowed_characters(cls, v: str) -> str:
+        if not v.replace("_", "").replace(" ", "").isalpha():
+            raise ValueError("Parameter key can only contain letters and underscores.")
+        return v
+
+    @field_validator("friendly_name")
+    @classmethod
+    def validate_friendly_name_allowed_characters(cls, v: str) -> str:
+        if not v.replace("_", "").replace(" ", "").isalpha():
+            raise ValueError("Friendly name can only contain letters and underscores.")
+        return v
+
 
 class MetricsParameterSchema(BaseAggregationParameterSchema):
     # specific to default metrics/Python metrics—not available to custom aggregations
@@ -194,7 +208,8 @@ class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSc
 
 
 class MetricsColumnListParameterSchema(
-    MetricsParameterSchema, BaseColumnParameterSchema
+    MetricsParameterSchema,
+    BaseColumnParameterSchema,
 ):
     # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
@@ -283,16 +298,16 @@ class AggregationSpecSchema(BaseModel):
 
 class ReportedCustomAggregation(BaseReportedAggregation):
     value_column: str = Field(
-        description="Name of the column returned from the SQL query holding the metric value."
+        description="Name of the column returned from the SQL query holding the metric value.",
     )
     timestamp_column: str = Field(
-        description="Name of the column returned from the SQL query holding the timestamp buckets."
+        description="Name of the column returned from the SQL query holding the timestamp buckets.",
     )
     metric_kind: AggregationMetricType = Field(
         description="Return type of the reported aggregation metric value.",
     )
     dimension_columns: list[str] = Field(
-        description="Name of any dimension columns returned from the SQL query. Max length is 1."
+        description="Name of any dimension columns returned from the SQL query. Max length is 1.",
     )
 
     @field_validator("dimension_columns")
