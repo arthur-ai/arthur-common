@@ -10,8 +10,6 @@ on:
 
 jobs:
   run-linter:
-    if: |
-      (!contains(github.event.head_commit.message, 'Bump version'))
     runs-on: ubuntu-latest
     container: python:3.12.9-bullseye
     env:
@@ -35,8 +33,6 @@ jobs:
           poetry run mypy --config-file pyproject.toml src/
 
   run-unit-tests:
-    if: |
-      (!contains(github.event.head_commit.message, 'Bump version'))
     runs-on: ubuntu-latest
     container: python:3.12.9-bullseye
     steps:
