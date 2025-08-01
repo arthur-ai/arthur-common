@@ -43,6 +43,7 @@ poetry run pytest
 3. Manually trigger workflow there, it will create a PR with version bumping
 4. Go to **Pull requests** and check PR for version bump, accept it if everything is okay
 5. Version bump commit will be merged to **main** branch and it will start release process
+6. Update package version in your project (arthur-engine)
 
 ## License
 
