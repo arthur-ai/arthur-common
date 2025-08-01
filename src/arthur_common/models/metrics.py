@@ -125,7 +125,7 @@ class BaseAggregationParameterSchema(BaseModel):
     @field_validator("parameter_key")
     @classmethod
     def validate_parameter_key_allowed_characters(cls, v: str) -> str:
-        if not v.replace("_", "").replace(" ", "").isalpha():
+        if not v.replace("_", "").isalpha():
             raise ValueError("Parameter key can only contain letters and underscores.")
         return v
 
