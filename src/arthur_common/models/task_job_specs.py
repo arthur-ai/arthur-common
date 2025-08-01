@@ -27,7 +27,7 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    task_type: TaskType = Field(
+    task_type: str = Field(
         default=TaskType.TRADITIONAL,
         description="The type of task to create.",
     )
@@ -41,6 +41,7 @@ class CreateModelTaskJobSpec(BaseModel):
         if self.task_type == TaskType.TRADITIONAL:
             if not len(self.initial_metrics) == 0:
                 raise ValueError("No initial_metrics when task_type is TRADITIONAL")
+        return self
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):
