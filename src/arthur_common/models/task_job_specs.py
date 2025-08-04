@@ -32,7 +32,6 @@ class CreateModelTaskJobSpec(BaseModel):
         description="The type of task to create.",
     )
     initial_metrics: list[NewMetricRequest] = Field(
-        default_factory=list,
         description="The initial metrics to apply to agentic tasks.",
     )
 
