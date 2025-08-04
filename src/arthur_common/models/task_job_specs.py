@@ -27,7 +27,7 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    task_type: str = Field(
+    task_type: TaskType = Field(
         default=TaskType.TRADITIONAL,
         description="The type of task to create.",
     )
