@@ -1,11 +1,17 @@
-from typing import Literal, Optional
+from enum import Enum
+from typing import Literal, Optional, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from arthur_common.models.shield import NewRuleRequest
+from arthur_common.models.shield import NewMetricRequest, NewRuleRequest, model_validator
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
+
+
+class TaskType(str, Enum):
+    TRADITIONAL = "traditional"
+    AGENTIC = "agentic"
 
 
 class CreateModelTaskJobSpec(BaseModel):
@@ -21,6 +27,20 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
+    task_type: TaskType = Field(
+        default=TaskType.TRADITIONAL,
+        description="The type of task to create.",
+    )
+    initial_metrics: list[NewMetricRequest] = Field(
+        description="The initial metrics to apply to agentic tasks.",
+    )
+
+    @model_validator(mode="after")
+    def initial_metric_required(self) -> Self:
+        if self.task_type == TaskType.TRADITIONAL:
+            if not len(self.initial_metrics) == 0:
+                raise ValueError("No initial_metrics when task_type is TRADITIONAL")
+        return self
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):

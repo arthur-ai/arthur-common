@@ -1,3 +1,4 @@
+import json
 import os
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from duckdb import DuckDBPyConnection
 from arthur_common.models.metrics import DatasetReference
 from arthur_common.tools.duckdb_data_loader import DuckDBOperator
 from arthur_common.tools.schema_inferer import SchemaInferer
+from .test_agentic_data_helper import make_agentic_test_data, create_duckdb_test_data
 
 
 def _get_dataset(name: str) -> pd.DataFrame | list[dict]:
@@ -247,6 +249,110 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
                 {created_at},
                 ROW({prompt_tokens}),
                 ROW({response_tokens})
+            )
+            """,
+        )
+
+    return conn, dataset_ref
+
+
+@pytest.fixture
+def get_agentic_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
+    """Create a test database with agentic trace data.
+
+    Returns:
+        tuple: (DuckDB connection, DatasetReference)
+    """
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="agentic_dataset",
+        dataset_table_name="agentic_test_data",
+        dataset_id="test-agentic-dataset",
+    )
+
+    # Create table for agentic trace data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time BIGINT,
+            end_time BIGINT,
+            root_spans VARCHAR
+        )
+        """,
+    )
+
+    # Generate test traces with various structures
+    traces = make_agentic_test_data(
+        num_traces=5,  # Hardcoded traces with metrics
+        include_metrics=True
+    )
+    
+    # Convert to DuckDB format
+    test_data = create_duckdb_test_data(traces)
+    
+    # Insert the test data
+    for trace in test_data:
+        conn.sql(
+            f"""
+            INSERT INTO {dataset_ref.dataset_table_name}
+            VALUES (
+                '{trace['trace_id']}',
+                {trace['start_time']},
+                {trace['end_time']},
+                '{trace['root_spans']}'
+            )
+            """,
+        )
+
+    return conn, dataset_ref
+
+
+@pytest.fixture
+def get_agentic_dataset_conn_no_metrics() -> tuple[DuckDBPyConnection, DatasetReference]:
+    """Create a test database with agentic trace data but no metrics.
+
+    Returns:
+        tuple: (DuckDB connection, DatasetReference)
+    """
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="agentic_dataset_no_metrics",
+        dataset_table_name="agentic_test_data_no_metrics",
+        dataset_id="test-agentic-dataset-no-metrics",
+    )
+
+    # Create table for agentic trace data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time BIGINT,
+            end_time BIGINT,
+            root_spans VARCHAR
+        )
+        """,
+    )
+
+    # Generate test traces without metrics
+    traces = make_agentic_test_data(
+        num_traces=2,  # Hardcoded traces without metrics
+        include_metrics=False
+    )
+    
+    # Convert to DuckDB format
+    test_data = create_duckdb_test_data(traces)
+    
+    # Insert the test data
+    for trace in test_data:
+        conn.sql(
+            f"""
+            INSERT INTO {dataset_ref.dataset_table_name}
+            VALUES (
+                '{trace['trace_id']}',
+                {trace['start_time']},
+                {trace['end_time']},
+                '{trace['root_spans']}'
             )
             """,
         )
