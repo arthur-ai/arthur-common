@@ -5,6 +5,7 @@ from arthur_common.aggregations.functions.shield_aggregations import (
     ShieldInferenceTokenCountAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
+
 from .helpers import *
 
 

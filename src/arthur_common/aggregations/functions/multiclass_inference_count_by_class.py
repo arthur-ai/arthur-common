@@ -8,9 +8,9 @@ from arthur_common.aggregations.functions.inference_count_by_class import (
 )
 from arthur_common.models.datasets import ModelProblemType
 from arthur_common.models.metrics import (
+    BaseReportedAggregation,
     DatasetReference,
     NumericMetric,
-    BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
@@ -57,7 +57,7 @@ class MulticlassClassifierCountByClassAggregationFunction(
             BaseReportedAggregation(
                 metric_name=MulticlassClassifierCountByClassAggregationFunction._metric_name(),
                 description=MulticlassClassifierCountByClassAggregationFunction.description(),
-            )
+            ),
         ]
 
     def aggregate(

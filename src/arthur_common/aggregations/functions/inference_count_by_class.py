@@ -6,9 +6,9 @@ from duckdb import DuckDBPyConnection
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
 from arthur_common.models.datasets import ModelProblemType
 from arthur_common.models.metrics import (
+    BaseReportedAggregation,
     DatasetReference,
     NumericMetric,
-    BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
@@ -46,7 +46,7 @@ class BinaryClassifierCountByClassAggregationFunction(NumericAggregationFunction
             BaseReportedAggregation(
                 metric_name=BinaryClassifierCountByClassAggregationFunction._metric_name(),
                 description=BinaryClassifierCountByClassAggregationFunction.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -172,7 +172,7 @@ class BinaryClassifierCountThresholdClassAggregationFunction(
             BaseReportedAggregation(
                 metric_name=BinaryClassifierCountThresholdClassAggregationFunction._metric_name(),
                 description=BinaryClassifierCountThresholdClassAggregationFunction.description(),
-            )
+            ),
         ]
 
     def aggregate(

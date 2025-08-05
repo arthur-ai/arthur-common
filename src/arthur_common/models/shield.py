@@ -1,6 +1,6 @@
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
-from datetime import datetime
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -533,6 +533,7 @@ class RelevanceMetricConfig(BaseModel):
         default=True,
         description="Whether to use LLM as a judge for relevance scoring",
     )
+
 
 class NewMetricRequest(BaseModel):
     type: MetricType = Field(

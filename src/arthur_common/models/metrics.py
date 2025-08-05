@@ -194,7 +194,8 @@ class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSc
 
 
 class MetricsColumnListParameterSchema(
-    MetricsParameterSchema, BaseColumnParameterSchema
+    MetricsParameterSchema,
+    BaseColumnParameterSchema,
 ):
     # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
@@ -249,14 +250,14 @@ class AggregationSpecSchema(BaseModel):
         description="List of parameters to the aggregation's aggregate function.",
     )
     reported_aggregations: list[BaseReportedAggregation] = Field(
-        description="List of aggregations reported by the metric."
+        description="List of aggregations reported by the metric.",
     )
 
     @model_validator(mode="after")
     def at_least_one_reported_agg(self) -> Self:
         if len(self.reported_aggregations) < 1:
             raise ValueError(
-                "Aggregation spec must specify at least one reported aggregation."
+                "Aggregation spec must specify at least one reported aggregation.",
             )
         return self
 
@@ -283,16 +284,16 @@ class AggregationSpecSchema(BaseModel):
 
 class ReportedCustomAggregation(BaseReportedAggregation):
     value_column: str = Field(
-        description="Name of the column returned from the SQL query holding the metric value."
+        description="Name of the column returned from the SQL query holding the metric value.",
     )
     timestamp_column: str = Field(
-        description="Name of the column returned from the SQL query holding the timestamp buckets."
+        description="Name of the column returned from the SQL query holding the timestamp buckets.",
     )
     metric_kind: AggregationMetricType = Field(
         description="Return type of the reported aggregation metric value.",
     )
     dimension_columns: list[str] = Field(
-        description="Name of any dimension columns returned from the SQL query. Max length is 1."
+        description="Name of any dimension columns returned from the SQL query. Max length is 1.",
     )
 
     @field_validator("dimension_columns")

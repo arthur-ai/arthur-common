@@ -8,12 +8,13 @@ from duckdb import DuckDBPyConnection
 from arthur_common.aggregations import SketchAggregationFunction
 from arthur_common.models.metrics import (
     AggregationMetricType,
+    BaseReportedAggregation,
     DatasetReference,
     MetricsColumnListParameterSchema,
     MetricsColumnParameterSchema,
     MetricsDatasetParameterSchema,
     MetricsLiteralParameterSchema,
-    SketchTimeSeries, BaseReportedAggregation,
+    SketchTimeSeries,
 )
 from arthur_common.models.schema_definitions import (
     DType,
@@ -62,7 +63,7 @@ class HappyPathAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name="happy_path_aggregation",
                 description="Test happy path aggregation.",
-            )
+            ),
         ]
 
     def aggregate(
@@ -269,7 +270,7 @@ def test_aggregation_analyzer_no_init():
                 BaseReportedAggregation(
                     metric_name="unhappy_path_aggregation",
                     description="Test unhappy path aggregation.",
-                )
+                ),
             ]
 
         def aggregate(
@@ -437,7 +438,9 @@ def test_aggregation_analyzer_empty_reported_aggregations_list():
     with pytest.raises(pydantic_core._pydantic_core.ValidationError) as e:
         FunctionAnalyzer.analyze_aggregation_function(UnhappyPathAggregation)
     # empty list returned by reported_aggregations() function
-    assert "Aggregation spec must specify at least one reported aggregation." in str(e.value)
+    assert "Aggregation spec must specify at least one reported aggregation." in str(
+        e.value,
+    )
 
 
 def test_aggregation_analyzer_non_static_base_methods():

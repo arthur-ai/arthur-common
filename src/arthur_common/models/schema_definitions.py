@@ -390,11 +390,14 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                 id=uuid4(),
                 source_name="root_spans",
                 definition=create_dataset_list_type(
-                    create_dataset_scalar_type(DType.JSON),  # JSON blob to preserve hierarchy
+                    create_dataset_scalar_type(
+                        DType.JSON,
+                    ),  # JSON blob to preserve hierarchy
                 ),
             ),
         ],
     )
+
 
 def SHIELD_SCHEMA() -> DatasetSchema:
     return DatasetSchema(
@@ -452,23 +455,29 @@ def SHIELD_SCHEMA() -> DatasetSchema:
 SHIELD_RESPONSE_SCHEMA = create_shield_response_schema().to_base_type()
 SHIELD_PROMPT_SCHEMA = create_shield_prompt_schema().to_base_type()
 
+
 # Agentic trace schema base type for API responses
 def create_agentic_trace_response_schema() -> DatasetObjectType:
     return create_dataset_object_type(
         {
             "count": create_dataset_scalar_type(DType.INT),
             "traces": create_dataset_list_type(
-                create_dataset_object_type({
-                    "trace_id": create_dataset_scalar_type(DType.STRING),
-                    "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
-                    "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
-                    "root_spans": create_dataset_list_type(
-                        create_dataset_scalar_type(DType.JSON),  # JSON blob for infinite depth
-                    ),
-                })
+                create_dataset_object_type(
+                    {
+                        "trace_id": create_dataset_scalar_type(DType.STRING),
+                        "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                        "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                        "root_spans": create_dataset_list_type(
+                            create_dataset_scalar_type(
+                                DType.JSON,
+                            ),  # JSON blob for infinite depth
+                        ),
+                    },
+                ),
             ),
         },
     )
+
 
 AGENTIC_TRACE_RESPONSE_SCHEMA = create_agentic_trace_response_schema().to_base_type()
 

@@ -5,9 +5,9 @@ from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
 from arthur_common.models.metrics import (
+    BaseReportedAggregation,
     DatasetReference,
     NumericMetric,
-    BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import (
     SEGMENTATION_ALLOWED_COLUMN_TYPES,
@@ -42,7 +42,7 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
             BaseReportedAggregation(
                 metric_name=CategoricalCountAggregationFunction.METRIC_NAME,
                 description=CategoricalCountAggregationFunction.description(),
-            )
+            ),
         ]
 
     def aggregate(
