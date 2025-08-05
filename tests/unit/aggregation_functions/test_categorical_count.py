@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.categorical_count import (
     CategoricalCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+
 from .helpers import *
 
 

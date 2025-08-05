@@ -12,10 +12,10 @@ from arthur_common.aggregations.aggregator import (
 )
 from arthur_common.models.datasets import ModelProblemType
 from arthur_common.models.metrics import (
+    BaseReportedAggregation,
     DatasetReference,
     NumericMetric,
     SketchMetric,
-    BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import MetricDatasetParameterAnnotation
 
@@ -258,7 +258,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                         # Add individual scores if they exist
                         llm_score = response_relevance.get("llm_relevance_score")
                         reranker_score = response_relevance.get(
-                            "reranker_relevance_score"
+                            "reranker_relevance_score",
                         )
                         bert_score = response_relevance.get("bert_f_score")
 
@@ -304,7 +304,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                 "ts",
             )
             metrics.append(
-                self.series_to_metric(self.TOOL_SELECTION_METRIC_NAME, series)
+                self.series_to_metric(self.TOOL_SELECTION_METRIC_NAME, series),
             )
 
         # Create tool usage metric
@@ -342,7 +342,8 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             )
             metrics.append(
                 self.series_to_metric(
-                    self.RESPONSE_RELEVANCE_SCORES_METRIC_NAME, series
+                    self.RESPONSE_RELEVANCE_SCORES_METRIC_NAME,
+                    series,
                 ),
             )
 

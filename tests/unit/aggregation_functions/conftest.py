@@ -1,4 +1,3 @@
-import json
 import os
 from uuid import uuid4
 
@@ -10,7 +9,8 @@ from duckdb import DuckDBPyConnection
 from arthur_common.models.metrics import DatasetReference
 from arthur_common.tools.duckdb_data_loader import DuckDBOperator
 from arthur_common.tools.schema_inferer import SchemaInferer
-from .test_agentic_data_helper import make_agentic_test_data, create_duckdb_test_data
+
+from .test_agentic_data_helper import create_duckdb_test_data, make_agentic_test_data
 
 
 def _get_dataset(name: str) -> pd.DataFrame | list[dict]:
@@ -284,13 +284,13 @@ def get_agentic_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
 
     # Generate test traces with various structures
     traces = make_agentic_test_data(
-        num_traces=5,  # Hardcoded traces with metrics
-        include_metrics=True
+        num_traces=5,
+        include_metrics=True,  # Hardcoded traces with metrics
     )
-    
+
     # Convert to DuckDB format
     test_data = create_duckdb_test_data(traces)
-    
+
     # Insert the test data
     for trace in test_data:
         conn.sql(
@@ -309,7 +309,9 @@ def get_agentic_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
 
 
 @pytest.fixture
-def get_agentic_dataset_conn_no_metrics() -> tuple[DuckDBPyConnection, DatasetReference]:
+def get_agentic_dataset_conn_no_metrics() -> (
+    tuple[DuckDBPyConnection, DatasetReference]
+):
     """Create a test database with agentic trace data but no metrics.
 
     Returns:
@@ -336,13 +338,13 @@ def get_agentic_dataset_conn_no_metrics() -> tuple[DuckDBPyConnection, DatasetRe
 
     # Generate test traces without metrics
     traces = make_agentic_test_data(
-        num_traces=2,  # Hardcoded traces without metrics
-        include_metrics=False
+        num_traces=2,
+        include_metrics=False,  # Hardcoded traces without metrics
     )
-    
+
     # Convert to DuckDB format
     test_data = create_duckdb_test_data(traces)
-    
+
     # Insert the test data
     for trace in test_data:
         conn.sql(

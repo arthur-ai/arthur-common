@@ -4,7 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from arthur_common.models.shield import NewMetricRequest, NewRuleRequest, model_validator
+from arthur_common.models.shield import (
+    NewMetricRequest,
+    NewRuleRequest,
+    model_validator,
+)
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
 

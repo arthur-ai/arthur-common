@@ -11,10 +11,10 @@ from arthur_common.aggregations.aggregator import (
 )
 from arthur_common.models.datasets import ModelProblemType
 from arthur_common.models.metrics import (
+    BaseReportedAggregation,
     DatasetReference,
     NumericMetric,
     SketchMetric,
-    BaseReportedAggregation,
 )
 from arthur_common.models.schema_definitions import (
     SHIELD_RESPONSE_SCHEMA,
@@ -44,7 +44,7 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferencePassFailCountAggregation.METRIC_NAME,
                 description=ShieldInferencePassFailCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -113,7 +113,7 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleCountAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -205,7 +205,7 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceHallucinationCountAggregation.METRIC_NAME,
                 description=ShieldInferenceHallucinationCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -269,7 +269,7 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleToxicityScoreAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleToxicityScoreAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -354,7 +354,7 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRulePIIDataScoreAggregation.METRIC_NAME,
                 description=ShieldInferenceRulePIIDataScoreAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -445,7 +445,7 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleClaimCountAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleClaimCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -518,7 +518,7 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleClaimPassCountAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleClaimPassCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -591,7 +591,7 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleClaimFailCountAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleClaimFailCountAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -664,7 +664,7 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
             BaseReportedAggregation(
                 metric_name=ShieldInferenceRuleLatencyAggregation.METRIC_NAME,
                 description=ShieldInferenceRuleLatencyAggregation.description(),
-            )
+            ),
         ]
 
     def aggregate(
@@ -768,7 +768,7 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         return [base_token_count_agg] + [
             BaseReportedAggregation(
                 metric_name=ShieldInferenceTokenCountAggregation._series_name_from_model_name(
-                    model_name
+                    model_name,
                 ),
                 description=f"Metric that reports the estimated cost for the {model_name} model of the tokens in the Shield response and prompt schemas.",
             )
@@ -855,7 +855,8 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
             )
             resp.append(
                 self.series_to_metric(
-                    self._series_name_from_model_name(model), model_series
-                )
+                    self._series_name_from_model_name(model),
+                    model_series,
+                ),
             )
         return resp
