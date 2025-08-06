@@ -367,6 +367,38 @@ def create_shield_inference_feedback_schema() -> DatasetListType:
     )
 
 
+def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
+    return DatasetSchema(
+        alias_mask={},
+        columns=[
+            DatasetColumn(
+                id=uuid4(),
+                source_name="trace_id",
+                definition=create_dataset_scalar_type(DType.STRING),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="start_time",
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="end_time",
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="root_spans",
+                definition=create_dataset_list_type(
+                    create_dataset_scalar_type(
+                        DType.JSON,
+                    ),  # JSON blob to preserve hierarchy
+                ),
+            ),
+        ],
+    )
+
+
 def SHIELD_SCHEMA() -> DatasetSchema:
     return DatasetSchema(
         alias_mask={},
@@ -422,6 +454,32 @@ def SHIELD_SCHEMA() -> DatasetSchema:
 
 SHIELD_RESPONSE_SCHEMA = create_shield_response_schema().to_base_type()
 SHIELD_PROMPT_SCHEMA = create_shield_prompt_schema().to_base_type()
+
+
+# Agentic trace schema base type for API responses
+def create_agentic_trace_response_schema() -> DatasetObjectType:
+    return create_dataset_object_type(
+        {
+            "count": create_dataset_scalar_type(DType.INT),
+            "traces": create_dataset_list_type(
+                create_dataset_object_type(
+                    {
+                        "trace_id": create_dataset_scalar_type(DType.STRING),
+                        "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                        "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                        "root_spans": create_dataset_list_type(
+                            create_dataset_scalar_type(
+                                DType.JSON,
+                            ),  # JSON blob for infinite depth
+                        ),
+                    },
+                ),
+            ),
+        },
+    )
+
+
+AGENTIC_TRACE_RESPONSE_SCHEMA = create_agentic_trace_response_schema().to_base_type()
 
 SEGMENTATION_ALLOWED_DTYPES = [DType.INT, DType.BOOL, DType.STRING, DType.UUID]
 SEGMENTATION_ALLOWED_COLUMN_TYPES = [

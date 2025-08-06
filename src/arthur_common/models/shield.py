@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
@@ -24,6 +25,15 @@ class RuleType(str, Enum):
 class RuleScope(str, Enum):
     DEFAULT = "default"
     TASK = "task"
+
+
+class MetricType(str, Enum):
+    QUERY_RELEVANCE = "QueryRelevance"
+    RESPONSE_RELEVANCE = "ResponseRelevance"
+    TOOL_SELECTION = "ToolSelection"
+
+    def __str__(self):
+        return self.value
 
 
 class BaseEnum(str, Enum):
@@ -240,6 +250,27 @@ class RuleResponse(BaseModel):
     )
 
 
+class MetricResponse(BaseModel):
+    id: str = Field(description="ID of the Metric")
+    name: str = Field(description="Name of the Metric")
+    type: MetricType = Field(description="Type of the Metric")
+    metric_metadata: str = Field(description="Metadata of the Metric")
+    config: Optional[str] = Field(
+        description="JSON-serialized configuration for the Metric",
+        default=None,
+    )
+    created_at: datetime = Field(
+        description="Time the Metric was created in unix milliseconds",
+    )
+    updated_at: datetime = Field(
+        description="Time the Metric was updated in unix milliseconds",
+    )
+    enabled: Optional[bool] = Field(
+        description="Whether the Metric is enabled",
+        default=None,
+    )
+
+
 class TaskResponse(BaseModel):
     id: str = Field(description=" ID of the task")
     name: str = Field(description="Name of the task")
@@ -249,7 +280,12 @@ class TaskResponse(BaseModel):
     updated_at: int = Field(
         description="Time the task was created in unix milliseconds",
     )
+    is_agentic: bool = Field(description="Whether the task is agentic or not")
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
+    metrics: Optional[List[MetricResponse]] = Field(
+        description="List of all the metrics for the task.",
+        default=None,
+    )
 
 
 class UpdateRuleRequest(BaseModel):
@@ -484,3 +520,125 @@ class NewRuleRequest(BaseModel):
                     detail="Examples must be provided to onboard a ModelSensitiveDataRule",
                 )
         return self
+
+
+class RelevanceMetricConfig(BaseModel):
+    """Configuration for relevance metrics including QueryRelevance and ResponseRelevance"""
+
+    relevance_threshold: Optional[float] = Field(
+        default=None,
+        description="Threshold for determining relevance when not using LLM judge",
+    )
+    use_llm_judge: bool = Field(
+        default=True,
+        description="Whether to use LLM as a judge for relevance scoring",
+    )
+
+
+class NewMetricRequest(BaseModel):
+    type: MetricType = Field(
+        description="Type of the metric. It can only be one of QueryRelevance, ResponseRelevance, ToolSelection",
+        examples=["UserQueryRelevance"],
+    )
+    name: str = Field(
+        description="Name of metric",
+        examples=["My User Query Relevance"],
+    )
+    metric_metadata: str = Field(description="Additional metadata for the metric")
+    config: Optional[RelevanceMetricConfig] = Field(
+        description="Configuration for the metric. Currently only applies to UserQueryRelevance and ResponseRelevance metric types.",
+        default=None,
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example1": {
+                "type": "QueryRelevance",
+                "name": "My User Query Relevance",
+                "metric_metadata": "This is a test metric metadata",
+            },
+            "example2": {
+                "type": "QueryRelevance",
+                "name": "My User Query Relevance with Config",
+                "metric_metadata": "This is a test metric metadata",
+                "config": {"relevance_threshold": 0.8, "use_llm_judge": False},
+            },
+            "example3": {
+                "type": "ResponseRelevance",
+                "name": "My Response Relevance",
+                "metric_metadata": "This is a test metric metadata",
+                "config": {"use_llm_judge": True},
+            },
+        },
+    )
+
+    @field_validator("type")
+    def validate_metric_type(cls, value):
+        if value not in MetricType:
+            raise ValueError(
+                f"Invalid metric type: {value}. Valid types are: {', '.join([t.value for t in MetricType])}",
+            )
+        return value
+
+    @model_validator(mode="before")
+    def set_config_type(cls, values):
+        if not isinstance(values, dict):
+            return values
+
+        metric_type = values.get("type")
+        config_values = values.get("config")
+
+        # Map metric types to their corresponding config classes
+        metric_type_to_config = {
+            MetricType.QUERY_RELEVANCE: RelevanceMetricConfig,
+            MetricType.RESPONSE_RELEVANCE: RelevanceMetricConfig,
+            # Add new metric types and their configs here as needed
+        }
+
+        config_class = metric_type_to_config.get(metric_type)
+
+        if config_class is not None:
+            if config_values is None:
+                # Default config when none is provided
+                config_values = {"use_llm_judge": True}
+            elif isinstance(config_values, dict):
+                # Handle mutually exclusive parameters
+                if (
+                    "relevance_threshold" in config_values
+                    and "use_llm_judge" in config_values
+                    and config_values["use_llm_judge"]
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="relevance_threshold and use_llm_judge=true are mutually exclusive. Set use_llm_judge=false when using relevance_threshold.",
+                        headers={"full_stacktrace": "false"},
+                    )
+
+                # If relevance_threshold is set but use_llm_judge isn't, set use_llm_judge to false
+                if (
+                    "relevance_threshold" in config_values
+                    and "use_llm_judge" not in config_values
+                ):
+                    config_values["use_llm_judge"] = False
+
+                # If neither is set, default to use_llm_judge=True
+                if (
+                    "relevance_threshold" not in config_values
+                    and "use_llm_judge" not in config_values
+                ):
+                    config_values["use_llm_judge"] = True
+
+            if isinstance(config_values, BaseModel):
+                config_values = config_values.model_dump()
+
+            values["config"] = config_class(**config_values)
+        elif config_values is not None:
+            # Provide a nice error message listing supported metric types
+            supported_types = [t.value for t in metric_type_to_config.keys()]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Config is only supported for {', '.join(supported_types)} metric types",
+                headers={"full_stacktrace": "false"},
+            )
+
+        return values

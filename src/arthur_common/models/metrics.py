@@ -264,14 +264,14 @@ class AggregationSpecSchema(BaseModel):
         description="List of parameters to the aggregation's aggregate function.",
     )
     reported_aggregations: list[BaseReportedAggregation] = Field(
-        description="List of aggregations reported by the metric."
+        description="List of aggregations reported by the metric.",
     )
 
     @model_validator(mode="after")
     def at_least_one_reported_agg(self) -> Self:
         if len(self.reported_aggregations) < 1:
             raise ValueError(
-                "Aggregation spec must specify at least one reported aggregation."
+                "Aggregation spec must specify at least one reported aggregation.",
             )
         return self
 
