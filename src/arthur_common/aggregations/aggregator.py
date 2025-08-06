@@ -130,8 +130,8 @@ class NumericAggregationFunction(AggregationFunction, ABC):
             )
         return NumericTimeSeries(values=values, dimensions=[])
 
+    @staticmethod
     def series_to_metric(
-        self,
         metric_name: str,
         series: list[NumericTimeSeries],
     ) -> NumericMetric:
@@ -151,8 +151,8 @@ class SketchAggregationFunction(AggregationFunction, ABC):
     ) -> list[SketchMetric]:
         raise NotImplementedError
 
+    @staticmethod
     def group_query_results_to_sketch_metrics(
-        self,
         data: pd.DataFrame,
         value_col: str,
         dim_columns: list[str],
@@ -172,7 +172,7 @@ class SketchAggregationFunction(AggregationFunction, ABC):
         groups = data.groupby(dim_columns, dropna=False)
         for _, group in groups:
             calculated_metrics.append(
-                self._group_to_series(group, timestamp_col, dim_columns, value_col),
+                SketchAggregationFunction._group_to_series(group, timestamp_col, dim_columns, value_col),
             )
 
         return calculated_metrics
@@ -222,8 +222,8 @@ class SketchAggregationFunction(AggregationFunction, ABC):
 
         return SketchTimeSeries(values=values, dimensions=dimensions)
 
+    @staticmethod
     def series_to_metric(
-        self,
         metric_name: str,
         series: list[SketchTimeSeries],
     ) -> SketchMetric:
