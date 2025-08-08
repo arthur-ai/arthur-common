@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
@@ -280,17 +280,15 @@ class TaskResponse(BaseModel):
     updated_at: int = Field(
         description="Time the task was created in unix milliseconds",
     )
-    is_agentic: bool = Field(description="Whether the task is agentic or not")
+    is_agentic: Optional[bool] = Field(
+        description="Whether the task is agentic or not",
+        default=None,
+    )
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
     metrics: Optional[List[MetricResponse]] = Field(
         description="List of all the metrics for the task.",
         default=None,
     )
-
-    @field_validator("is_agentic", mode="before")
-    @classmethod
-    def validate_is_agentic(cls, v: Any) -> bool:
-        return v or False
 
 
 class UpdateRuleRequest(BaseModel):
