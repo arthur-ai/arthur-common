@@ -622,7 +622,7 @@ class NewMetricRequest(BaseModel):
 
                 # If neither is set, default to use_llm_judge=True
                 if relevance_threshold is None and (
-                        use_llm_judge is None or use_llm_judge == False
+                    use_llm_judge is None or use_llm_judge == False
                 ):
                     config_values["use_llm_judge"] = True
 
