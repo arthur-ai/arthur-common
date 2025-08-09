@@ -557,17 +557,11 @@ def create_duckdb_test_data(traces: List[Dict[str, Any]]) -> List[Dict[str, Any]
     # Convert traces to the format expected by the aggregations
     data = []
     for trace in traces:
-        # Convert ISO 8601 timestamp to microseconds since epoch
-        start_dt = datetime.fromisoformat(trace["start_time"])
-        end_dt = datetime.fromisoformat(trace["end_time"])
-
         data.append(
             {
                 "trace_id": trace["trace_id"],
-                "start_time": int(
-                    start_dt.timestamp() * 1e6,
-                ),  # Convert to microseconds
-                "end_time": int(end_dt.timestamp() * 1e6),  # Convert to microseconds
+                "start_time": trace["start_time"],
+                "end_time": trace["end_time"],
                 "root_spans": json.dumps(trace["root_spans"]),
             },
         )

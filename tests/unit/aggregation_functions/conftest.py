@@ -275,9 +275,9 @@ def get_agentic_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
         f"""
         CREATE TABLE {dataset_ref.dataset_table_name} (
             trace_id VARCHAR,
-            start_time BIGINT,
-            end_time BIGINT,
-            root_spans VARCHAR
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
         )
         """,
     )
@@ -298,8 +298,8 @@ def get_agentic_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
             INSERT INTO {dataset_ref.dataset_table_name}
             VALUES (
                 '{trace['trace_id']}',
-                {trace['start_time']},
-                {trace['end_time']},
+                '{trace['start_time']}',
+                '{trace['end_time']}',
                 '{trace['root_spans']}'
             )
             """,
@@ -329,9 +329,9 @@ def get_agentic_dataset_conn_no_metrics() -> (
         f"""
         CREATE TABLE {dataset_ref.dataset_table_name} (
             trace_id VARCHAR,
-            start_time BIGINT,
-            end_time BIGINT,
-            root_spans VARCHAR
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
         )
         """,
     )
@@ -352,8 +352,8 @@ def get_agentic_dataset_conn_no_metrics() -> (
             INSERT INTO {dataset_ref.dataset_table_name}
             VALUES (
                 '{trace['trace_id']}',
-                {trace['start_time']},
-                {trace['end_time']},
+                '{trace['start_time']}',
+                '{trace['end_time']}',
                 '{trace['root_spans']}'
             )
             """,

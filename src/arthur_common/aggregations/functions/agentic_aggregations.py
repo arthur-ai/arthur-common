@@ -142,7 +142,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -392,7 +392,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -517,7 +517,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -638,7 +638,7 @@ class AgenticEventCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name}
             GROUP BY ts
@@ -695,7 +695,7 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -790,7 +790,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
