@@ -177,7 +177,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = metric_result.get("details", {})
+                    details = json.loads(metric_result.get("details", '{}'))
 
                     if metric_type == "ToolSelection":
                         tool_selection = details.get("tool_selection", {})
@@ -423,7 +423,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = metric_result.get("details", {})
+                    details = json.loads(metric_result.get("details", '{}'))
 
                     if metric_type in ["QueryRelevance", "ResponseRelevance"]:
                         relevance_data = details.get(
@@ -548,7 +548,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = metric_result.get("details", {})
+                        details = json.loads(metric_result.get("details", '{}'))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")
@@ -823,7 +823,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = metric_result.get("details", {})
+                        details = json.loads(metric_result.get("details", '{}'))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")

@@ -46,36 +46,36 @@ def create_metric_results(
     return [
         {
             "metric_type": "ToolSelection",
-            "details": {
+            "details": json.dumps({
                 "tool_selection": {
                     "tool_selection": tool_selection,
                     "tool_selection_reason": f"Tool selection reason (score={tool_selection})",
                     "tool_usage": tool_usage,
                     "tool_usage_reason": f"Tool usage reason (score={tool_usage})",
                 },
-            },
+            }),
         },
         {
             "metric_type": "QueryRelevance",
-            "details": {
+            "details": json.dumps({
                 "query_relevance": {
                     "llm_relevance_score": qrelevance,
                     "reranker_relevance_score": qrelevance + 0.02,
                     "bert_f_score": qrelevance - 0.05,
                     "reason": f"Query relevance reason (score={qrelevance})",
                 },
-            },
+            }),
         },
         {
             "metric_type": "ResponseRelevance",
-            "details": {
+            "details": json.dumps({
                 "response_relevance": {
                     "llm_relevance_score": resprelevance,
                     "reranker_relevance_score": resprelevance + 0.03,
                     "bert_f_score": resprelevance - 0.08,
                     "reason": f"Response relevance reason (score={resprelevance})",
                 },
-            },
+            }),
         },
     ]
 
