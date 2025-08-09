@@ -36,7 +36,9 @@ def extract_spans_with_metrics_and_agents(root_spans):
     spans_with_metrics_and_agents = []
 
     def traverse_spans(spans, current_agent_name="unknown"):
-        for span in spans:
+        for span_str in spans:
+            span = json.loads(span_str) if type(span_str) == str else span_str
+
             # Update current agent name if this span is an AGENT
             if span.get("span_kind") == "AGENT":
                 try:
@@ -716,7 +718,9 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             # Count LLM spans in the tree
             def count_llm_spans(spans):
                 count = 0
-                for span in spans:
+                for span_str in spans:
+                    span = json.loads(span_str) if type(span_str) == str else span_str
+
                     # Check if this span is an LLM span
                     if span.get("span_kind") == "LLM":
                         count += 1
