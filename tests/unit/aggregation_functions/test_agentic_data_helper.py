@@ -46,36 +46,36 @@ def create_metric_results(
     return [
         {
             "metric_type": "ToolSelection",
-            "details": {
+            "details": json.dumps({
                 "tool_selection": {
                     "tool_selection": tool_selection,
                     "tool_selection_reason": f"Tool selection reason (score={tool_selection})",
                     "tool_usage": tool_usage,
                     "tool_usage_reason": f"Tool usage reason (score={tool_usage})",
                 },
-            },
+            }),
         },
         {
             "metric_type": "QueryRelevance",
-            "details": {
+            "details": json.dumps({
                 "query_relevance": {
                     "llm_relevance_score": qrelevance,
                     "reranker_relevance_score": qrelevance + 0.02,
                     "bert_f_score": qrelevance - 0.05,
                     "reason": f"Query relevance reason (score={qrelevance})",
                 },
-            },
+            }),
         },
         {
             "metric_type": "ResponseRelevance",
-            "details": {
+            "details": json.dumps({
                 "response_relevance": {
                     "llm_relevance_score": resprelevance,
                     "reranker_relevance_score": resprelevance + 0.03,
                     "bert_f_score": resprelevance - 0.08,
                     "reason": f"Response relevance reason (score={resprelevance})",
                 },
-            },
+            }),
         },
     ]
 
@@ -95,7 +95,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=0, seconds=30, microseconds=200000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-001",
                     "span_kind": "CHAIN",
                     "start_time": (
@@ -137,7 +137,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                             "children": [],
                         },
                     ],
-                },
+                }),
             ],
         },
         # Trace 2: chain->agent->llm with all metrics (pass)
@@ -150,7 +150,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=5, seconds=30, microseconds=400000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-002",
                     "span_kind": "CHAIN",
                     "start_time": (base_time + timedelta(minutes=5)).isoformat(),
@@ -212,7 +212,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                             ],
                         },
                     ],
-                },
+                }),
             ],
         },
         # Trace 3: chain->agent->chain->llm with all metrics (pass)
@@ -225,7 +225,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=10, seconds=30, microseconds=600000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-003",
                     "span_kind": "CHAIN",
                     "start_time": (base_time + timedelta(minutes=10)).isoformat(),
@@ -308,7 +308,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                             ],
                         },
                     ],
-                },
+                }),
             ],
         },
         # Trace 4: agent->llm with all metrics (fail)
@@ -321,7 +321,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=15, seconds=30, microseconds=800000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "agent-004",
                     "span_kind": "AGENT",
                     "start_time": (base_time + timedelta(minutes=15)).isoformat(),
@@ -360,7 +360,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                             "children": [],
                         },
                     ],
-                },
+                }),
             ],
         },
         # Trace 5: chain->llm with all metrics (fail)
@@ -373,7 +373,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=20, seconds=30, microseconds=950000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-005",
                     "span_kind": "CHAIN",
                     "start_time": (base_time + timedelta(minutes=20)).isoformat(),
@@ -412,7 +412,7 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                             "children": [],
                         },
                     ],
-                },
+                }),
             ],
         },
     ]
@@ -433,7 +433,7 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=0, seconds=30, microseconds=250000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-no-metrics-001",
                     "span_kind": "CHAIN",
                     "start_time": (
@@ -474,7 +474,7 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                             "children": [],
                         },
                     ],
-                },
+                }),
             ],
         },
         # Trace 2: chain->agent->llm without metrics
@@ -487,7 +487,7 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=5, seconds=30, microseconds=450000)
             ).isoformat(),
             "root_spans": [
-                {
+                json.dumps({
                     "id": "chain-no-metrics-002",
                     "span_kind": "CHAIN",
                     "start_time": (base_time + timedelta(minutes=5)).isoformat(),
@@ -546,7 +546,7 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                             ],
                         },
                     ],
-                },
+                }),
             ],
         },
     ]
@@ -557,17 +557,11 @@ def create_duckdb_test_data(traces: List[Dict[str, Any]]) -> List[Dict[str, Any]
     # Convert traces to the format expected by the aggregations
     data = []
     for trace in traces:
-        # Convert ISO 8601 timestamp to microseconds since epoch
-        start_dt = datetime.fromisoformat(trace["start_time"])
-        end_dt = datetime.fromisoformat(trace["end_time"])
-
         data.append(
             {
                 "trace_id": trace["trace_id"],
-                "start_time": int(
-                    start_dt.timestamp() * 1e6,
-                ),  # Convert to microseconds
-                "end_time": int(end_dt.timestamp() * 1e6),  # Convert to microseconds
+                "start_time": trace["start_time"],
+                "end_time": trace["end_time"],
                 "root_spans": json.dumps(trace["root_spans"]),
             },
         )
