@@ -195,6 +195,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "ts": ts,
                                     "tool_selection_score": tool_selection_score,
                                     "tool_selection_reason": tool_selection_reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -211,6 +212,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "ts": ts,
                                     "tool_usage_score": tool_usage_score,
                                     "tool_usage_reason": tool_usage_reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -230,6 +232,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "llm_relevance_score",
                                     "score_value": llm_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -240,6 +243,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "reranker_relevance_score",
                                     "score_value": reranker_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -250,6 +254,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "bert_f_score",
                                     "score_value": bert_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -271,6 +276,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "llm_relevance_score",
                                     "score_value": llm_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -291,6 +297,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "bert_f_score",
                                     "score_value": bert_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -302,7 +309,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             series = self.group_query_results_to_sketch_metrics(
                 df,
                 "tool_selection_score",
-                ["tool_selection_reason"],
+                ["tool_selection_reason", "agent_name"],
                 "ts",
             )
             metrics.append(
@@ -315,7 +322,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             series = self.group_query_results_to_sketch_metrics(
                 df,
                 "tool_usage_score",
-                ["tool_usage_reason"],
+                ["tool_usage_reason", "agent_name"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOOL_USAGE_METRIC_NAME, series))
