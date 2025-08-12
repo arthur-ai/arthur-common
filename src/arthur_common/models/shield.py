@@ -280,7 +280,10 @@ class TaskResponse(BaseModel):
     updated_at: int = Field(
         description="Time the task was created in unix milliseconds",
     )
-    is_agentic: bool = Field(description="Whether the task is agentic or not")
+    is_agentic: Optional[bool] = Field(
+        description="Whether the task is agentic or not",
+        default=None,
+    )
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
     metrics: Optional[List[MetricResponse]] = Field(
         description="List of all the metrics for the task.",
@@ -602,12 +605,11 @@ class NewMetricRequest(BaseModel):
                 # Default config when none is provided
                 config_values = {"use_llm_judge": True}
             elif isinstance(config_values, dict):
+                relevance_threshold = config_values.get("relevance_threshold")
+                use_llm_judge = config_values.get("use_llm_judge")
+
                 # Handle mutually exclusive parameters
-                if (
-                    "relevance_threshold" in config_values
-                    and "use_llm_judge" in config_values
-                    and config_values["use_llm_judge"]
-                ):
+                if relevance_threshold is not None and use_llm_judge:
                     raise HTTPException(
                         status_code=400,
                         detail="relevance_threshold and use_llm_judge=true are mutually exclusive. Set use_llm_judge=false when using relevance_threshold.",
@@ -615,16 +617,12 @@ class NewMetricRequest(BaseModel):
                     )
 
                 # If relevance_threshold is set but use_llm_judge isn't, set use_llm_judge to false
-                if (
-                    "relevance_threshold" in config_values
-                    and "use_llm_judge" not in config_values
-                ):
+                if relevance_threshold is not None and use_llm_judge is None:
                     config_values["use_llm_judge"] = False
 
                 # If neither is set, default to use_llm_judge=True
-                if (
-                    "relevance_threshold" not in config_values
-                    and "use_llm_judge" not in config_values
+                if relevance_threshold is None and (
+                    use_llm_judge is None or use_llm_judge == False
                 ):
                     config_values["use_llm_judge"] = True
 

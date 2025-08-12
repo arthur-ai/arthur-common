@@ -36,7 +36,9 @@ def extract_spans_with_metrics_and_agents(root_spans):
     spans_with_metrics_and_agents = []
 
     def traverse_spans(spans, current_agent_name="unknown"):
-        for span in spans:
+        for span_str in spans:
+            span = json.loads(span_str) if type(span_str) == str else span_str
+
             # Update current agent name if this span is an AGENT
             if span.get("span_kind") == "AGENT":
                 try:
@@ -142,7 +144,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -175,7 +177,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = metric_result.get("details", {})
+                    details = json.loads(metric_result.get("details", '{}'))
 
                     if metric_type == "ToolSelection":
                         tool_selection = details.get("tool_selection", {})
@@ -193,6 +195,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "ts": ts,
                                     "tool_selection_score": tool_selection_score,
                                     "tool_selection_reason": tool_selection_reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -209,6 +212,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "ts": ts,
                                     "tool_usage_score": tool_usage_score,
                                     "tool_usage_reason": tool_usage_reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -228,6 +232,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "llm_relevance_score",
                                     "score_value": llm_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -238,6 +243,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "reranker_relevance_score",
                                     "score_value": reranker_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -248,6 +254,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "bert_f_score",
                                     "score_value": bert_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -269,6 +276,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "llm_relevance_score",
                                     "score_value": llm_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -289,6 +297,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
                                     "score_type": "bert_f_score",
                                     "score_value": bert_score,
                                     "reason": reason,
+                                    "agent_name": agent_name,
                                 },
                             )
 
@@ -300,7 +309,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             series = self.group_query_results_to_sketch_metrics(
                 df,
                 "tool_selection_score",
-                ["tool_selection_reason"],
+                ["tool_selection_reason", "agent_name"],
                 "ts",
             )
             metrics.append(
@@ -313,7 +322,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
             series = self.group_query_results_to_sketch_metrics(
                 df,
                 "tool_usage_score",
-                ["tool_usage_reason"],
+                ["tool_usage_reason", "agent_name"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOOL_USAGE_METRIC_NAME, series))
@@ -392,7 +401,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -421,7 +430,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = metric_result.get("details", {})
+                    details = json.loads(metric_result.get("details", '{}'))
 
                     if metric_type in ["QueryRelevance", "ResponseRelevance"]:
                         relevance_data = details.get(
@@ -517,7 +526,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -546,7 +555,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = metric_result.get("details", {})
+                        details = json.loads(metric_result.get("details", '{}'))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")
@@ -638,7 +647,7 @@ class AgenticEventCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name}
             GROUP BY ts
@@ -695,7 +704,7 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -716,7 +725,9 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             # Count LLM spans in the tree
             def count_llm_spans(spans):
                 count = 0
-                for span in spans:
+                for span_str in spans:
+                    span = json.loads(span_str) if type(span_str) == str else span_str
+
                     # Check if this span is an LLM span
                     if span.get("span_kind") == "LLM":
                         count += 1
@@ -790,7 +801,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
         results = ddb_conn.sql(
             f"""
             SELECT
-                time_bucket(INTERVAL '5 minutes', to_timestamp(start_time / 1000000)) as ts,
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 root_spans
             FROM {dataset.dataset_table_name}
             WHERE root_spans IS NOT NULL AND length(root_spans) > 0
@@ -819,7 +830,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = metric_result.get("details", {})
+                        details = json.loads(metric_result.get("details", '{}'))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")
