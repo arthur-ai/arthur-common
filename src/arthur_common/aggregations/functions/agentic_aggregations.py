@@ -38,6 +38,7 @@ def extract_spans_with_metrics_and_agents(
     """
     spans_with_metrics_and_agents = []
 
+    # TODO: Improve function so it won't modify variable outside of its scope
     def traverse_spans(
         spans: list[str | dict[str, Any]],
         current_agent_name: str = "unknown",
@@ -65,11 +66,10 @@ def extract_spans_with_metrics_and_agents(
                     )
 
             # Check if this span has metrics
-            if metric_result := parsed_span.get("metric_results"):
-                if len(metric_result) > 0:
-                    spans_with_metrics_and_agents.append(
-                        (parsed_span, current_agent_name),
-                    )
+            if parsed_span.get("metric_results", []):
+                spans_with_metrics_and_agents.append(
+                    (parsed_span, current_agent_name),
+                )
 
             # Recursively traverse children with the current agent name
             if children_span := parsed_span.get("children", []):

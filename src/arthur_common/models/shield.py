@@ -598,7 +598,7 @@ class NewMetricRequest(BaseModel):
             # Add new metric types and their configs here as needed
         }
 
-        config_class = metric_type_to_config.get(metric_type, RelevanceMetricConfig)
+        config_class = metric_type_to_config.get(metric_type)
 
         if config_class is not None:
             if config_values is None:
