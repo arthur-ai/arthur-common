@@ -209,7 +209,7 @@ class MetricsColumnParameterSchema(MetricsParameterSchema, BaseColumnParameterSc
 
 class MetricsColumnListParameterSchema(
     MetricsParameterSchema,
-    BaseColumnParameterSchema,
+    BaseColumnBaseParameterSchema,
 ):
     # list column parameter schema specific to default metrics
     parameter_type: Literal["column_list"] = "column_list"
@@ -312,7 +312,7 @@ class ReportedCustomAggregation(BaseReportedAggregation):
 
     @field_validator("dimension_columns")
     @classmethod
-    def validate_dimension_columns_length(cls, v: list[str]) -> str:
+    def validate_dimension_columns_length(cls, v: list[str]) -> list[str]:
         if len(v) > 1:
             raise ValueError("Only one dimension column can be specified.")
         return v

@@ -27,7 +27,53 @@ responses = "0.25.7"
 pytest-xdist = "3.6.1"
 pytest-cov = "^6.1.1"
 pre-commit = "^4.2.0"
-mypy = "^1.16.1"
+
+
+[tool.poetry.group.linters.dependencies]
+autoflake = "^2.3.1"
+isort = "^6.0.1"
+black = "^25.1.0"
+mypy = "^1.17.0"
+
+
+[tool.autoflake]
+remove-all-unused-imports = true
+in-place = true
+recursive = true
+
+
+[tool.isort]
+profile = "black"
+src_paths = ["src"]
+
+
+[tool.black]
+target-version = ['py312', 'py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  06
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+ignore_missing_imports = true
+implicit_reexport = true
+explicit_package_bases = true
+strict = true
+exclude = ["clients/python", "alembic_app_db", "alembic_ts_db", "tests"]
+namespace_packages = true
+mypy_path = "src"
+
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
