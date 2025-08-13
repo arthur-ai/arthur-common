@@ -122,6 +122,20 @@ class BaseAggregationParameterSchema(BaseModel):
         description="Description of the parameter.",
     )
 
+    @field_validator("parameter_key")
+    @classmethod
+    def validate_parameter_key_allowed_characters(cls, v: str) -> str:
+        if not v.replace("_", "").isalpha():
+            raise ValueError("Parameter key can only contain letters and underscores.")
+        return v
+
+    @field_validator("friendly_name")
+    @classmethod
+    def validate_friendly_name_allowed_characters(cls, v: str) -> str:
+        if not v.replace("_", "").replace(" ", "").isalpha():
+            raise ValueError("Friendly name can only contain letters and underscores.")
+        return v
+
 
 class MetricsParameterSchema(BaseAggregationParameterSchema):
     # specific to default metrics/Python metrics—not available to custom aggregations
