@@ -32,7 +32,7 @@ class MetricType(str, Enum):
     RESPONSE_RELEVANCE = "ResponseRelevance"
     TOOL_SELECTION = "ToolSelection"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.value
 
 
@@ -575,20 +575,20 @@ class NewMetricRequest(BaseModel):
         },
     )
 
-    @field_validator("type")
-    def validate_metric_type(cls, value):
-        if value not in MetricType:
-            raise ValueError(
-                f"Invalid metric type: {value}. Valid types are: {', '.join([t.value for t in MetricType])}",
-            )
-        return value
-
     @model_validator(mode="before")
-    def set_config_type(cls, values):
+    def set_config_type(cls, values: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(values, dict):
             return values
 
-        metric_type = values.get("type")
+        try:
+            metric_type = MetricType(values.get("type", "empty_value"))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid metric type: {values.get('type', 'empty_value')}. Must be one of {[t.value for t in MetricType]}",
+                headers={"full_stacktrace": "false"},
+            )
+
         config_values = values.get("config")
 
         # Map metric types to their corresponding config classes
@@ -598,7 +598,7 @@ class NewMetricRequest(BaseModel):
             # Add new metric types and their configs here as needed
         }
 
-        config_class = metric_type_to_config.get(metric_type)
+        config_class = metric_type_to_config.get(metric_type, RelevanceMetricConfig)
 
         if config_class is not None:
             if config_values is None:

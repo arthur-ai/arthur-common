@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import pandas as pd
@@ -27,7 +27,10 @@ TOOL_SCORE_NO_TOOL_VALUE = 2
 logger = logging.getLogger(__name__)
 
 
-def extract_spans_with_metrics_and_agents(root_spans):
+# TODO: create TypedDict for span
+def extract_spans_with_metrics_and_agents(
+    root_spans: list[str | dict[str, Any]],
+) -> list[tuple[dict[str, Any], str]]:
     """Recursively extract all spans with metrics and their associated agent names from the span tree.
 
     Returns:
@@ -35,14 +38,20 @@ def extract_spans_with_metrics_and_agents(root_spans):
     """
     spans_with_metrics_and_agents = []
 
-    def traverse_spans(spans, current_agent_name="unknown"):
-        for span_str in spans:
-            span = json.loads(span_str) if type(span_str) == str else span_str
+    def traverse_spans(
+        spans: list[str | dict[str, Any]],
+        current_agent_name: str = "unknown",
+    ) -> None:
+        for span_to_parse in spans:
+            if isinstance(span_to_parse, str):
+                parsed_span = json.loads(span_to_parse)
+            else:
+                parsed_span = span_to_parse
 
             # Update current agent name if this span is an AGENT
-            if span.get("span_kind") == "AGENT":
+            if parsed_span.get("span_kind") == "AGENT":
                 try:
-                    raw_data = span.get("raw_data", {})
+                    raw_data = parsed_span.get("raw_data", {})
                     if isinstance(raw_data, str):
                         raw_data = json.loads(raw_data)
 
@@ -52,29 +61,32 @@ def extract_spans_with_metrics_and_agents(root_spans):
                         current_agent_name = agent_name
                 except (json.JSONDecodeError, KeyError, TypeError):
                     logger.error(
-                        f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
+                        f"Error parsing attributes from span (span_id: {parsed_span.get('span_id')}) in trace {parsed_span.get('trace_id')}",
                     )
 
             # Check if this span has metrics
-            if span.get("metric_results") and len(span.get("metric_results", [])) > 0:
-                spans_with_metrics_and_agents.append((span, current_agent_name))
+            if metric_result := parsed_span.get("metric_results"):
+                if len(metric_result) > 0:
+                    spans_with_metrics_and_agents.append(
+                        (parsed_span, current_agent_name),
+                    )
 
             # Recursively traverse children with the current agent name
-            if span.get("children", []):
-                traverse_spans(span["children"], current_agent_name)
+            if children_span := parsed_span.get("children", []):
+                traverse_spans(children_span, current_agent_name)
 
     traverse_spans(root_spans)
     return spans_with_metrics_and_agents
 
 
-def determine_relevance_pass_fail(score):
+def determine_relevance_pass_fail(score: float | None) -> str | None:
     """Determine pass/fail for relevance scores using global threshold"""
     if score is None:
         return None
     return "pass" if score >= RELEVANCE_SCORE_THRESHOLD else "fail"
 
 
-def determine_tool_pass_fail(score):
+def determine_tool_pass_fail(score: int | None) -> str | None:
     """Determine pass/fail for tool scores using global threshold"""
     if score is None:
         return None
@@ -177,7 +189,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = json.loads(metric_result.get("details", '{}'))
+                    details = json.loads(metric_result.get("details", "{}"))
 
                     if metric_type == "ToolSelection":
                         tool_selection = details.get("tool_selection", {})
@@ -430,7 +442,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     metric_type = metric_result.get("metric_type")
-                    details = json.loads(metric_result.get("details", '{}'))
+                    details = json.loads(metric_result.get("details", "{}"))
 
                     if metric_type in ["QueryRelevance", "ResponseRelevance"]:
                         relevance_data = details.get(
@@ -555,7 +567,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = json.loads(metric_result.get("details", '{}'))
+                        details = json.loads(metric_result.get("details", "{}"))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")
@@ -723,10 +735,13 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
                 root_spans = json.loads(root_spans)
 
             # Count LLM spans in the tree
-            def count_llm_spans(spans):
+            def count_llm_spans(spans: list[str | dict[str, Any]]) -> int:
                 count = 0
-                for span_str in spans:
-                    span = json.loads(span_str) if type(span_str) == str else span_str
+                for span_to_parse in spans:
+                    if isinstance(span_to_parse, str):
+                        span = json.loads(span_to_parse)
+                    else:
+                        span = span_to_parse
 
                     # Check if this span is an LLM span
                     if span.get("span_kind") == "LLM":
@@ -830,7 +845,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
 
                 for metric_result in metric_results:
                     if metric_result.get("metric_type") == "ToolSelection":
-                        details = json.loads(metric_result.get("details", '{}'))
+                        details = json.loads(metric_result.get("details", "{}"))
                         tool_selection = details.get("tool_selection", {})
 
                         tool_selection_score = tool_selection.get("tool_selection")
