@@ -12,8 +12,18 @@ class BaseEnum(str, Enum):
         return self.value
 
 
+class MetricType(str, Enum):
+    QUERY_RELEVANCE = "QueryRelevance"
+    RESPONSE_RELEVANCE = "ResponseRelevance"
+    TOOL_SELECTION = "ToolSelection"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+# Using version from arthur-engine, which has str and enum type inheritance.
 # Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
-class PIIEntityTypes(BaseEnum):
+class PIIEntityTypes(BaseEnum, str, Enum):
     CREDIT_CARD = "CREDIT_CARD"
     CRYPTO = "CRYPTO"
     DATE_TIME = "DATE_TIME"
@@ -35,6 +45,17 @@ class PIIEntityTypes(BaseEnum):
     @classmethod
     def to_string(cls) -> str:
         return ",".join(member.value for member in cls)
+
+
+class RuleDataType(str, Enum):
+    REGEX = "regex"
+    KEYWORD = "keyword"
+    JSON = "json"
+    TOXICITY_THRESHOLD = "toxicity_threshold"
+    PII_THRESHOLD = "pii_confidence_threshold"
+    PII_ALLOW_LIST = "allow_list"
+    PII_DISABLED_PII = "disabled_pii_entities"
+    HINT = "hint"
 
 
 class RuleType(str, Enum):
