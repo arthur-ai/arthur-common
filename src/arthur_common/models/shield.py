@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
 
-
+# TODO: Delete after migration (UP-2945). Moved to enums.py.
 class RuleType(str, Enum):
     KEYWORD = "KeywordRule"
     MODEL_HALLUCINATION_V2 = "ModelHallucinationRuleV2"
@@ -21,7 +21,7 @@ class RuleType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
-
+# TODO: Delete after migration (UP-2945). Moved to enums.py.
 class RuleScope(str, Enum):
     DEFAULT = "default"
     TASK = "task"
@@ -35,7 +35,7 @@ class MetricType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
-
+# TODO: Delete after migration (UP-2945). Moved to enums.py.
 class BaseEnum(str, Enum):
     @classmethod
     def values(cls) -> list[Any]:
