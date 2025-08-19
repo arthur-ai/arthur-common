@@ -75,13 +75,21 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
             f"select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, count(*) as count, \
                     result, \
                     inference_prompt.result AS prompt_result, \
-                    inference_response.result AS response_result \
+                    inference_response.result AS response_result, \
+                    conversation_id, \
+                    user_id \
                     from {dataset.dataset_table_name} \
-                    group by ts, result, prompt_result, response_result \
+                    group by ts, result, prompt_result, response_result, conversation_id, user_id \
                     order by ts desc; \
         ",
         ).df()
-        group_by_dims = ["result", "prompt_result", "response_result"]
+        group_by_dims = [
+            "result",
+            "prompt_result",
+            "response_result",
+            "conversation_id",
+            "user_id",
+        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",

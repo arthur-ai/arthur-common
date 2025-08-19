@@ -360,3 +360,137 @@ def get_agentic_dataset_conn_no_metrics() -> (
         )
 
     return conn, dataset_ref
+
+
+@pytest.fixture
+def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetReference]:
+    """Create a test database with Shield inference data that has pass and fail results.
+
+    Returns:
+        tuple: (DuckDB connection, DatasetReference)
+    """
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="shield_dataset_pass_fail_count",
+        dataset_table_name="shield_test_data_pass_fail_count",
+        dataset_id="test-shield-dataset-pass-fail-count",
+    )
+
+    # Create table for Shield inference data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            created_at BIGINT,
+            result STRING,
+            inference_prompt STRUCT(tokens BIGINT, result STRING),
+            inference_response STRUCT(tokens BIGINT, result STRING, response_rule_results STRUCT(rule_type STRING, result STRING)[]),
+            conversation_id STRING,
+            user_id STRING
+        )
+        """,
+    )
+
+    # Insert test data with 5-minute intervals
+    test_data = [
+        (
+            1704067200000,  # 2024-01-01 00:00:00
+            "Pass",
+            {"tokens": 40, "result": "Pass"},
+            {
+                "tokens": 60,
+                "result": "Pass",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Pass"},
+                ],
+            },
+            "conversation_id_1",
+            "user_id_1",
+        ),
+        (
+            1704067500000,  # 2024-01-01 00:05:00
+            "Pass",
+            {"tokens": 40, "result": "Pass"},
+            {
+                "tokens": 60,
+                "result": "Pass",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Pass"},
+                ],
+            },
+            "conversation_id_1",
+            "user_id_1",
+        ),
+        (
+            1704067800000,  # 2024-01-01 00:10:00
+            "Fail",
+            {"tokens": 30, "result": "Fail"},
+            {
+                "tokens": 50,
+                "result": "Fail",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Fail"},
+                ],
+            },
+            "conversation_id_2",
+            "user_id_2",
+        ),
+        (
+            1704067500000,  # 2024-01-01 00:05:00
+            "Fail",
+            {"tokens": 30, "result": "Fail"},
+            {
+                "tokens": 50,
+                "result": "Fail",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Fail"},
+                ],
+            },
+            "conversation_id_2",
+            "user_id_2",
+        ),
+        (
+            1704067200000,  # 2024-01-01 00:00:00
+            "Pass",
+            {"tokens": 40, "result": "Pass"},
+            {
+                "tokens": 60,
+                "result": "Pass",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Pass"},
+                ],
+            },
+            "conversation_id_3",
+            "user_id_1",
+        ),
+        (
+            1704067500000,  # 2024-01-01 00:05:00
+            "Fail",
+            {"tokens": 30, "result": "Fail"},
+            {
+                "tokens": 50,
+                "result": "Fail",
+                "response_rule_results": [
+                    {"rule_type": "ModelHallucinationRuleV2", "result": "Fail"},
+                ],
+            },
+            "conversation_id_3",
+            "user_id_1",
+        ),
+    ]
+
+    for created_at, result, prompt, response, conversation_id, user_id in test_data:
+        conn.sql(
+            f"""
+            INSERT INTO {dataset_ref.dataset_table_name}
+            VALUES (
+                {created_at},
+                '{result}',
+                ROW({prompt['tokens']}, '{prompt['result']}'),
+                ROW({response['tokens']}, '{response['result']}', {response['response_rule_results']}),
+                '{conversation_id}',
+                '{user_id}'
+            )
+            """,
+        )
+
+    return conn, dataset_ref
