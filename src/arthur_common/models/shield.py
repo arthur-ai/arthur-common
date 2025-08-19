@@ -2,11 +2,13 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
+from constants import NEGATIVE_BLOOD_EXAMPLE
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
+
 
 # TODO: Delete after migration (UP-2945). Moved to enums.py.
 class RuleType(str, Enum):
@@ -20,6 +22,7 @@ class RuleType(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
 
 # TODO: Delete after migration (UP-2945). Moved to enums.py.
 class RuleScope(str, Enum):
@@ -35,6 +38,7 @@ class MetricType(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
 
 # TODO: Delete after migration (UP-2945). Moved to enums.py.
 class BaseEnum(str, Enum):
@@ -175,9 +179,6 @@ class PIIConfig(BaseModel):
         },
         extra="forbid",
     )
-
-
-NEGATIVE_BLOOD_EXAMPLE = "John has O negative blood group"
 
 
 # TODO: Delete after migration (UP-2945). Moved to common_schemas.py.

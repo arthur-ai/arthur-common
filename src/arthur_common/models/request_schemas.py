@@ -1,17 +1,19 @@
-from typing import Dict, List, Optional, Type
-
-from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
-from schemas.common_schemas import (
+from common_schemas import (
     ExamplesConfig,
     KeywordsConfig,
     PIIConfig,
     RegexConfig,
     ToxicityConfig,
 )
-from schemas.enums import (
+from constants import (
+    ERROR_PASSWORD_POLICY_NOT_MET,
+    GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH,
+    HALLUCINATION_RULE_NAME,
+    NEGATIVE_BLOOD_EXAMPLE,
+)
+from enums import (
     APIKeysRolesEnum,
     DocumentStorageEnvironment,
     InferenceFeedbackTarget,
@@ -20,15 +22,14 @@ from schemas.enums import (
     RuleScope,
     RuleType,
 )
+from fastapi import HTTPException
 from metric_schemas import RelevanceMetricConfig
-from utils import constants
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class UpdateRuleRequest(BaseModel):
     enabled: bool = Field(description="Boolean value to enable or disable the rule. ")
 
-
-HALLUCINATION_RULE_NAME = "Hallucination Rule"
 
 # Using the latest version from arthur-common
 class NewRuleRequest(BaseModel):
@@ -419,15 +420,15 @@ class PasswordResetRequest(BaseModel):
     @classmethod
     def password_meets_security(cls, value: str) -> str:
         special_characters = '!@#$%^&*()-+?_=,<>/"'
-        if not len(value) >= constants.GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH:
-            raise ValueError(constants.ERROR_PASSWORD_POLICY_NOT_MET)
+        if not len(value) >= GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH:
+            raise ValueError(ERROR_PASSWORD_POLICY_NOT_MET)
         if (
             not any(c.isupper() for c in value)
             or not any(c.islower() for c in value)
             or not any(c.isdigit() for c in value)
             or not any(c in special_characters for c in value)
         ):
-            raise ValueError(constants.ERROR_PASSWORD_POLICY_NOT_MET)
+            raise ValueError(ERROR_PASSWORD_POLICY_NOT_MET)
         return value
 
 

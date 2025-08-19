@@ -1,28 +1,71 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from schemas.enums import (
+from constants import (
+    DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD,
+    DEFAULT_TOXICITY_RULE_THRESHOLD,
+    NEGATIVE_BLOOD_EXAMPLE,
+)
+from enums import (
     PaginationSortMethod,
     PIIEntityTypes,
     UserPermissionAction,
     UserPermissionResource,
 )
-from utils.constants import (
-    DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD,
-    DEFAULT_TOXICITY_RULE_THRESHOLD,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class PaginationParameters(BaseModel):
-    sort: Optional[PaginationSortMethod] = PaginationSortMethod.DESCENDING
-    page_size: int = 10
-    page: int = 0
+class AuthUserRole(BaseModel):
+    id: str | None = None
+    name: str
+    description: str
+    composite: bool
 
-    def calculate_total_pages(self, total_items_count: int) -> int:
-        return total_items_count // self.page_size + 1
+
+class ExampleConfig(BaseModel):
+    example: str = Field(description="Custom example for the sensitive data")
+    result: bool = Field(
+        description="Boolean value representing if the example passes or fails the the sensitive "
+        "data rule ",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
+        },
+    )
+
+
+class ExamplesConfig(BaseModel):
+    examples: List[ExampleConfig] = Field(
+        description="List of all the examples for Sensitive Data Rule",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "examples": [
+                    {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
+                    {
+                        "example": "Most of the people have A positive blood group",
+                        "result": False,
+                    },
+                ],
+                "hint": "specific individual's blood type",
+            },
+        },
+    )
+    hint: Optional[str] = Field(
+        description="Optional. Hint added to describe what Sensitive Data Rule should be checking for",
+        default=None,
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = self.__dict__
+        d["examples"] = [ex.__dict__ for ex in self.examples]
+        d["hint"] = self.hint
+        return d
 
 
 class KeywordsConfig(BaseModel):
@@ -35,40 +78,26 @@ class KeywordsConfig(BaseModel):
     )
 
 
-class RegexConfig(BaseModel):
-    regex_patterns: List[str] = Field(
-        description="List of Regex patterns to be used for validation. Be sure to encode requests in JSON and account for escape characters.",
-    )
+class LLMTokenConsumption(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "regex_patterns": ["\\d{3}-\\d{2}-\\d{4}", "\\d{5}-\\d{6}-\\d{7}"],
-            },
-        },
-        extra="forbid",
-    )
+    def total_tokens(self):
+        return self.prompt_tokens + self.completion_tokens
+
+    def add(self, token_consumption: LLMTokenConsumption):
+        self.prompt_tokens += token_consumption.prompt_tokens
+        self.completion_tokens += token_consumption.completion_tokens
+        return self
 
 
-class ToxicityConfig(BaseModel):
-    threshold: float = Field(
-        default=DEFAULT_TOXICITY_RULE_THRESHOLD,
-        description=f"Optional. Float (0, 1) indicating the level of tolerable toxicity to consider the rule passed or failed. Min: 0 (no toxic language) Max: 1 (very toxic language). Default: {DEFAULT_TOXICITY_RULE_THRESHOLD}",
-    )
+class PaginationParameters(BaseModel):
+    sort: Optional[PaginationSortMethod] = PaginationSortMethod.DESCENDING
+    page_size: int = 10
+    page: int = 0
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"example": {"threshold": DEFAULT_TOXICITY_RULE_THRESHOLD}},
-    )
-
-    @field_validator("threshold", mode="before")
-    @classmethod
-    def validate_toxicity_threshold(cls, v):
-        if v is None:
-            return DEFAULT_TOXICITY_RULE_THRESHOLD
-        if (v < 0) | (v > 1):
-            raise ValueError(f'"threshold" must be between 0 and 1')
-        return v
+    def calculate_total_pages(self, total_items_count: int) -> int:
+        return total_items_count // self.page_size + 1
 
 
 class PIIConfig(BaseModel):
@@ -131,49 +160,48 @@ class PIIConfig(BaseModel):
     )
 
 
-NEGATIVE_BLOOD_EXAMPLE = "John has O negative blood group"
-
-
-class ExampleConfig(BaseModel):
-    example: str = Field(description="Custom example for the sensitive data")
-    result: bool = Field(
-        description="Boolean value representing if the example passes or fails the the sensitive "
-        "data rule ",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
-        },
-    )
-
-
-class ExamplesConfig(BaseModel):
-    examples: List[ExampleConfig] = Field(
-        description="List of all the examples for Sensitive Data Rule",
+class RegexConfig(BaseModel):
+    regex_patterns: List[str] = Field(
+        description="List of Regex patterns to be used for validation. Be sure to encode requests in JSON and account for escape characters.",
     )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "examples": [
-                    {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
-                    {
-                        "example": "Most of the people have A positive blood group",
-                        "result": False,
-                    },
-                ],
-                "hint": "specific individual's blood type",
+                "regex_patterns": ["\\d{3}-\\d{2}-\\d{4}", "\\d{5}-\\d{6}-\\d{7}"],
             },
         },
-    )
-    hint: Optional[str] = Field(
-        description="Optional. Hint added to describe what Sensitive Data Rule should be checking for",
-        default=None,
+        extra="forbid",
     )
 
-    def to_dict(self) -> Dict[str, Any]:
-        d = self.__dict__
-        d["examples"] = [ex.__dict__ for ex in self.examples]
-        d["hint"] = self.hint
-        return d
+
+class ToxicityConfig(BaseModel):
+    threshold: float = Field(
+        default=DEFAULT_TOXICITY_RULE_THRESHOLD,
+        description=f"Optional. Float (0, 1) indicating the level of tolerable toxicity to consider the rule passed or failed. Min: 0 (no toxic language) Max: 1 (very toxic language). Default: {DEFAULT_TOXICITY_RULE_THRESHOLD}",
+    )
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"example": {"threshold": DEFAULT_TOXICITY_RULE_THRESHOLD}},
+    )
+
+    @field_validator("threshold", mode="before")
+    @classmethod
+    def validate_toxicity_threshold(cls, v):
+        if v is None:
+            return DEFAULT_TOXICITY_RULE_THRESHOLD
+        if (v < 0) | (v > 1):
+            raise ValueError(f'"threshold" must be between 0 and 1')
+        return v
+
+
+class UserPermission(BaseModel):
+    action: UserPermissionAction
+    resource: UserPermissionResource
+
+    def __hash__(self):
+        return hash((self.action, self.resource))
+
+    def __eq__(self, other):
+        return isinstance(other, UserPermission) and self.__hash__() == other.__hash__()

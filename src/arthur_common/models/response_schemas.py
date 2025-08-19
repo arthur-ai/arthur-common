@@ -1,9 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from schemas.common_schemas import (
+from common_schemas import (
     AuthUserRole,
     ExamplesConfig,
     KeywordsConfig,
@@ -11,7 +9,7 @@ from schemas.common_schemas import (
     RegexConfig,
     ToxicityConfig,
 )
-from schemas.enums import (
+from enums import (
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
@@ -20,6 +18,7 @@ from schemas.enums import (
     RuleType,
     ToxicityViolationType,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HTTPError(BaseModel):
@@ -185,7 +184,6 @@ class ValidationResult(BaseModel):
         description="The user ID this prompt belongs to",
         default=None,
     )
-
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -204,10 +202,6 @@ class ValidationResult(BaseModel):
                 ],
             },
         },
-    )
-    user_id: Optional[str] = Field(
-        description="The unique user ID this prompt belongs to",
-        default=None,
     )
 
 

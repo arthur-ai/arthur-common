@@ -1,6 +1,34 @@
 from enum import Enum
 from typing import Any
 
+from constants import (
+    ADMIN_KEY,
+    CHAT_USER,
+    DEFAULT_RULE_ADMIN,
+    ORG_ADMIN,
+    ORG_AUDITOR,
+    TASK_ADMIN,
+    VALIDATION_USER,
+)
+
+
+class APIKeysRolesEnum(str, Enum):
+    DEFAULT_RULE_ADMIN = DEFAULT_RULE_ADMIN
+    TASK_ADMIN = TASK_ADMIN
+    VALIDATION_USER = VALIDATION_USER
+    ORG_AUDITOR = ORG_AUDITOR
+    ORG_ADMIN = ORG_ADMIN
+
+
+class ApplicationConfigurations(str, Enum):
+    CHAT_TASK_ID = "chat_task_id"
+    DOCUMENT_STORAGE_ENV = "document_storage_environment"
+    DOCUMENT_STORAGE_BUCKET_NAME = "document_storage_bucket_name"
+    DOCUMENT_STORAGE_ROLE_ARN = "document_storage_assumable_role_arn"
+    DOCUMENT_STORAGE_CONTAINER_NAME = "document_storage_container_name"
+    DOCUMENT_STORAGE_CONNECTION_STRING = "document_storage_connection_string"
+    MAX_LLM_RULES_PER_TASK_COUNT = "max_llm_rules_per_task_count"
+
 
 class BaseEnum(str, Enum):
     @classmethod
@@ -10,6 +38,29 @@ class BaseEnum(str, Enum):
 
     def __str__(self) -> Any:
         return self.value
+
+
+class ClaimClassifierResultEnum(str, Enum):
+    CLAIM = "claim"
+    NONCLAIM = "nonclaim"
+    DIALOG = "dialog"
+
+
+class DocumentStorageEnvironment(str, Enum):
+    AWS = "aws"
+    AZURE = "azure"
+
+
+class DocumentType(str, Enum):
+    PDF = "pdf"
+    CSV = "csv"
+    TXT = "txt"
+
+
+class InferenceFeedbackTarget(str, Enum):
+    CONTEXT = "context"
+    RESPONSE_RESULTS = "response_results"
+    PROMPT_RESULTS = "prompt_results"
 
 
 class MetricType(str, Enum):
@@ -23,7 +74,7 @@ class MetricType(str, Enum):
 
 # Using version from arthur-engine, which has str and enum type inheritance.
 # Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
-class PIIEntityTypes(BaseEnum, str, Enum):
+class PIIEntityTypes(BaseEnum):
     CREDIT_CARD = "CREDIT_CARD"
     CRYPTO = "CRYPTO"
     DATE_TIME = "DATE_TIME"
@@ -47,6 +98,97 @@ class PIIEntityTypes(BaseEnum, str, Enum):
         return ",".join(member.value for member in cls)
 
 
+class PaginationSortMethod(str, Enum):
+    ASCENDING = "asc"
+    DESCENDING = "desc"
+
+
+class PermissionLevelsEnum(Enum):
+    API_KEY_READ = frozenset(
+        [ORG_ADMIN, ORG_AUDITOR, ADMIN_KEY],
+    )
+    API_KEY_WRITE = frozenset([ORG_ADMIN, ADMIN_KEY])
+    APP_CONFIG_READ = frozenset([ORG_ADMIN, ORG_AUDITOR])
+    APP_CONFIG_WRITE = frozenset([ORG_ADMIN])
+    CHAT_WRITE = frozenset(
+        [
+            ORG_ADMIN,
+            TASK_ADMIN,
+            CHAT_USER,
+        ],
+    )
+    DEFAULT_RULES_WRITE = frozenset(
+        [
+            ORG_ADMIN,
+            DEFAULT_RULE_ADMIN,
+        ],
+    )
+    DEFAULT_RULES_READ = frozenset(
+        [
+            ORG_ADMIN,
+            ORG_AUDITOR,
+            DEFAULT_RULE_ADMIN,
+            TASK_ADMIN,
+        ],
+    )
+    FEEDBACK_READ = frozenset(
+        [
+            ORG_ADMIN,
+            ORG_AUDITOR,
+            TASK_ADMIN,
+        ],
+    )
+    FEEDBACK_WRITE = frozenset(
+        [
+            ORG_ADMIN,
+            TASK_ADMIN,
+            VALIDATION_USER,
+            CHAT_USER,
+        ],
+    )
+    INFERENCE_READ = frozenset(
+        [
+            ORG_ADMIN,
+            ORG_AUDITOR,
+            TASK_ADMIN,
+        ],
+    )
+    INFERENCE_WRITE = frozenset(
+        [
+            ORG_ADMIN,
+            TASK_ADMIN,
+            VALIDATION_USER,
+            CHAT_USER,
+        ],
+    )
+    PASSWORD_RESET = frozenset(
+        [
+            ORG_ADMIN,
+            ORG_AUDITOR,
+            DEFAULT_RULE_ADMIN,
+            TASK_ADMIN,
+            VALIDATION_USER,
+            CHAT_USER,
+        ],
+    )
+    TASK_READ = frozenset(
+        [
+            ORG_ADMIN,
+            ORG_AUDITOR,
+            TASK_ADMIN,
+        ],
+    )
+    TASK_WRITE = frozenset(
+        [
+            ORG_ADMIN,
+            TASK_ADMIN,
+        ],
+    )
+    USAGE_READ = frozenset([ORG_ADMIN, ORG_AUDITOR])
+    USER_READ = frozenset([ORG_ADMIN, ORG_AUDITOR])
+    USER_WRITE = frozenset([ORG_ADMIN])
+
+
 class RuleDataType(str, Enum):
     REGEX = "regex"
     KEYWORD = "keyword"
@@ -56,6 +198,28 @@ class RuleDataType(str, Enum):
     PII_ALLOW_LIST = "allow_list"
     PII_DISABLED_PII = "disabled_pii_entities"
     HINT = "hint"
+
+
+class RuleResultEnum(str, Enum):
+    PASS = "Pass"
+    FAIL = "Fail"
+    SKIPPED = "Skipped"
+    UNAVAILABLE = "Unavailable"
+    PARTIALLY_UNAVAILABLE = "Partially Unavailable"
+    MODEL_NOT_AVAILABLE = "Model Not Available"
+
+    def __str__(self):
+        return self.value
+
+
+class RuleScoringMethod(str, Enum):
+    # Better term for regex / keywords?
+    BINARY = "binary"
+
+
+class RuleScope(str, Enum):
+    DEFAULT = "default"
+    TASK = "task"
 
 
 class RuleType(str, Enum):
@@ -71,6 +235,43 @@ class RuleType(str, Enum):
         return self.value
 
 
-class RuleScope(str, Enum):
-    DEFAULT = "default"
+class TokenUsageScope(str, Enum):
+    RULE_TYPE = "rule_type"
     TASK = "task"
+
+    def __str__(self):
+        return self.value
+
+
+class ToolClassEnum(int, Enum):
+    WRONG_TOOL_SELECTED = 0
+    CORRECT_TOOL_SELECTED = 1
+    NO_TOOL_SELECTED = 2
+
+    def __str__(self):
+        return str(self.value)
+
+
+class ToxicityViolationType(str, Enum):
+    BENIGN = "benign"
+    HARMFUL_REQUEST = "harmful_request"
+    TOXIC_CONTENT = "toxic_content"
+    PROFANITY = "profanity"
+    UNKNOWN = "unknown"
+
+    def __str__(self):
+        return self.value
+
+
+# If you added values here, did you update permission_mappings.py in arthur-engine?
+class UserPermissionAction(BaseEnum):
+    CREATE = "create"
+    READ = "read"
+
+
+# If you added values here, did you update permission_mappings.py in arthur-engine?
+class UserPermissionResource(BaseEnum):
+    PROMPTS = "prompts"
+    RESPONSES = "responses"
+    RULES = "rules"
+    TASKS = "tasks"
