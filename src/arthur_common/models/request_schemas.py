@@ -1,19 +1,22 @@
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
-from common_schemas import (
+from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from arthur_common.models.common_schemas import (
     ExamplesConfig,
     KeywordsConfig,
     PIIConfig,
     RegexConfig,
     ToxicityConfig,
 )
-from constants import (
+from arthur_common.models.constants import (
     ERROR_PASSWORD_POLICY_NOT_MET,
     GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH,
     HALLUCINATION_RULE_NAME,
     NEGATIVE_BLOOD_EXAMPLE,
 )
-from enums import (
+from arthur_common.models.enums import (
     APIKeysRolesEnum,
     DocumentStorageEnvironment,
     InferenceFeedbackTarget,
@@ -22,9 +25,7 @@ from enums import (
     RuleScope,
     RuleType,
 )
-from fastapi import HTTPException
-from metric_schemas import RelevanceMetricConfig
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from arthur_common.models.metric_schemas import RelevanceMetricConfig
 
 
 class UpdateRuleRequest(BaseModel):

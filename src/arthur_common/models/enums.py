@@ -1,6 +1,6 @@
 from enum import Enum
 
-from constants import (
+from arthur_common.models.constants import (
     ADMIN_KEY,
     CHAT_USER,
     DEFAULT_RULE_ADMIN,

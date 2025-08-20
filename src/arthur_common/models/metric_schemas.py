@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional
 
-from enums import ToolClassEnum
 from pydantic import BaseModel, Field
+
+from arthur_common.models.enums import ToolClassEnum
 
 
 class RelevanceMetricConfig(BaseModel):

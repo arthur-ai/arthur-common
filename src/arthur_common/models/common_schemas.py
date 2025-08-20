@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from constants import (
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from arthur_common.models.constants import (
     DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD,
     DEFAULT_TOXICITY_RULE_THRESHOLD,
     NEGATIVE_BLOOD_EXAMPLE,
 )
-from enums import (
+from arthur_common.models.enums import (
     PaginationSortMethod,
     PIIEntityTypes,
     UserPermissionAction,
     UserPermissionResource,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AuthUserRole(BaseModel):

@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, List, Optional, Union
 
-from common_schemas import (
+from pydantic import BaseModel, ConfigDict, Field
+
+from arthur_common.models.common_schemas import (
     AuthUserRole,
     ExamplesConfig,
     KeywordsConfig,
@@ -9,7 +11,7 @@ from common_schemas import (
     RegexConfig,
     ToxicityConfig,
 )
-from enums import (
+from arthur_common.models.enums import (
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
@@ -18,7 +20,6 @@ from enums import (
     RuleType,
     ToxicityViolationType,
 )
-from pydantic import BaseModel, ConfigDict, Field
 
 
 class HTTPError(BaseModel):
