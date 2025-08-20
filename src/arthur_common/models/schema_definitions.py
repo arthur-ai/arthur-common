@@ -435,6 +435,11 @@ def SHIELD_SCHEMA() -> DatasetSchema:
             ),
             DatasetColumn(
                 id=uuid4(),
+                source_name="user_id",
+                definition=create_dataset_scalar_type(DType.UUID),
+            ),
+            DatasetColumn(
+                id=uuid4(),
                 source_name="inference_prompt",
                 definition=create_shield_prompt_schema(),
             ),
