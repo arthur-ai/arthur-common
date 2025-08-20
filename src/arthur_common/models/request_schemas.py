@@ -345,7 +345,7 @@ class ResponseValidationRequest(BaseModel):
     # )
 
     @model_validator(mode="after")
-    def check_prompt_or_response(cls, values):
+    def check_prompt_or_response(cls, values: Any) -> Any:
         if isinstance(values, PromptValidationRequest) and values.prompt is None:
             raise ValueError("prompt is required when validating a prompt")
         if isinstance(values, ResponseValidationRequest) and values.response is None:
@@ -369,7 +369,7 @@ class DocumentStorageConfigurationUpdateRequest(BaseModel):
     assumable_role_arn: Optional[str] = None
 
     @model_validator(mode="before")
-    def check_azure_or_aws_complete_config(cls, values):
+    def check_azure_or_aws_complete_config(cls, values: Any) -> Any:
         if values.get("environment") == "azure":
             if (values.get("connection_string") is None) or (
                 values.get("container_name") is None

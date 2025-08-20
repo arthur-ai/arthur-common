@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from common_schemas import (
     AuthUserRole,
@@ -603,12 +603,12 @@ class SpanResponse(BaseModel):
     task_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    raw_data: dict
+    raw_data: dict[str, Any]
     # Span features for LLM spans (computed on-demand)
     system_prompt: Optional[str] = None
     user_query: Optional[str] = None
     response: Optional[str] = None
-    context: Optional[List[dict]] = None
+    context: Optional[List[dict[str, Any]]] = None
 
 
 class QuerySpansResponse(BaseModel):
@@ -679,12 +679,12 @@ class SpanWithMetricsResponse(BaseModel):
     task_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    raw_data: dict
+    raw_data: dict[str, Any]
     # Span features for LLM spans (computed on-demand)
     system_prompt: Optional[str] = None
     user_query: Optional[str] = None
     response: Optional[str] = None
-    context: Optional[List[dict]] = None
+    context: Optional[List[dict[str, Any]]] = None
     metric_results: list[MetricResultResponse] = Field(
         description="List of metric results for this span",
         default=[],
@@ -704,12 +704,12 @@ class NestedSpanWithMetricsResponse(BaseModel):
     task_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    raw_data: dict
+    raw_data: dict[str, Any]
     # Span features for LLM spans (computed on-demand)
     system_prompt: Optional[str] = None
     user_query: Optional[str] = None
     response: Optional[str] = None
-    context: Optional[List[dict]] = None
+    context: Optional[List[dict[str, Any]]] = None
     metric_results: list[MetricResultResponse] = Field(
         description="List of metric results for this span",
         default=[],

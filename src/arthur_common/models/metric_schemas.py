@@ -1,7 +1,7 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from enums import ToolClassEnum
 from pydantic import BaseModel, Field
-from schemas.enums import ToolClassEnum
 
 
 class RelevanceMetricConfig(BaseModel):
@@ -57,10 +57,10 @@ class MetricRequest(BaseModel):
         description="User query to be used by GenAI Engine for computing metrics.",
         default=None,
     )
-    context: List[dict] = Field(
+    context: List[Dict[str, Any]] = Field(
         description="Conversation history and additional context to be used by GenAI Engine for computing metrics.",
-        default=[],
-        example=[
+        default_factory=list,
+        examples=[
             {"role": "user", "value": "What is the weather in Tokyo?"},
             {"role": "assistant", "value": "WeatherTool", "args": {"city": "Tokyo"}},
             {

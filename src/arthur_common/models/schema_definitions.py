@@ -4,9 +4,8 @@ from enum import Enum
 from typing import Optional, Self, Union
 from uuid import UUID, uuid4
 
+from datasets import ModelProblemType
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
-
-from arthur_common.models.datasets import ModelProblemType
 
 
 class ScopeSchemaTag(str, Enum):

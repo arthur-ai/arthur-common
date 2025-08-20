@@ -82,10 +82,10 @@ class LLMTokenConsumption(BaseModel):
     prompt_tokens: int
     completion_tokens: int
 
-    def total_tokens(self):
+    def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
-    def add(self, token_consumption: LLMTokenConsumption):
+    def add(self, token_consumption: LLMTokenConsumption) -> "LLMTokenConsumption":
         self.prompt_tokens += token_consumption.prompt_tokens
         self.completion_tokens += token_consumption.completion_tokens
         return self
@@ -118,7 +118,7 @@ class PIIConfig(BaseModel):
     )
 
     @field_validator("disabled_pii_entities")
-    def validate_pii_entities(cls, v):
+    def validate_pii_entities(cls, v: list[str] | None) -> list[str] | None:
         if v:
             entities_passed = set(v)
             entities_supported = set(PIIEntityTypes.values())
@@ -140,7 +140,7 @@ class PIIConfig(BaseModel):
             return v
 
     @field_validator("confidence_threshold")
-    def validate_confidence_threshold(cls, v):
+    def validate_confidence_threshold(cls, v: float | None) -> float | None:
         if v:
             if (v < 0) | (v > 1):
                 raise ValueError(f'"confidence_threshold" must be between 0 and 1')
@@ -188,9 +188,9 @@ class ToxicityConfig(BaseModel):
 
     @field_validator("threshold", mode="before")
     @classmethod
-    def validate_toxicity_threshold(cls, v):
+    def validate_toxicity_threshold(cls, v: float | None) -> float:
         if v is None:
-            return DEFAULT_TOXICITY_RULE_THRESHOLD
+            return float(DEFAULT_TOXICITY_RULE_THRESHOLD)
         if (v < 0) | (v > 1):
             raise ValueError(f'"threshold" must be between 0 and 1')
         return v
@@ -200,8 +200,8 @@ class UserPermission(BaseModel):
     action: UserPermissionAction
     resource: UserPermissionResource
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self.action, self.resource))
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, UserPermission) and self.__hash__() == other.__hash__()

@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Any
 
 from constants import (
     ADMIN_KEY,
@@ -12,7 +11,17 @@ from constants import (
 )
 
 
-class APIKeysRolesEnum(str, Enum):
+class BaseEnum(str, Enum):
+    @classmethod
+    def values(self) -> list[str]:
+        values: list[str] = [e for e in self]
+        return values
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+class APIKeysRolesEnum(BaseEnum):
     DEFAULT_RULE_ADMIN = DEFAULT_RULE_ADMIN
     TASK_ADMIN = TASK_ADMIN
     VALIDATION_USER = VALIDATION_USER
@@ -20,7 +29,7 @@ class APIKeysRolesEnum(str, Enum):
     ORG_ADMIN = ORG_ADMIN
 
 
-class ApplicationConfigurations(str, Enum):
+class ApplicationConfigurations(BaseEnum):
     CHAT_TASK_ID = "chat_task_id"
     DOCUMENT_STORAGE_ENV = "document_storage_environment"
     DOCUMENT_STORAGE_BUCKET_NAME = "document_storage_bucket_name"
@@ -30,46 +39,33 @@ class ApplicationConfigurations(str, Enum):
     MAX_LLM_RULES_PER_TASK_COUNT = "max_llm_rules_per_task_count"
 
 
-class BaseEnum(str, Enum):
-    @classmethod
-    def values(self) -> list[Any]:
-        values: list[str] = [e for e in self]
-        return values
-
-    def __str__(self) -> Any:
-        return self.value
-
-
-class ClaimClassifierResultEnum(str, Enum):
+class ClaimClassifierResultEnum(BaseEnum):
     CLAIM = "claim"
     NONCLAIM = "nonclaim"
     DIALOG = "dialog"
 
 
-class DocumentStorageEnvironment(str, Enum):
+class DocumentStorageEnvironment(BaseEnum):
     AWS = "aws"
     AZURE = "azure"
 
 
-class DocumentType(str, Enum):
+class DocumentType(BaseEnum):
     PDF = "pdf"
     CSV = "csv"
     TXT = "txt"
 
 
-class InferenceFeedbackTarget(str, Enum):
+class InferenceFeedbackTarget(BaseEnum):
     CONTEXT = "context"
     RESPONSE_RESULTS = "response_results"
     PROMPT_RESULTS = "prompt_results"
 
 
-class MetricType(str, Enum):
+class MetricType(BaseEnum):
     QUERY_RELEVANCE = "QueryRelevance"
     RESPONSE_RELEVANCE = "ResponseRelevance"
     TOOL_SELECTION = "ToolSelection"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 # Using version from arthur-engine, which has str and enum type inheritance.
@@ -98,7 +94,7 @@ class PIIEntityTypes(BaseEnum):
         return ",".join(member.value for member in cls)
 
 
-class PaginationSortMethod(str, Enum):
+class PaginationSortMethod(BaseEnum):
     ASCENDING = "asc"
     DESCENDING = "desc"
 
@@ -200,7 +196,7 @@ class RuleDataType(str, Enum):
     HINT = "hint"
 
 
-class RuleResultEnum(str, Enum):
+class RuleResultEnum(BaseEnum):
     PASS = "Pass"
     FAIL = "Fail"
     SKIPPED = "Skipped"
@@ -208,21 +204,18 @@ class RuleResultEnum(str, Enum):
     PARTIALLY_UNAVAILABLE = "Partially Unavailable"
     MODEL_NOT_AVAILABLE = "Model Not Available"
 
-    def __str__(self):
-        return self.value
 
-
-class RuleScoringMethod(str, Enum):
+class RuleScoringMethod(BaseEnum):
     # Better term for regex / keywords?
     BINARY = "binary"
 
 
-class RuleScope(str, Enum):
+class RuleScope(BaseEnum):
     DEFAULT = "default"
     TASK = "task"
 
 
-class RuleType(str, Enum):
+class RuleType(BaseEnum):
     KEYWORD = "KeywordRule"
     MODEL_HALLUCINATION_V2 = "ModelHallucinationRuleV2"
     MODEL_SENSITIVE_DATA = "ModelSensitiveDataRule"
@@ -231,16 +224,10 @@ class RuleType(str, Enum):
     REGEX = "RegexRule"
     TOXICITY = "ToxicityRule"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class TokenUsageScope(str, Enum):
+class TokenUsageScope(BaseEnum):
     RULE_TYPE = "rule_type"
     TASK = "task"
-
-    def __str__(self):
-        return self.value
 
 
 class ToolClassEnum(int, Enum):
@@ -248,19 +235,16 @@ class ToolClassEnum(int, Enum):
     CORRECT_TOOL_SELECTED = 1
     NO_TOOL_SELECTED = 2
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.value)
 
 
-class ToxicityViolationType(str, Enum):
+class ToxicityViolationType(BaseEnum):
     BENIGN = "benign"
     HARMFUL_REQUEST = "harmful_request"
     TOXIC_CONTENT = "toxic_content"
     PROFANITY = "profanity"
     UNKNOWN = "unknown"
-
-    def __str__(self):
-        return self.value
 
 
 # If you added values here, did you update permission_mappings.py in arthur-engine?
