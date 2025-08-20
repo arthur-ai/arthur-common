@@ -225,6 +225,11 @@ class RuleType(BaseEnum):
     TOXICITY = "ToxicityRule"
 
 
+class TaskType(BaseEnum):
+    TRADITIONAL = "traditional"
+    AGENTIC = "agentic"
+
+
 class TokenUsageScope(BaseEnum):
     RULE_TYPE = "rule_type"
     TASK = "task"

@@ -46,36 +46,42 @@ def create_metric_results(
     return [
         {
             "metric_type": "ToolSelection",
-            "details": json.dumps({
-                "tool_selection": {
-                    "tool_selection": tool_selection,
-                    "tool_selection_reason": f"Tool selection reason (score={tool_selection})",
-                    "tool_usage": tool_usage,
-                    "tool_usage_reason": f"Tool usage reason (score={tool_usage})",
-                },
-            }),
+            "details": json.dumps(
+                {
+                    "tool_selection": {
+                        "tool_selection": tool_selection,
+                        "tool_selection_reason": f"Tool selection reason (score={tool_selection})",
+                        "tool_usage": tool_usage,
+                        "tool_usage_reason": f"Tool usage reason (score={tool_usage})",
+                    },
+                }
+            ),
         },
         {
             "metric_type": "QueryRelevance",
-            "details": json.dumps({
-                "query_relevance": {
-                    "llm_relevance_score": qrelevance,
-                    "reranker_relevance_score": qrelevance + 0.02,
-                    "bert_f_score": qrelevance - 0.05,
-                    "reason": f"Query relevance reason (score={qrelevance})",
-                },
-            }),
+            "details": json.dumps(
+                {
+                    "query_relevance": {
+                        "llm_relevance_score": qrelevance,
+                        "reranker_relevance_score": qrelevance + 0.02,
+                        "bert_f_score": qrelevance - 0.05,
+                        "reason": f"Query relevance reason (score={qrelevance})",
+                    },
+                }
+            ),
         },
         {
             "metric_type": "ResponseRelevance",
-            "details": json.dumps({
-                "response_relevance": {
-                    "llm_relevance_score": resprelevance,
-                    "reranker_relevance_score": resprelevance + 0.03,
-                    "bert_f_score": resprelevance - 0.08,
-                    "reason": f"Response relevance reason (score={resprelevance})",
-                },
-            }),
+            "details": json.dumps(
+                {
+                    "response_relevance": {
+                        "llm_relevance_score": resprelevance,
+                        "reranker_relevance_score": resprelevance + 0.03,
+                        "bert_f_score": resprelevance - 0.08,
+                        "reason": f"Response relevance reason (score={resprelevance})",
+                    },
+                }
+            ),
         },
     ]
 
@@ -95,49 +101,53 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=0, seconds=30, microseconds=200000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-001",
-                    "span_kind": "CHAIN",
-                    "start_time": (
-                        base_time + timedelta(minutes=0, microseconds=100000)
-                    ).isoformat(),
-                    "end_time": (
-                        base_time
-                        + timedelta(minutes=0, seconds=25, microseconds=150000)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps({"arthur.task": "task-001"}),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "llm-001",
-                            "span_kind": "LLM",
-                            "start_time": (
-                                base_time + timedelta(minutes=0, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=0, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "ChatOpenAI",
-                                "attributes": {
-                                    "metadata": json.dumps({"arthur.task": "task-001"}),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-001",
+                        "span_kind": "CHAIN",
+                        "start_time": (
+                            base_time + timedelta(minutes=0, microseconds=100000)
+                        ).isoformat(),
+                        "end_time": (
+                            base_time
+                            + timedelta(minutes=0, seconds=25, microseconds=150000)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps({"arthur.task": "task-001"}),
                             },
-                            "metric_results": create_metric_results(
-                                tool_selection=1,
-                                tool_usage=1,
-                                qrelevance=0.8,
-                                resprelevance=0.9,
-                            ),
-                            "children": [],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-001",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    base_time + timedelta(minutes=0, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=0, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-001"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": create_metric_results(
+                                    tool_selection=1,
+                                    tool_usage=1,
+                                    qrelevance=0.8,
+                                    resprelevance=0.9,
+                                ),
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
         # Trace 2: chain->agent->llm with all metrics (pass)
@@ -150,69 +160,73 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=5, seconds=30, microseconds=400000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-002",
-                    "span_kind": "CHAIN",
-                    "start_time": (base_time + timedelta(minutes=5)).isoformat(),
-                    "end_time": (
-                        base_time + timedelta(minutes=5, seconds=25)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps({"arthur.task": "task-002"}),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "agent-002",
-                            "span_kind": "AGENT",
-                            "start_time": (
-                                base_time + timedelta(minutes=5, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=5, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "agent_1",
-                                "spanId": "agent002",
-                                "traceId": "trace-002",
-                                "attributes": {
-                                    "metadata": json.dumps({"arthur.task": "task-002"}),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-002",
+                        "span_kind": "CHAIN",
+                        "start_time": (base_time + timedelta(minutes=5)).isoformat(),
+                        "end_time": (
+                            base_time + timedelta(minutes=5, seconds=25)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps({"arthur.task": "task-002"}),
                             },
-                            "metric_results": [],
-                            "children": [
-                                {
-                                    "id": "llm-002",
-                                    "span_kind": "LLM",
-                                    "start_time": (
-                                        base_time + timedelta(minutes=5, seconds=10)
-                                    ).isoformat(),
-                                    "end_time": (
-                                        base_time + timedelta(minutes=5, seconds=18)
-                                    ).isoformat(),
-                                    "raw_data": {
-                                        "name": "ChatOpenAI",
-                                        "attributes": {
-                                            "metadata": json.dumps(
-                                                {"arthur.task": "task-002"},
-                                            ),
-                                        },
-                                    },
-                                    "metric_results": create_metric_results(
-                                        tool_selection=0,
-                                        tool_usage=1,
-                                        qrelevance=0.7,
-                                        resprelevance=0.8,
-                                    ),
-                                    "children": [],
-                                },
-                            ],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-002",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    base_time + timedelta(minutes=5, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=5, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_1",
+                                    "spanId": "agent002",
+                                    "traceId": "trace-002",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-002"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-002",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            base_time + timedelta(minutes=5, seconds=10)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            base_time + timedelta(minutes=5, seconds=18)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "task-002"},
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": create_metric_results(
+                                            tool_selection=0,
+                                            tool_usage=1,
+                                            qrelevance=0.7,
+                                            resprelevance=0.8,
+                                        ),
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
         # Trace 3: chain->agent->chain->llm with all metrics (pass)
@@ -225,90 +239,95 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=10, seconds=30, microseconds=600000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-003",
-                    "span_kind": "CHAIN",
-                    "start_time": (base_time + timedelta(minutes=10)).isoformat(),
-                    "end_time": (
-                        base_time + timedelta(minutes=10, seconds=25)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps({"arthur.task": "task-003"}),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "agent-003",
-                            "span_kind": "AGENT",
-                            "start_time": (
-                                base_time + timedelta(minutes=10, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=10, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "agent_2",
-                                "attributes": {
-                                    "metadata": json.dumps({"arthur.task": "task-003"}),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-003",
+                        "span_kind": "CHAIN",
+                        "start_time": (base_time + timedelta(minutes=10)).isoformat(),
+                        "end_time": (
+                            base_time + timedelta(minutes=10, seconds=25)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps({"arthur.task": "task-003"}),
                             },
-                            "metric_results": [],
-                            "children": [
-                                {
-                                    "id": "subchain-003",
-                                    "span_kind": "CHAIN",
-                                    "start_time": (
-                                        base_time + timedelta(minutes=10, seconds=8)
-                                    ).isoformat(),
-                                    "end_time": (
-                                        base_time + timedelta(minutes=10, seconds=18)
-                                    ).isoformat(),
-                                    "raw_data": {
-                                        "name": "sub_chain",
-                                        "attributes": {
-                                            "metadata": json.dumps(
-                                                {"arthur.task": "task-003"},
-                                            ),
-                                        },
-                                    },
-                                    "metric_results": [],
-                                    "children": [
-                                        {
-                                            "id": "llm-003",
-                                            "span_kind": "LLM",
-                                            "start_time": (
-                                                base_time
-                                                + timedelta(minutes=10, seconds=12)
-                                            ).isoformat(),
-                                            "end_time": (
-                                                base_time
-                                                + timedelta(minutes=10, seconds=16)
-                                            ).isoformat(),
-                                            "raw_data": {
-                                                "name": "ChatOpenAI",
-                                                "attributes": {
-                                                    "metadata": json.dumps(
-                                                        {"arthur.task": "task-003"},
-                                                    ),
-                                                },
-                                            },
-                                            "metric_results": create_metric_results(
-                                                tool_selection=2,
-                                                tool_usage=2,
-                                                qrelevance=0.6,
-                                                resprelevance=0.7,
-                                            ),
-                                            "children": [],
-                                        },
-                                    ],
-                                },
-                            ],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-003",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    base_time + timedelta(minutes=10, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=10, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_2",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-003"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "subchain-003",
+                                        "span_kind": "CHAIN",
+                                        "start_time": (
+                                            base_time + timedelta(minutes=10, seconds=8)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            base_time
+                                            + timedelta(minutes=10, seconds=18)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "sub_chain",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "task-003"},
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [
+                                            {
+                                                "id": "llm-003",
+                                                "span_kind": "LLM",
+                                                "start_time": (
+                                                    base_time
+                                                    + timedelta(minutes=10, seconds=12)
+                                                ).isoformat(),
+                                                "end_time": (
+                                                    base_time
+                                                    + timedelta(minutes=10, seconds=16)
+                                                ).isoformat(),
+                                                "raw_data": {
+                                                    "name": "ChatOpenAI",
+                                                    "attributes": {
+                                                        "metadata": json.dumps(
+                                                            {"arthur.task": "task-003"},
+                                                        ),
+                                                    },
+                                                },
+                                                "metric_results": create_metric_results(
+                                                    tool_selection=2,
+                                                    tool_usage=2,
+                                                    qrelevance=0.6,
+                                                    resprelevance=0.7,
+                                                ),
+                                                "children": [],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
         # Trace 4: agent->llm with all metrics (fail)
@@ -321,46 +340,50 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=15, seconds=30, microseconds=800000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "agent-004",
-                    "span_kind": "AGENT",
-                    "start_time": (base_time + timedelta(minutes=15)).isoformat(),
-                    "end_time": (
-                        base_time + timedelta(minutes=15, seconds=25)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "agent_3",
-                        "attributes": {
-                            "metadata": json.dumps({"arthur.task": "task-004"}),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "llm-004",
-                            "span_kind": "LLM",
-                            "start_time": (
-                                base_time + timedelta(minutes=15, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=15, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "ChatOpenAI",
-                                "attributes": {
-                                    "metadata": json.dumps({"arthur.task": "task-004"}),
-                                },
+                json.dumps(
+                    {
+                        "id": "agent-004",
+                        "span_kind": "AGENT",
+                        "start_time": (base_time + timedelta(minutes=15)).isoformat(),
+                        "end_time": (
+                            base_time + timedelta(minutes=15, seconds=25)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "agent_3",
+                            "attributes": {
+                                "metadata": json.dumps({"arthur.task": "task-004"}),
                             },
-                            "metric_results": create_metric_results(
-                                tool_selection=0,
-                                tool_usage=0,
-                                qrelevance=0.3,
-                                resprelevance=0.4,
-                            ),
-                            "children": [],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-004",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    base_time + timedelta(minutes=15, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=15, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-004"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": create_metric_results(
+                                    tool_selection=0,
+                                    tool_usage=0,
+                                    qrelevance=0.3,
+                                    resprelevance=0.4,
+                                ),
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
         # Trace 5: chain->llm with all metrics (fail)
@@ -373,46 +396,50 @@ def get_hardcoded_traces_with_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=20, seconds=30, microseconds=950000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-005",
-                    "span_kind": "CHAIN",
-                    "start_time": (base_time + timedelta(minutes=20)).isoformat(),
-                    "end_time": (
-                        base_time + timedelta(minutes=20, seconds=25)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps({"arthur.task": "task-005"}),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "llm-005",
-                            "span_kind": "LLM",
-                            "start_time": (
-                                base_time + timedelta(minutes=20, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=20, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "ChatOpenAI",
-                                "attributes": {
-                                    "metadata": json.dumps({"arthur.task": "task-005"}),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-005",
+                        "span_kind": "CHAIN",
+                        "start_time": (base_time + timedelta(minutes=20)).isoformat(),
+                        "end_time": (
+                            base_time + timedelta(minutes=20, seconds=25)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps({"arthur.task": "task-005"}),
                             },
-                            "metric_results": create_metric_results(
-                                tool_selection=1,
-                                tool_usage=0,
-                                qrelevance=0.9,
-                                resprelevance=0.8,
-                            ),
-                            "children": [],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-005",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    base_time + timedelta(minutes=20, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=20, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-005"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": create_metric_results(
+                                    tool_selection=1,
+                                    tool_usage=0,
+                                    qrelevance=0.9,
+                                    resprelevance=0.8,
+                                ),
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
     ]
@@ -433,48 +460,50 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=0, seconds=30, microseconds=250000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-no-metrics-001",
-                    "span_kind": "CHAIN",
-                    "start_time": (
-                        base_time + timedelta(minutes=0, microseconds=150000)
-                    ).isoformat(),
-                    "end_time": (
-                        base_time
-                        + timedelta(minutes=0, seconds=25, microseconds=200000)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps(
-                                {"arthur.task": "task-no-metrics-001"},
-                            ),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "llm-no-metrics-001",
-                            "span_kind": "LLM",
-                            "start_time": (
-                                base_time + timedelta(minutes=0, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=0, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "ChatOpenAI",
-                                "attributes": {
-                                    "metadata": json.dumps(
-                                        {"arthur.task": "task-no-metrics-001"},
-                                    ),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-no-metrics-001",
+                        "span_kind": "CHAIN",
+                        "start_time": (
+                            base_time + timedelta(minutes=0, microseconds=150000)
+                        ).isoformat(),
+                        "end_time": (
+                            base_time
+                            + timedelta(minutes=0, seconds=25, microseconds=200000)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "task-no-metrics-001"},
+                                ),
                             },
-                            "metric_results": [],
-                            "children": [],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-no-metrics-001",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    base_time + timedelta(minutes=0, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=0, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-no-metrics-001"},
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
         # Trace 2: chain->agent->llm without metrics
@@ -487,66 +516,70 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
                 base_time + timedelta(minutes=5, seconds=30, microseconds=450000)
             ).isoformat(),
             "root_spans": [
-                json.dumps({
-                    "id": "chain-no-metrics-002",
-                    "span_kind": "CHAIN",
-                    "start_time": (base_time + timedelta(minutes=5)).isoformat(),
-                    "end_time": (
-                        base_time + timedelta(minutes=5, seconds=25)
-                    ).isoformat(),
-                    "raw_data": {
-                        "name": "supervisor",
-                        "attributes": {
-                            "metadata": json.dumps(
-                                {"arthur.task": "task-no-metrics-002"},
-                            ),
-                        },
-                    },
-                    "metric_results": [],
-                    "children": [
-                        {
-                            "id": "agent-no-metrics-002",
-                            "span_kind": "AGENT",
-                            "start_time": (
-                                base_time + timedelta(minutes=5, seconds=5)
-                            ).isoformat(),
-                            "end_time": (
-                                base_time + timedelta(minutes=5, seconds=20)
-                            ).isoformat(),
-                            "raw_data": {
-                                "name": "agent_no_metrics_1",
-                                "attributes": {
-                                    "metadata": json.dumps(
-                                        {"arthur.task": "task-no-metrics-002"},
-                                    ),
-                                },
+                json.dumps(
+                    {
+                        "id": "chain-no-metrics-002",
+                        "span_kind": "CHAIN",
+                        "start_time": (base_time + timedelta(minutes=5)).isoformat(),
+                        "end_time": (
+                            base_time + timedelta(minutes=5, seconds=25)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "task-no-metrics-002"},
+                                ),
                             },
-                            "metric_results": [],
-                            "children": [
-                                {
-                                    "id": "llm-no-metrics-002",
-                                    "span_kind": "LLM",
-                                    "start_time": (
-                                        base_time + timedelta(minutes=5, seconds=10)
-                                    ).isoformat(),
-                                    "end_time": (
-                                        base_time + timedelta(minutes=5, seconds=18)
-                                    ).isoformat(),
-                                    "raw_data": {
-                                        "name": "ChatOpenAI",
-                                        "attributes": {
-                                            "metadata": json.dumps(
-                                                {"arthur.task": "task-no-metrics-002"},
-                                            ),
-                                        },
-                                    },
-                                    "metric_results": [],
-                                    "children": [],
-                                },
-                            ],
                         },
-                    ],
-                }),
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-no-metrics-002",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    base_time + timedelta(minutes=5, seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    base_time + timedelta(minutes=5, seconds=20)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_no_metrics_1",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "task-no-metrics-002"},
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-no-metrics-002",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            base_time + timedelta(minutes=5, seconds=10)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            base_time + timedelta(minutes=5, seconds=18)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {
+                                                        "arthur.task": "task-no-metrics-002"
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
             ],
         },
     ]
