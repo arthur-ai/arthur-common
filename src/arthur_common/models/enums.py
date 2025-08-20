@@ -68,6 +68,15 @@ class MetricType(BaseEnum):
     TOOL_SELECTION = "ToolSelection"
 
 
+class ModelProblemType(BaseEnum):
+    REGRESSION = "regression"
+    BINARY_CLASSIFICATION = "binary_classification"
+    ARTHUR_SHIELD = "arthur_shield"
+    CUSTOM = "custom"
+    MULTICLASS_CLASSIFICATION = "multiclass_classification"
+    AGENTIC_TRACE = "agentic_trace"
+
+
 # Using version from arthur-engine, which has str and enum type inheritance.
 # Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
 class PIIEntityTypes(BaseEnum):

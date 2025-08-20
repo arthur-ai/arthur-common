@@ -1,6 +1,7 @@
 from enum import Enum
 
 
+# TODO: Remove after migration
 class ModelProblemType(str, Enum):
     REGRESSION = "regression"
     BINARY_CLASSIFICATION = "binary_classification"

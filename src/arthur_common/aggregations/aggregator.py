@@ -172,7 +172,9 @@ class SketchAggregationFunction(AggregationFunction, ABC):
         groups = data.groupby(dim_columns, dropna=False)
         for _, group in groups:
             calculated_metrics.append(
-                SketchAggregationFunction._group_to_series(group, timestamp_col, dim_columns, value_col),
+                SketchAggregationFunction._group_to_series(
+                    group, timestamp_col, dim_columns, value_col
+                ),
             )
 
         return calculated_metrics

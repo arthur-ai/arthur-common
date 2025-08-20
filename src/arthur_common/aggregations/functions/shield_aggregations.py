@@ -9,7 +9,7 @@ from arthur_common.aggregations.aggregator import (
     NumericAggregationFunction,
     SketchAggregationFunction,
 )
-from arthur_common.models.datasets import ModelProblemType
+from arthur_common.models.enums import ModelProblemType
 from arthur_common.models.metrics import (
     BaseReportedAggregation,
     DatasetReference,
