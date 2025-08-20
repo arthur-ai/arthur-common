@@ -77,7 +77,7 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
                     inference_prompt.result AS prompt_result, \
                     inference_response.result AS response_result, \
                     conversation_id, \
-                    user_id \
+                    inference_feedback.user_id as user_id \
                     from {dataset.dataset_table_name} \
                     group by ts, result, prompt_result, response_result, conversation_id, user_id \
                     order by ts desc; \
