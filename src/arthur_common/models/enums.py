@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 
 from arthur_common.models.constants import (
     ADMIN_KEY,
@@ -244,7 +244,7 @@ class TokenUsageScope(BaseEnum):
     TASK = "task"
 
 
-class ToolClassEnum(int, Enum):
+class ToolClassEnum(IntEnum):
     WRONG_TOOL_SELECTED = 0
     CORRECT_TOOL_SELECTED = 1
     NO_TOOL_SELECTED = 2
