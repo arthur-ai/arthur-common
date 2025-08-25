@@ -62,10 +62,10 @@ df3 = pd.DataFrame(test_data_2)
     [(df1, df2, "inner", 2), (df1, df2, "left_outer", 3), (df1, df3, "inner", 2)],
 )
 def test_dataset_join_kinds(
-    left_df: pd.DataFrame,
-    right_df: pd.DataFrame,
-    join_kind: str,
-    expected_count: int,
+        left_df: pd.DataFrame,
+        right_df: pd.DataFrame,
+        join_kind: str,
+        expected_count: int,
 ):
     conn = DuckDBOperator.load_data_to_duckdb(left_df, table_name="left_table")
     conn = DuckDBOperator.load_data_to_duckdb(
@@ -386,8 +386,8 @@ data_rows_2 = [
     [(pd.DataFrame(data_row_1), pd.DataFrame(data_row_2)), (data_rows, data_rows_2)],
 )
 def test_simple_load_data_with_schema_special_character_names(
-    data1: pd.DataFrame | list[dict[str, Any]],
-    data2: pd.DataFrame | list[dict[str, Any]],
+        data1: pd.DataFrame | list[dict[str, Any]],
+        data2: pd.DataFrame | list[dict[str, Any]],
 ):
     schema = DatasetSchema(
         alias_mask={},
@@ -432,3 +432,23 @@ def test_simple_load_data_with_schema_special_character_names(
 
     res = conn.sql("SELECT count(*) FROM joined").fetchall()
     assert res[0][0] == 2
+
+
+def test_simple_load_data_with_large_json_object():
+    data = [
+        {
+            "id": "991ff637-2c13-4289-ba17-a23c1c2b20b8",
+            "timestamp": "2024-07-28T13:46:12+0000",
+            "long_field": "a" * 1024 * 1024 * 100,  # 100MB
+        },
+    ]
+
+    conn = DuckDBOperator.load_data_to_duckdb(data)
+    results = conn.sql("SELECT * FROM inferences").fetchall()
+    assert len(results) == 1
+
+    # Assert values took on the type defined in the schema, (uuid, datetime) and not the raw types (str, str)
+    for row in results:
+        assert type(row[0]) == UUID
+        assert type(row[1]) == str
+        assert type(row[2]) == str

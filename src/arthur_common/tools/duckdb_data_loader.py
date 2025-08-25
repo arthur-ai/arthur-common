@@ -17,6 +17,8 @@ from arthur_common.models.schema_definitions import (
 )
 
 
+MAX_JSON_OBJECT_SIZE=1024 * 1024 * 1024  # 1GB
+
 class ColumnFormat(BaseModel):
     source_name: str
     alias: str
@@ -104,9 +106,9 @@ class DuckDBOperator:
             stringified_schema = ", ".join([f"{kv}" for kv in key_value_pairs])
             stringified_schema = f"{{ {stringified_schema} }}"
 
-            read_stmt = f"read_json('memory://inferences.json', format='array', columns={stringified_schema})"
+            read_stmt = f"read_json('memory://inferences.json', format='array', columns={stringified_schema}, maximum_object_size={MAX_JSON_OBJECT_SIZE})"
         else:
-            read_stmt = "read_json_auto('memory://inferences.json')"
+            read_stmt = f"read_json_auto('memory://inferences.json', maximum_object_size={MAX_JSON_OBJECT_SIZE})"
 
         conn.sql(
             f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM {read_stmt}",
