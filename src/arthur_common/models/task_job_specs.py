@@ -1,21 +1,12 @@
-from enum import Enum
 from typing import Literal, Optional, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from arthur_common.models.shield import (
-    NewMetricRequest,
-    NewRuleRequest,
-    model_validator,
-)
+from arthur_common.models.enums import TaskType
+from arthur_common.models.request_schemas import NewMetricRequest, NewRuleRequest
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
-
-
-class TaskType(str, Enum):
-    TRADITIONAL = "traditional"
-    AGENTIC = "agentic"
 
 
 class CreateModelTaskJobSpec(BaseModel):

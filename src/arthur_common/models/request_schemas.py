@@ -1,318 +1,37 @@
-from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Type, Union
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from arthur_common.models.constants import NEGATIVE_BLOOD_EXAMPLE
-
-DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
-DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
-
-
-# TODO: Delete after migration (UP-2945). Moved to enums.py.
-class RuleType(str, Enum):
-    KEYWORD = "KeywordRule"
-    MODEL_HALLUCINATION_V2 = "ModelHallucinationRuleV2"
-    MODEL_SENSITIVE_DATA = "ModelSensitiveDataRule"
-    PII_DATA = "PIIDataRule"
-    PROMPT_INJECTION = "PromptInjectionRule"
-    REGEX = "RegexRule"
-    TOXICITY = "ToxicityRule"
-
-    def __str__(self) -> str:
-        return self.value
-
-
-# TODO: Delete after migration (UP-2945). Moved to enums.py.
-class RuleScope(str, Enum):
-    DEFAULT = "default"
-    TASK = "task"
+from arthur_common.models.common_schemas import (
+    ExamplesConfig,
+    KeywordsConfig,
+    PIIConfig,
+    RegexConfig,
+    ToxicityConfig,
+)
+from arthur_common.models.constants import (
+    ERROR_PASSWORD_POLICY_NOT_MET,
+    GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH,
+    HALLUCINATION_RULE_NAME,
+    NEGATIVE_BLOOD_EXAMPLE,
+)
+from arthur_common.models.enums import (
+    APIKeysRolesEnum,
+    InferenceFeedbackTarget,
+    MetricType,
+    PIIEntityTypes,
+    RuleScope,
+    RuleType,
+)
+from arthur_common.models.metric_schemas import RelevanceMetricConfig
 
 
-# TODO: Delete after migration (UP-2945). Moved to enums.py.
-class MetricType(str, Enum):
-    QUERY_RELEVANCE = "QueryRelevance"
-    RESPONSE_RELEVANCE = "ResponseRelevance"
-    TOOL_SELECTION = "ToolSelection"
-
-    def __str__(self) -> str:
-        return self.value
-
-
-# TODO: Delete after migration (UP-2945). Moved to enums.py.
-class BaseEnum(str, Enum):
-    @classmethod
-    def values(cls) -> list[Any]:
-        values: list[str] = [e for e in cls]
-        return values
-
-    def __str__(self) -> Any:
-        return self.value
-
-
-# TODO: Delete after migration (UP-2945). Moved to enums.py.
-# Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
-class PIIEntityTypes(BaseEnum):
-    CREDIT_CARD = "CREDIT_CARD"
-    CRYPTO = "CRYPTO"
-    DATE_TIME = "DATE_TIME"
-    EMAIL_ADDRESS = "EMAIL_ADDRESS"
-    IBAN_CODE = "IBAN_CODE"
-    IP_ADDRESS = "IP_ADDRESS"
-    NRP = "NRP"
-    LOCATION = "LOCATION"
-    PERSON = "PERSON"
-    PHONE_NUMBER = "PHONE_NUMBER"
-    MEDICAL_LICENSE = "MEDICAL_LICENSE"
-    URL = "URL"
-    US_BANK_NUMBER = "US_BANK_NUMBER"
-    US_DRIVER_LICENSE = "US_DRIVER_LICENSE"
-    US_ITIN = "US_ITIN"
-    US_PASSPORT = "US_PASSPORT"
-    US_SSN = "US_SSN"
-
-    @classmethod
-    def to_string(cls) -> str:
-        return ",".join(member.value for member in cls)
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class KeywordsConfig(BaseModel):
-    keywords: List[str] = Field(description="List of Keywords")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"keywords": ["Blocked_Keyword_1", "Blocked_Keyword_2"]},
-        },
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class RegexConfig(BaseModel):
-    regex_patterns: List[str] = Field(
-        description="List of Regex patterns to be used for validation. Be sure to encode requests in JSON and account for escape characters.",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "regex_patterns": ["\\d{3}-\\d{2}-\\d{4}", "\\d{5}-\\d{6}-\\d{7}"],
-            },
-        },
-        extra="forbid",
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class ToxicityConfig(BaseModel):
-    threshold: float = Field(
-        default=DEFAULT_TOXICITY_RULE_THRESHOLD,
-        description=f"Optional. Float (0, 1) indicating the level of tolerable toxicity to consider the rule passed or failed. Min: 0 (no toxic language) Max: 1 (very toxic language). Default: {DEFAULT_TOXICITY_RULE_THRESHOLD}",
-    )
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"example": {"threshold": DEFAULT_TOXICITY_RULE_THRESHOLD}},
-    )
-
-    @field_validator("threshold")
-    def validate_toxicity_threshold(cls, v: float) -> float:
-        if v and ((v < 0) | (v > 1)):
-            raise ValueError(f'"threshold" must be between 0 and 1')
-        return v
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class PIIConfig(BaseModel):
-    disabled_pii_entities: Optional[list[str]] = Field(
-        description=f"Optional. List of PII entities to disable. Valid values are: {PIIEntityTypes.to_string()}",
-        default=None,
-    )
-
-    confidence_threshold: Optional[float] = Field(
-        description=f"Optional. Float (0, 1) indicating the level of tolerable PII to consider the rule passed or failed. Min: 0 (less confident) Max: 1 (very confident). Default: {DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD}",
-        default=DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD,
-        json_schema_extra={"deprecated": True},
-    )
-
-    allow_list: Optional[list[str]] = Field(
-        description="Optional. List of strings to pass PII validation.",
-        default=None,
-    )
-
-    @field_validator("disabled_pii_entities")
-    def validate_pii_entities(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v:
-            entities_passed = set(v)
-            entities_supported = set(PIIEntityTypes.values())
-            invalid_entities = entities_passed - entities_supported
-            if invalid_entities:
-                raise ValueError(
-                    f"The following values are not valid PII entities: {invalid_entities}",
-                )
-
-            # Fail the case where they are trying to disable all PII entity types
-            if (not invalid_entities) & (
-                len(entities_passed) == len(entities_supported)
-            ):
-                raise ValueError(
-                    f"Cannot disable all supported PII entities on PIIDataRule",
-                )
-            return v
-        else:
-            return v
-
-    @field_validator("confidence_threshold")
-    def validate_confidence_threshold(cls, v: Optional[float]) -> Optional[float]:
-        if v and ((v < 0) | (v > 1)):
-            raise ValueError(f'"confidence_threshold" must be between 0 and 1')
-        return v
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "disabled_pii_entities": ["PERSON", "URL"],
-                "confidence_threshold": "0.5",
-                "allow_list": ["arthur.ai", "Arthur"],
-            },
-        },
-        extra="forbid",
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class ExampleConfig(BaseModel):
-    example: str = Field(description="Custom example for the sensitive data")
-    result: bool = Field(
-        description="Boolean value representing if the example passes or fails the the sensitive "
-        "data rule ",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
-        },
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to common_schemas.py.
-class ExamplesConfig(BaseModel):
-    examples: List[ExampleConfig] = Field(
-        description="List of all the examples for Sensitive Data Rule",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "examples": [
-                    {"example": NEGATIVE_BLOOD_EXAMPLE, "result": True},
-                    {
-                        "example": "Most of the people have A positive blood group",
-                        "result": False,
-                    },
-                ],
-                "hint": "specific individual's blood type",
-            },
-        },
-    )
-    hint: Optional[str] = Field(
-        description="Optional. Hint added to describe what Sensitive Data Rule should be checking for",
-        default=None,
-    )
-
-    def to_dict(self) -> Dict[str, Any]:
-        d = self.__dict__
-        d["examples"] = [ex.__dict__ for ex in self.examples]
-        d["hint"] = self.hint
-        return d
-
-
-# TODO: Delete after migration (UP-2945). Moved to request_schemas.py.
-class RuleResponse(BaseModel):
-    id: str = Field(description="ID of the Rule")
-    name: str = Field(description="Name of the Rule")
-    type: RuleType = Field(description="Type of Rule")
-    apply_to_prompt: bool = Field(description="Rule applies to prompt")
-    apply_to_response: bool = Field(description="Rule applies to response")
-    enabled: Optional[bool] = Field(
-        description="Rule is enabled for the task",
-        default=None,
-    )
-    scope: RuleScope = Field(
-        description="Scope of the rule. The rule can be set at default level or task level.",
-    )
-    # UNIX millis format
-    created_at: int = Field(
-        description="Time the rule was created in unix milliseconds",
-    )
-    updated_at: int = Field(
-        description="Time the rule was updated in unix milliseconds",
-    )
-    # added a title to this to differentiate it in the generated client from the
-    # config field on the NewRuleRequest object
-    config: Optional[
-        Union[KeywordsConfig, RegexConfig, ExamplesConfig, ToxicityConfig, PIIConfig]
-    ] = Field(
-        description="Config of the rule",
-        default=None,
-        title="Rule Response Config",
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to response_schemas.py.
-class MetricResponse(BaseModel):
-    id: str = Field(description="ID of the Metric")
-    name: str = Field(description="Name of the Metric")
-    type: MetricType = Field(description="Type of the Metric")
-    metric_metadata: str = Field(description="Metadata of the Metric")
-    config: Optional[str] = Field(
-        description="JSON-serialized configuration for the Metric",
-        default=None,
-    )
-    created_at: datetime = Field(
-        description="Time the Metric was created in unix milliseconds",
-    )
-    updated_at: datetime = Field(
-        description="Time the Metric was updated in unix milliseconds",
-    )
-    enabled: Optional[bool] = Field(
-        description="Whether the Metric is enabled",
-        default=None,
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to response_schemas.py.
-class TaskResponse(BaseModel):
-    id: str = Field(description=" ID of the task")
-    name: str = Field(description="Name of the task")
-    created_at: int = Field(
-        description="Time the task was created in unix milliseconds",
-    )
-    updated_at: int = Field(
-        description="Time the task was created in unix milliseconds",
-    )
-    is_agentic: Optional[bool] = Field(
-        description="Whether the task is agentic or not",
-        default=None,
-    )
-    rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
-    metrics: Optional[List[MetricResponse]] = Field(
-        description="List of all the metrics for the task.",
-        default=None,
-    )
-
-
-# TODO: Delete after migration (UP-2945). Moved to request_schemas.py.
 class UpdateRuleRequest(BaseModel):
     enabled: bool = Field(description="Boolean value to enable or disable the rule. ")
 
 
-HALLUCINATION_RULE_NAME = "Hallucination Rule"
-
-
-# TODO: Delete after migration (UP-2945). Moved to request_schemas.py.
+# Using the latest version from arthur-common
 class NewRuleRequest(BaseModel):
     name: str = Field(description="Name of the rule", examples=["SSN Regex Rule"])
     type: str = Field(
@@ -540,21 +259,148 @@ class NewRuleRequest(BaseModel):
         return self
 
 
-# TODO: Delete after migration (UP-2945). Exists in metric_schemas.py.
-class RelevanceMetricConfig(BaseModel):
-    """Configuration for relevance metrics including QueryRelevance and ResponseRelevance"""
-
-    relevance_threshold: Optional[float] = Field(
+class SearchTasksRequest(BaseModel):
+    task_ids: Optional[list[str]] = Field(
+        description="List of tasks to query for.",
         default=None,
-        description="Threshold for determining relevance when not using LLM judge",
     )
-    use_llm_judge: bool = Field(
-        default=True,
-        description="Whether to use LLM as a judge for relevance scoring",
+    task_name: Optional[str] = Field(
+        description="Task name substring search string.",
+        default=None,
+    )
+    is_agentic: Optional[bool] = Field(
+        description="Filter tasks by agentic status. If not provided, returns both agentic and non-agentic tasks.",
+        default=None,
     )
 
 
-# TODO: Delete after migration (UP-2945). Moved to request_schemas.py.
+class SearchRulesRequest(BaseModel):
+    rule_ids: Optional[list[str]] = Field(
+        description="List of rule IDs to search for.",
+        default=None,
+    )
+    rule_scopes: Optional[list[RuleScope]] = Field(
+        description="List of rule scopes to search for.",
+        default=None,
+    )
+    prompt_enabled: Optional[bool] = Field(
+        description="Include or exclude prompt-enabled rules.",
+        default=None,
+    )
+    response_enabled: Optional[bool] = Field(
+        description="Include or exclude response-enabled rules.",
+        default=None,
+    )
+    rule_types: Optional[list[RuleType]] = Field(
+        description="List of rule types to search for.",
+        default=None,
+    )
+
+
+class NewTaskRequest(BaseModel):
+    name: str = Field(description="Name of the task.", min_length=1)
+    is_agentic: bool = Field(
+        description="Whether the task is agentic or not.",
+        default=False,
+    )
+
+
+class NewApiKeyRequest(BaseModel):
+    description: Optional[str] = Field(
+        description="Description of the API key. Optional.",
+        default=None,
+    )
+    roles: Optional[list[APIKeysRolesEnum]] = Field(
+        description=f"Role that will be assigned to API key. Allowed values: {[role for role in APIKeysRolesEnum]}",
+        default=[APIKeysRolesEnum.VALIDATION_USER],
+    )
+
+
+class PromptValidationRequest(BaseModel):
+    prompt: str = Field(description="Prompt to be validated by GenAI Engine")
+    # context: Optional[str] = Field(
+    #     description="Optional data provided as context for the prompt validation. "
+    #     "Currently not used"
+    # )
+    conversation_id: Optional[str] = Field(
+        description="The unique conversation ID this prompt belongs to. All prompts and responses from this \
+        conversation can later be reconstructed with this ID.",
+        default=None,
+    )
+    user_id: Optional[str] = Field(
+        description="The user ID this prompt belongs to",
+        default=None,
+    )
+
+
+class ResponseValidationRequest(BaseModel):
+    response: str = Field(description="LLM Response to be validated by GenAI Engine")
+    context: Optional[str] = Field(
+        description="Optional data provided as context for the validation.",
+        default=None,
+    )
+    # tokens: Optional[List[str]] = Field(description="optional, not used currently")
+    # token_likelihoods: Optional[List[str]] = Field(
+    #     description="optional, not used currently"
+    # )
+
+    @model_validator(mode="after")
+    def check_prompt_or_response(cls, values: Any) -> Any:
+        if isinstance(values, PromptValidationRequest) and values.prompt is None:
+            raise ValueError("prompt is required when validating a prompt")
+        if isinstance(values, ResponseValidationRequest) and values.response is None:
+            raise ValueError("response is required when validating a response")
+        return values
+
+
+class ChatRequest(BaseModel):
+    user_prompt: str = Field(description="Prompt user wants to send to chat.")
+    conversation_id: str = Field(description="Conversation ID")
+    file_ids: List[str] = Field(
+        description="list of file IDs to retrieve from during chat.",
+    )
+
+
+class FeedbackRequest(BaseModel):
+    target: InferenceFeedbackTarget
+    score: int
+    reason: str | None
+    user_id: str | None = None
+
+
+class CreateUserRequest(BaseModel):
+    email: str
+    password: str
+    temporary: bool = True
+    roles: list[str]
+    firstName: str
+    lastName: str
+
+
+class PasswordResetRequest(BaseModel):
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_meets_security(cls, value: str) -> str:
+        special_characters = '!@#$%^&*()-+?_=,<>/"'
+        if not len(value) >= GENAI_ENGINE_KEYCLOAK_PASSWORD_LENGTH:
+            raise ValueError(ERROR_PASSWORD_POLICY_NOT_MET)
+        if (
+            not any(c.isupper() for c in value)
+            or not any(c.islower() for c in value)
+            or not any(c.isdigit() for c in value)
+            or not any(c in special_characters for c in value)
+        ):
+            raise ValueError(ERROR_PASSWORD_POLICY_NOT_MET)
+        return value
+
+
+class ChatDefaultTaskRequest(BaseModel):
+    task_id: str
+
+
+# Using the latest version from arthur-common
 class NewMetricRequest(BaseModel):
     type: MetricType = Field(
         description="Type of the metric. It can only be one of QueryRelevance, ResponseRelevance, ToolSelection",
@@ -657,3 +503,7 @@ class NewMetricRequest(BaseModel):
             )
 
         return values
+
+
+class UpdateMetricRequest(BaseModel):
+    enabled: bool = Field(description="Boolean value to enable or disable the metric. ")
