@@ -47,18 +47,8 @@ def generate_openapi_components_only(
                     try:
                         # Only process enums that are defined in this module, not imported ones
                         if obj.__module__ == module.__name__:
-                            if issubclass(obj, int):  # Handle IntEnum specially
-                                # Create custom schema with both keys and values
-                                enum_schemas[name] = {
-                                    "type": "integer",
-                                    "enum": [e.value for e in obj],
-                                    "enumNames": [e.name for e in obj],
-                                    "title": name,
-                                }
-                            else:
-                                # Use regular TypeAdapter for other enums
-                                adapter = TypeAdapter(obj, config=type_adapter_config)
-                                enum_schemas[name] = adapter.json_schema()
+                            adapter = TypeAdapter(obj, config=type_adapter_config)
+                            enum_schemas[name] = adapter.json_schema()
                     except Exception as e:
                         logger.error(f"Error processing enum {name}: {e}")
 

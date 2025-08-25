@@ -501,21 +501,6 @@ class ChatResponse(BaseModel):
     )
 
 
-class DocumentStorageConfigurationResponse(BaseModel):
-    storage_environment: Optional[str] = None
-    bucket_name: Optional[str] = None
-    container_name: Optional[str] = None
-    assumable_role_arn: Optional[str] = None
-
-
-class ApplicationConfigurationResponse(BaseModel):
-    chat_task_id: Optional[str] = None
-    document_storage_configuration: Optional[DocumentStorageConfigurationResponse] = (
-        None
-    )
-    max_llm_rules_per_task_count: int
-
-
 class TokenUsageCount(BaseModel):
     inference: int = Field(description="Number of inference tokens sent to Arthur.")
     eval_prompt: int = Field(

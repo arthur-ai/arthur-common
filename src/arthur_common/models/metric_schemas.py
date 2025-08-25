@@ -2,8 +2,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from arthur_common.models.enums import ToolClassEnum
-
 
 class RelevanceMetricConfig(BaseModel):
     """Configuration for relevance metrics including QueryRelevance and ResponseRelevance"""
@@ -32,21 +30,6 @@ class QueryRelevanceMetric(RelevanceMetric):
 
 class ResponseRelevanceMetric(RelevanceMetric):
     """Inherits from RelevanceMetric. This class is left empty so that the openapi response schema remains the same as before, but we have a single source of truth for the relevance metric details."""
-
-
-class ToolSelectionCorrectnessMetric(BaseModel):
-    tool_selection: ToolClassEnum
-    tool_selection_reason: str
-    tool_usage: ToolClassEnum
-    tool_usage_reason: str
-
-
-class MetricScoreDetails(BaseModel):
-    query_relevance: Optional[QueryRelevanceMetric] = None
-    response_relevance: Optional[ResponseRelevanceMetric] = None
-    rag_score: Optional[float] = None
-    persona_alignment: Optional[float] = None
-    tool_selection: Optional[ToolSelectionCorrectnessMetric] = None
 
 
 class MetricRequest(BaseModel):
