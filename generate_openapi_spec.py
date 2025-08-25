@@ -1,8 +1,12 @@
-import json
-from typing import Any
-from pydantic import BaseModel
 import argparse
+import json
 import logging
+import os
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic.json_schema import models_json_schema
 
 logger = logging.getLogger()
 
@@ -12,35 +16,57 @@ def generate_openapi_components_only(
 ) -> None:
     """Generate OpenAPI spec with only component schemas"""
 
-    # If add new models, add them here
-    from arthur_common.models import (
+    # Import modules fresh each time
+    import arthur_common.models.common_schemas as common_schemas
+    import arthur_common.models.enums as enums_module
+    import arthur_common.models.metric_schemas as metric_schemas
+    import arthur_common.models.request_schemas as request_schemas
+    import arthur_common.models.response_schemas as response_schemas
+
+    # Process each module
+    modules = [
+        enums_module,
         common_schemas,
         metric_schemas,
         request_schemas,
         response_schemas,
-        enums,
-    )
+    ]
 
-    # Collect all Pydantic models
-    components: dict[str, dict[str, Any]] = {"schemas": {}}
+    enum_schemas: dict[str, dict[str, Any]] = {}
+    pydantic_models: list[type[BaseModel]] = []
+    type_adapter_config = ConfigDict(use_enum_values=False)
 
-    # Process each module
-    modules = [common_schemas, metric_schemas, request_schemas, response_schemas, enums]
-
+    # Extract classes from all modules
     for module in modules:
         for name, obj in module.__dict__.items():
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, BaseModel)
-                and obj != BaseModel
-            ):
-                try:
-                    # Generate JSON schema for the model
-                    schema = obj.model_json_schema()
-                    components["schemas"][name] = schema
-                    logger.info(f"Added schema: {name}")
-                except Exception as e:
-                    logger.error(f"Error processing {name}: {e}")
+            if isinstance(obj, type):
+                logger.info(f"Processing {name} of type {type(obj)}")
+                if hasattr(obj, "model_json_schema") and obj != BaseModel:
+                    pydantic_models.append(obj)
+                elif issubclass(obj, Enum):  # Handle enums separately
+                    try:
+                        # Only process enums that are defined in this module, not imported ones
+                        if obj.__module__ == module.__name__:
+                            if issubclass(obj, int):  # Handle IntEnum specially
+                                # Create custom schema with both keys and values
+                                enum_schemas[name] = {
+                                    "type": "integer",
+                                    "enum": [e.value for e in obj],
+                                    "enumNames": [e.name for e in obj],
+                                    "title": name,
+                                }
+                            else:
+                                # Use regular TypeAdapter for other enums
+                                adapter = TypeAdapter(obj, config=type_adapter_config)
+                                enum_schemas[name] = adapter.json_schema()
+                    except Exception as e:
+                        logger.error(f"Error processing enum {name}: {e}")
+
+    # Generate schemas for all Pydantic models. Handles complex models.
+    _, pydantic_schemas = models_json_schema(
+        [(model, "validation") for model in pydantic_models],
+        ref_template="#/components/schemas/{model}",
+    )
 
     # Create minimal OpenAPI spec with only components
     openapi_spec = {
@@ -48,10 +74,15 @@ def generate_openapi_components_only(
         "info": {
             "title": "Arthur Common Models",
             "description": "Data models and schemas for Arthur Common components",
-            "version": "1.0.0",
+            "version": "1.0.1",
         },
         "paths": {},
-        "components": components,
+        "components": {
+            "schemas": {
+                **enum_schemas,
+                **(pydantic_schemas.get("$defs") or {}),
+            }
+        },
     }
 
     # Determine output filename
@@ -60,15 +91,19 @@ def generate_openapi_components_only(
     else:
         filename = "staging.openapi.min.json" if minimize else "staging.openapi.json"
 
+    path_directory = os.path.dirname(os.path.abspath(__name__))
+    path = os.path.join(path_directory, filename)
+
     # Write to file
-    with open(filename, "w") as f:
+    with open(path, "w+") as f:
         if minimize:
             json.dump(openapi_spec, f, separators=(",", ":"))
         else:
             json.dump(openapi_spec, f, indent=2)
 
-    logger.info(f"\nOpenAPI spec generated with {len(components['schemas'])} schemas")
-    logger.info(f"File: {filename}")
+    # Avoiding mypy value type error
+    schema_count = len(pydantic_schemas) + len(enum_schemas)
+    logger.info(f"\nOpenAPI spec generated with {schema_count} schemas in {filename}")
 
 
 def main() -> None:

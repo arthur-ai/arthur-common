@@ -1,4 +1,4 @@
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, StrEnum
 
 from arthur_common.models.constants import (
     ADMIN_KEY,
@@ -11,7 +11,7 @@ from arthur_common.models.constants import (
 )
 
 
-class BaseEnum(str, Enum):
+class BaseEnum(StrEnum):
     @classmethod
     def values(self) -> list[str]:
         values: list[str] = [e for e in self]
@@ -194,7 +194,7 @@ class PermissionLevelsEnum(Enum):
     USER_WRITE = frozenset([ORG_ADMIN])
 
 
-class RuleDataType(str, Enum):
+class RuleDataType(BaseEnum):
     REGEX = "regex"
     KEYWORD = "keyword"
     JSON = "json"

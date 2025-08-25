@@ -37,6 +37,9 @@ This project uses [pytest](https://pytest.org/) for testing. To run the tests, e
 poetry run pytest
 ```
 
+## Generating OpenAPI spec
+Must run via `poetry run python generate_openapi_spec -m` to avoid a stale cache when making changes in the modules.
+
 ## Release process
 1. Merge changes into **main** branch
 2. Go to **Actions** -> **Arthur Common Version Bump**
