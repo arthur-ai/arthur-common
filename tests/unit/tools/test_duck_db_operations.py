@@ -62,10 +62,10 @@ df3 = pd.DataFrame(test_data_2)
     [(df1, df2, "inner", 2), (df1, df2, "left_outer", 3), (df1, df3, "inner", 2)],
 )
 def test_dataset_join_kinds(
-        left_df: pd.DataFrame,
-        right_df: pd.DataFrame,
-        join_kind: str,
-        expected_count: int,
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
+    join_kind: str,
+    expected_count: int,
 ):
     conn = DuckDBOperator.load_data_to_duckdb(left_df, table_name="left_table")
     conn = DuckDBOperator.load_data_to_duckdb(
@@ -386,8 +386,8 @@ data_rows_2 = [
     [(pd.DataFrame(data_row_1), pd.DataFrame(data_row_2)), (data_rows, data_rows_2)],
 )
 def test_simple_load_data_with_schema_special_character_names(
-        data1: pd.DataFrame | list[dict[str, Any]],
-        data2: pd.DataFrame | list[dict[str, Any]],
+    data1: pd.DataFrame | list[dict[str, Any]],
+    data2: pd.DataFrame | list[dict[str, Any]],
 ):
     schema = DatasetSchema(
         alias_mask={},

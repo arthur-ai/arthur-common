@@ -16,8 +16,8 @@ from arthur_common.models.schema_definitions import (
     DType,
 )
 
+MAX_JSON_OBJECT_SIZE = 1024 * 1024 * 1024  # 1GB
 
-MAX_JSON_OBJECT_SIZE=1024 * 1024 * 1024  # 1GB
 
 class ColumnFormat(BaseModel):
     source_name: str
