@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import subprocess
 import sys
 from datetime import datetime
@@ -30,8 +29,10 @@ def get_output_of_openapi_diff(
 ) -> Generator[tuple[str, str, str], None, None] | None:
     logger.info(f"Current openapi path: {current_openapi_path}")
     logger.info(f"New openapi path: {new_openapi_path}")
+
+    # Using summary to get the changelog because 'changelog' only tracks breaking changes.
     output = subprocess.run(
-        ["oasdiff", "changelog", current_openapi_path, new_openapi_path],
+        ["oasdiff", "summary", current_openapi_path, new_openapi_path],
         capture_output=True,
     )
     logger.info(f"Return code of the command: {output.returncode}")
@@ -73,7 +74,7 @@ def main() -> None:
     # Define paths relative to the current directory
     old_openapi_path = os.path.join(current_dir, "staging.openapi.json")
     new_openapi_path = os.path.join(current_dir, "new.openapi.json")
-    changelog_md_path = os.path.join(current_dir, "api_changelog.md")
+    changelog_md_path = os.path.join(current_dir, "src/arthur_common/api_changelog.md")
 
     # Check if old schema exists, if not create an empty one
     if not os.path.exists(old_openapi_path):

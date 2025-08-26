@@ -1,6 +1,9 @@
 The intention of this changelog is to document API changes as they happen to effectively communicate them to customers.
 
 ---
+# 08/26/2025
+- **CHANGE**: arthur-common version of the changelog has started & the changes below are from OSS
+
 # 08/09/2025
 Made `bert_f_score` and `reranker_relevance_score` optional.
 

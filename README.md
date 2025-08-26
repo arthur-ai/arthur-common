@@ -38,7 +38,8 @@ poetry run pytest
 ```
 
 ## Generating OpenAPI spec
-Must run via `poetry run python generate_openapi_spec -m` to avoid a stale cache when making changes in the modules.
+Generate the OpenAPI spec file by running the generate_spec shell file.
+
 
 ## Release process
 1. Merge changes into **main** branch
