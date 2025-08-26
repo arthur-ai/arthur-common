@@ -1,8 +1,11 @@
 import argparse
+import importlib
 import json
 import logging
 import os
 from enum import Enum
+import pkgutil
+from types import ModuleType
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
@@ -11,26 +14,33 @@ from pydantic.json_schema import models_json_schema
 logger = logging.getLogger()
 
 
+def get_all_model_modules() -> list[ModuleType]:
+    """Dynamically discover and import all modules in the models subdirectory"""
+    import arthur_common.models as models_package
+
+    modules = []
+    package_path = models_package.__path__[0]
+
+    # Get all Python files in the models directory
+    for _, name, is_pkg in pkgutil.iter_modules([package_path]):
+        if not is_pkg and name != "__init__" and name != "shield":
+            try:
+                # Import the module dynamically
+                module = importlib.import_module(f"arthur_common.models.{name}")
+                modules.append(module)
+                logger.info(f"Successfully imported module: {name}")
+            except ImportError as e:
+                logger.warning(f"Failed to import module {name}: {e}")
+            except Exception as e:
+                logger.warning(f"Error processing module {name}: {e}")
+
+    return modules
+
+
 def generate_openapi_components_only(
     minimize: bool = False, output_path: str | None = None
 ) -> None:
-    """Generate OpenAPI spec with only component schemas"""
-
-    # Import modules fresh each time
-    import arthur_common.models.common_schemas as common_schemas
-    import arthur_common.models.enums as enums_module
-    import arthur_common.models.metric_schemas as metric_schemas
-    import arthur_common.models.request_schemas as request_schemas
-    import arthur_common.models.response_schemas as response_schemas
-
-    # Process each module
-    modules = [
-        enums_module,
-        common_schemas,
-        metric_schemas,
-        request_schemas,
-        response_schemas,
-    ]
+    modules = get_all_model_modules()
 
     enum_schemas: dict[str, dict[str, Any]] = {}
     pydantic_models: list[type[BaseModel]] = []
@@ -77,15 +87,15 @@ def generate_openapi_components_only(
 
     # Determine output filename
     if output_path:
-        filename = output_path
+        path = output_path
     else:
         filename = "staging.openapi.min.json" if minimize else "staging.openapi.json"
+        path_directory = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(path_directory, filename)
 
-    path_directory = os.path.dirname(os.path.abspath(__name__))
-    path = os.path.join(path_directory, filename)
-
+    logger.info(f"Writing to file: {path}")
     # Write to file
-    with open(path, "w+") as f:
+    with open(path, "w") as f:
         if minimize:
             json.dump(openapi_spec, f, separators=(",", ":"))
         else:
@@ -93,7 +103,7 @@ def generate_openapi_components_only(
 
     # Avoiding mypy value type error
     schema_count = len(pydantic_schemas) + len(enum_schemas)
-    logger.info(f"\nOpenAPI spec generated with {schema_count} schemas in {filename}")
+    logger.info(f"\nOpenAPI spec generated with {schema_count} schemas in {path}")
 
 
 def main() -> None:
