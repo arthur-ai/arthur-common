@@ -1,7 +1,7 @@
 import inspect
 import logging
 from types import ModuleType
-from typing import Type
+from typing import Type, cast
 
 import arthur_common.aggregations as agg_module
 from arthur_common.aggregations.aggregator import (
@@ -9,7 +9,13 @@ from arthur_common.aggregations.aggregator import (
     NumericAggregationFunction,
     SketchAggregationFunction,
 )
-from arthur_common.models.metrics import AggregationSpecSchema
+from arthur_common.models.metrics import (
+    AggregationMetricType,
+    AggregationSpecSchema,
+    CustomAggregationSchema,
+    MetricsParameterSchemaUnion,
+    ReportedAggregationsSchemaUnion,
+)
 from arthur_common.tools.aggregation_analyzer import FunctionAnalyzer
 
 logging.basicConfig(level=logging.INFO)
@@ -57,3 +63,60 @@ class AggregationLoader:
             except Exception as e:
                 logger.error(f"Failed to load aggregation function {agg_function}: {e}")
         return aggregation_specs
+
+    @staticmethod
+    def load_custom_aggregations_spec(
+        custom_aggregations: list[CustomAggregationSchema],
+    ) -> list[tuple[AggregationSpecSchema, None]]:
+        aggregation_specs: list[AggregationSpecSchema] = []
+        # question: do we want to return all versions of the custom aggregations or just the latest?
+
+        # Code to get latest version of custom aggregation
+        for custom_aggregation in custom_aggregations:
+            aggregation_specs.append(
+                AggregationSpecSchema(
+                    name=custom_aggregation.name,
+                    id=custom_aggregation.id,
+                    description=(
+                        custom_aggregation.description
+                        if custom_aggregation.description
+                        else ""
+                    ),
+                    metric_type=AggregationMetricType.NUMERIC,  # What should this be?
+                    init_args=[],  # What should I input here?
+                    aggregate_args=cast(
+                        list[MetricsParameterSchemaUnion],
+                        custom_aggregation.versions[0].aggregate_args,
+                    ),
+                    reported_aggregations=cast(
+                        list[ReportedAggregationsSchemaUnion],
+                        custom_aggregation.versions[0].reported_aggregations,
+                    ),
+                ),
+            )
+
+        # Code to get all versions
+        # for custom_aggregation in custom_aggregations:
+        #     for version in custom_aggregation.versions:
+        #         aggregation_specs.append(
+        #             AggregationSpecSchema(
+        #                 name=custom_aggregation.name,
+        #                 id=custom_aggregation.id,
+        #                 description=(
+        #                     custom_aggregation.description
+        #                     if custom_aggregation.description
+        #                     else ""
+        #                 ),
+        #                 metric_type=AggregationMetricType.NUMERIC,  # What should this be?
+        #                 init_args=[],  # What should I input here?
+        #                 aggregate_args=cast(
+        #                     list[MetricsParameterSchemaUnion],
+        #                     custom_aggregation.versions[0].aggregate_args,
+        #                 ),
+        #                 reported_aggregations=cast(
+        #                     list[ReportedAggregationsSchemaUnion],
+        #                     custom_aggregation.versions[0].reported_aggregations,
+        #                 ),
+        #             ),
+        #         )
+        return [(aggregation_spec, None) for aggregation_spec in aggregation_specs]

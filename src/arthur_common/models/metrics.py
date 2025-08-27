@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -233,6 +233,34 @@ class BaseReportedAggregation(BaseModel):
     )
 
 
+class ReportedCustomAggregation(BaseReportedAggregation):
+    value_column: str = Field(
+        description="Name of the column returned from the SQL query holding the metric value.",
+    )
+    timestamp_column: str = Field(
+        description="Name of the column returned from the SQL query holding the timestamp buckets.",
+    )
+    metric_kind: AggregationMetricType = Field(
+        description="Return type of the reported aggregation metric value.",
+    )
+    dimension_columns: list[str] = Field(
+        description="Name of any dimension columns returned from the SQL query. Max length is 1.",
+    )
+
+    @field_validator("dimension_columns")
+    @classmethod
+    def validate_dimension_columns_length(cls, v: list[str]) -> list[str]:
+        if len(v) > 1:
+            raise ValueError("Only one dimension column can be specified.")
+        return v
+
+
+ReportedAggregationsSchemaUnion = Union[
+    BaseReportedAggregation,
+    ReportedCustomAggregation,
+]
+
+
 class AggregationSpecSchema(BaseModel):
     name: str = Field(description="Name of the aggregation function.")
     id: UUID = Field(description="Unique identifier of the aggregation function.")
@@ -249,7 +277,7 @@ class AggregationSpecSchema(BaseModel):
     aggregate_args: list[MetricsParameterSchemaUnion] = Field(
         description="List of parameters to the aggregation's aggregate function.",
     )
-    reported_aggregations: list[BaseReportedAggregation] = Field(
+    reported_aggregations: list[ReportedAggregationsSchemaUnion] = Field(
         description="List of aggregations reported by the metric.",
     )
 
@@ -282,16 +310,39 @@ class AggregationSpecSchema(BaseModel):
         return self
 
 
-class ReportedCustomAggregation(BaseReportedAggregation):
-    value_column: str = Field(
-        description="Name of the column returned from the SQL query holding the metric value.",
+class CustomAggregationVersionSpecSchema(BaseModel):
+    custom_aggregation_id: UUID = Field(description="ID of parent custom aggregation.")
+    version: int = Field(
+        description="Version number of the custom aggregation function.",
     )
-    timestamp_column: str = Field(
-        description="Name of the column returned from the SQL query holding the timestamp buckets.",
+    created_at: datetime = Field(description="Time of aggregation creation.")
+    reported_aggregations: list[ReportedCustomAggregation] = Field(
+        description="Metadata for every aggregation the custom aggregation reports.",
+        min_length=1,
     )
-    metric_kind: AggregationMetricType = Field(
-        description="Return type of the reported aggregation metric value.",
+    aggregate_args: list[CustomAggregationParametersSchemaUnion] = Field(
+        description="List of parameters to the custom aggregation's query function.",
     )
-    dimension_columns: list[str] = Field(
-        description="Name of any dimension columns returned from the SQL query. Max length is 1.",
+    sql: str = Field(description="DuckDBSQL query for the custom aggregation.")
+
+
+class CustomAggregationSchema(BaseModel):
+    id: UUID = Field(
+        description="Unique identifier of the custom aggregation with version.",
+    )
+    name: str = Field(description="Name of the custom aggregation function.")
+    description: str | None = Field(
+        description="Description of the custom aggregation function and what it aggregates.",
+        default=None,
+    )
+    workspace_id: UUID = Field(
+        description="Unique identifier of the custom aggregation's parent workspace.",
+    )
+    versions: list[CustomAggregationVersionSpecSchema] = Field(
+        description="List of versions of the custom aggregation configuration.",
+    )
+    latest_version: int = Field(
+        description="Max/latest version of the custom aggregation that exists. This version may"
+        " or may not be included in the list of versions depending on applied "
+        "filters.",
     )
