@@ -1,7 +1,12 @@
 from typing import Any, Optional
 
 from arthur_common.aggregations import AggregationFunction
-from arthur_common.models.metrics import Dimension, NumericMetric, SketchMetric
+from arthur_common.models.metrics import (
+    Dimension,
+    NumericMetric,
+    NumericPoint,
+    SketchMetric,
+)
 
 
 def validate_expected_metric_names(
@@ -60,3 +65,19 @@ def get_count_metrics_by_result_and_dimension(
         ):
             count += sum(x.value for x in numeric_serie.values)
     return count
+
+
+def get_count_metrics_splitted_by_prompt_and_response(
+    metrics: list[NumericMetric],
+) -> dict[str, list[NumericPoint]]:
+    count_metrics_splitted_by_prompt_and_response = dict(prompt=[], response=[])
+    for numeric_serie in metrics[0].numeric_series:
+        if get_dimension_value(numeric_serie.dimensions, "location") == "prompt":
+            count_metrics_splitted_by_prompt_and_response["prompt"].extend(
+                numeric_serie.values,
+            )
+        elif get_dimension_value(numeric_serie.dimensions, "location") == "response":
+            count_metrics_splitted_by_prompt_and_response["response"].extend(
+                numeric_serie.values,
+            )
+    return count_metrics_splitted_by_prompt_and_response

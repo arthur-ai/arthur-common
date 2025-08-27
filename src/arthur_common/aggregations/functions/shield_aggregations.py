@@ -152,11 +152,15 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
             f" \
             with unnessted_prompt_rules as (select unnest(inference_prompt.prompt_rule_results) as rule, \
                 'prompt' as location, \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts \
+                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name}), \
             unnessted_result_rules as (select unnest(inference_response.response_rule_results) as rule,\
                 'response' as location, \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts \
+                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name}) \
             select ts, \
                 count(*) as count, \
@@ -164,9 +168,11 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
                 rule.rule_type, \
                 rule.result, \
                 rule.name, \
-                rule.id \
+                rule.id, \
+                conversation_id, \
+                user_id \
             from unnessted_prompt_rules \
-            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id \
+            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id, conversation_id, user_id \
             UNION ALL \
             select ts, \
                 count(*) as count, \
@@ -174,14 +180,24 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
                 rule.rule_type, \
                 rule.result, \
                 rule.name, \
-                rule.id \
+                rule.id, \
+                conversation_id, \
+                user_id \
             from unnessted_result_rules \
-            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id \
+            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id, conversation_id, user_id \
             order by ts desc, location, rule.rule_type, rule.result; \
             ",
         ).df()
 
-        group_by_dims = ["location", "rule_type", "result", "name", "id"]
+        group_by_dims = [
+            "location",
+            "rule_type",
+            "result",
+            "name",
+            "id",
+            "conversation_id",
+            "user_id",
+        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
@@ -243,15 +259,23 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(
             f" \
             select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-            count(*) as count \
+            count(*) as count, \
+            conversation_id, \
+            user_id \
             from {dataset.dataset_table_name} \
             where length(list_filter(inference_response.response_rule_results, x -> (x.rule_type = 'ModelHallucinationRuleV2' or x.rule_type = 'ModelHallucinationRule') and x.result = 'Fail')) > 0 \
-            group by ts \
+            group by ts, conversation_id, user_id \
             order by ts desc; \
         ",
         ).df()
 
-        series = self.group_query_results_to_numeric_metrics(results, "count", [], "ts")
+        group_by_dims = ["conversation_id", "user_id"]
+        series = self.group_query_results_to_numeric_metrics(
+            results,
+            "count",
+            group_by_dims,
+            "ts",
+        )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
 
@@ -308,23 +332,31 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
             f"\
                 with unnested_prompt_results as (select to_timestamp(created_at / 1000) as ts, \
                     unnest(inference_prompt.prompt_rule_results) as rule_results, \
-                    'prompt' as location \
+                    'prompt' as location, \
+                    conversation_id, \
+                    user_id \
                 from {dataset.dataset_table_name}), \
                 unnested_response_results as (select to_timestamp(created_at / 1000) as ts, \
                         unnest(inference_response.response_rule_results) as rule_results, \
-                        'response' as location \
+                        'response' as location, \
+                        conversation_id, \
+                        user_id \
                 from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     rule_results.details.toxicity_score::DOUBLE as toxicity_score, \
                     rule_results.result as result, \
-                    location \
+                    location, \
+                    conversation_id, \
+                    user_id \
                 from unnested_prompt_results \
                 where rule_results.details.toxicity_score IS NOT NULL \
                 UNION ALL \
                 select ts as timestamp, \
                     rule_results.details.toxicity_score::DOUBLE as toxicity_score, \
                     rule_results.result as result, \
-                    location \
+                    location, \
+                    conversation_id, \
+                    user_id \
                 from unnested_response_results \
                 where rule_results.details.toxicity_score IS NOT NULL \
                 order by ts desc;    \
@@ -334,7 +366,7 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "toxicity_score",
-            ["result", "location"],
+            ["result", "location", "conversation_id", "user_id"],
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -393,16 +425,22 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
             f"\
 with unnested_prompt_results as (select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts,                    \
                                         unnest(inference_prompt.prompt_rule_results)                       as rule_results,          \
-                                        'prompt'                                                           as location               \
+                                        'prompt'                                                           as location,              \
+                                        conversation_id,                                                    \
+                                        user_id                                                             \
                                  from {dataset.dataset_table_name}),                                                                                         \
      unnested_response_results as (select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts,                  \
                                           unnest(inference_response.response_rule_results)                   as rule_results,        \
-                                          'response'                                                         as location             \
+                                          'response'                                                         as location,            \
+                                          conversation_id,                                                    \
+                                          user_id                                                             \
                                    from {dataset.dataset_table_name}),                                                                                       \
      unnested_entites as (select ts,                                                                                                 \
                                  rule_results.result,                                                                                \
                                  rule_results.rule_type,                                                                             \
                                  location,                                                                                           \
+                                 conversation_id,                                                                                    \
+                                 user_id,                                                                                            \
                                  unnest(rule_results.details.pii_entities) as pii_entity                                             \
                           from unnested_response_results                                                                             \
                           where rule_results.rule_type = 'PIIDataRule'                                                               \
@@ -413,10 +451,12 @@ with unnested_prompt_results as (select time_bucket(INTERVAL '5 minutes', to_tim
                                  rule_results.result,                                                                                \
                                  rule_results.rule_type,                                                                             \
                                  location,                                                                                           \
+                                 conversation_id,                                                                                    \
+                                 user_id,                                                                                            \
                                  unnest(rule_results.details.pii_entities) as pii_entity                                             \
                           from unnested_prompt_results                                                                               \
                           where rule_results.rule_type = 'PIIDataRule')                                                              \
-select ts as timestamp, result, rule_type, location, TRY_CAST(pii_entity.confidence AS FLOAT) as pii_score, pii_entity.entity as entity                 \
+select ts as timestamp, result, rule_type, location, TRY_CAST(pii_entity.confidence AS FLOAT) as pii_score, pii_entity.entity as entity, conversation_id, user_id                 \
 from unnested_entites                                                                                                                \
 order by ts desc;                                                                                                                    \
             ",
@@ -425,7 +465,7 @@ order by ts desc;                                                               
         series = self.group_query_results_to_sketch_metrics(
             results,
             "pii_score",
-            ["result", "location", "entity"],
+            ["result", "location", "entity", "conversation_id", "user_id"],
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -483,11 +523,15 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(
             f"\
                 with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results \
+                                        unnest(inference_response.response_rule_results) as rule_results, \
+                                        conversation_id, \
+                                        user_id \
                                         from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     length(rule_results.details.claims) as num_claims, \
-                    rule_results.result as result \
+                    rule_results.result as result, \
+                    conversation_id, \
+                    user_id \
                 from unnested_results \
                 where rule_results.rule_type = 'ModelHallucinationRuleV2' \
                 and rule_results.result != 'Skipped' \
@@ -498,7 +542,7 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_claims",
-            ["result"],
+            ["result", "conversation_id", "user_id"],
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -560,7 +604,9 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
                                         from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     length(list_filter(rule_results.details.claims, x -> x.valid)) as num_valid_claims, \
-                    rule_results.result as result \
+                    rule_results.result as result, \
+                    conversation_id, \
+                    user_id \
                 from unnested_results \
                 where rule_results.rule_type = 'ModelHallucinationRuleV2' \
                 and rule_results.result != 'Skipped' \
@@ -571,7 +617,7 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_valid_claims",
-            ["result"],
+            ["result", "conversation_id", "user_id"],
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -633,7 +679,9 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
                                         from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     length(list_filter(rule_results.details.claims, x -> not x.valid)) as num_failed_claims, \
-                    rule_results.result as result \
+                    rule_results.result as result, \
+                    conversation_id, \
+                    user_id \
                 from unnested_results \
                 where rule_results.rule_type = 'ModelHallucinationRuleV2' \
                 and rule_results.result != 'Skipped' \
@@ -644,7 +692,7 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_failed_claims",
-            ["result"],
+            ["result", "conversation_id", "user_id"],
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -704,23 +752,31 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
             with unnested_prompt_rules as (select unnest(inference_prompt.prompt_rule_results) as rule, \
                 'prompt' as location, \
                 to_timestamp(created_at / 1000) as ts, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name}), \
             unnested_response_rules as (select unnest(inference_response.response_rule_results) as rule,\
                 'response' as location, \
                 to_timestamp(created_at / 1000) as ts, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name}) \
             select ts, \
                 location, \
                 rule.rule_type, \
                 rule.result, \
-                rule.latency_ms \
+                rule.latency_ms, \
+                conversation_id, \
+                user_id \
             from unnested_prompt_rules \
             UNION ALL \
             select ts, \
                 location, \
                 rule.rule_type, \
                 rule.result, \
-                rule.latency_ms \
+                rule.latency_ms, \
+                conversation_id, \
+                user_id \
             from unnested_response_rules \
             ",
         ).df()
@@ -728,7 +784,7 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "latency_ms",
-            ["result", "rule_type", "location"],
+            ["result", "rule_type", "location", "conversation_id", "user_id"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -812,23 +868,27 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
             select \
                 time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
                 COALESCE(sum(inference_prompt.tokens), 0) as tokens, \
-                'prompt' as location \
+                'prompt' as location, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name} \
-            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location \
+            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location, conversation_id, user_id \
             UNION ALL \
             select \
                 time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
                 COALESCE(sum(inference_response.tokens), 0) as tokens, \
-                'response' as location \
+                'response' as location, \
+                conversation_id, \
+                user_id \
             from {dataset.dataset_table_name}  \
-            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location; \
+            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location, conversation_id, user_id; \
             ",
         ).df()
 
         series = self.group_query_results_to_numeric_metrics(
             results,
             "tokens",
-            ["location"],
+            ["location", "conversation_id", "user_id"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -852,13 +912,15 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
                     "ts": results["ts"],
                     "cost": cost_values,
                     "location": results["location"],
+                    "conversation_id": results["conversation_id"],
+                    "user_id": results["user_id"],
                 },
             )
 
             model_series = self.group_query_results_to_numeric_metrics(
                 model_df,
                 "cost",
-                ["location"],
+                ["location", "conversation_id", "user_id"],
                 "ts",
             )
             resp.append(

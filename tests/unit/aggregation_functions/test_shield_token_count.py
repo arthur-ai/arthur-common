@@ -59,14 +59,17 @@ def test_shield_token_count(
     # Check for a single token count metric, and two token count series within those metrics
     token_count_metrics = [m for m in metrics if m.name == "token_count"]
     assert len(token_count_metrics) == 1
-    assert len(token_count_metrics[0].numeric_series) == 2
+
+    # With user_id and conversation_id grouping, we expect more series
+    # Each combination of location, conversation_id, and user_id creates a separate series
+    assert (
+        len(token_count_metrics[0].numeric_series) == 6
+    )  # 2 locations * 3 conversation_id/user_id combinations
 
     # Find prompt and response series
-    token_count_series = {
-        series.dimensions[0].value: series.values
-        for series in token_count_metrics[0].numeric_series
-        if series.dimensions[0].name == "location"
-    }
+    token_count_series = get_count_metrics_splitted_by_prompt_and_response(
+        token_count_metrics,
+    )
 
     # Check token counts
     total_prompt_tokens = sum(v.value for v in token_count_series["prompt"])
@@ -74,25 +77,31 @@ def test_shield_token_count(
     assert total_prompt_tokens == expected_prompt_tokens
     assert total_response_tokens == expected_response_tokens
 
+    # Verify that conversation_id and user_id dimensions are present
+    for series in token_count_metrics[0].numeric_series:
+        conversation_id_dim = next(
+            (d for d in series.dimensions if d.name == "conversation_id"),
+            None,
+        )
+        user_id_dim = next((d for d in series.dimensions if d.name == "user_id"), None)
+        assert conversation_id_dim is not None, "Expected conversation_id dimension"
+        assert user_id_dim is not None, "Expected user_id dimension"
+        assert conversation_id_dim.value in [
+            "conversation_id_1",
+            "conversation_id_2",
+            "conversation_id_3",
+        ]
+        assert user_id_dim.value in ["user_id_1", "user_id_2"]
+
     # Check that the token cost metric exists
     token_cost_metrics = [m for m in metrics if m.name == f"token_cost.{model_name}"]
     assert len(token_cost_metrics) == 1
 
-    # Find prompt and response cost series
-    prompt_cost_series = next(
-        s
-        for s in token_cost_metrics[0].numeric_series
-        if s.dimensions[0].name == "location" and s.dimensions[0].value == "prompt"
-    )
-    response_cost_series = next(
-        s
-        for s in token_cost_metrics[0].numeric_series
-        if s.dimensions[0].name == "location" and s.dimensions[0].value == "response"
-    )
+    cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
 
     # Check costs
-    total_prompt_cost = sum(v.value for v in prompt_cost_series.values)
-    total_response_cost = sum(v.value for v in response_cost_series.values)
+    total_prompt_cost = sum(v.value for v in cost_series["prompt"])
+    total_response_cost = sum(v.value for v in cost_series["response"])
     assert round(total_prompt_cost, 5) == expected_prompt_cost
     assert round(total_response_cost, 5) == expected_response_cost
 
@@ -147,14 +156,17 @@ def test_shield_empty_token_count(
     # Check for a single token count metric, and two token count series within those metrics
     token_count_metrics = [m for m in metrics if m.name == "token_count"]
     assert len(token_count_metrics) == 1
-    assert len(token_count_metrics[0].numeric_series) == 2
+
+    # With user_id and conversation_id grouping, we expect more series
+    # Each combination of location, conversation_id, and user_id creates a separate series
+    assert (
+        len(token_count_metrics[0].numeric_series) == 6
+    )  # 2 locations * 3 conversation_id/user_id combinations
 
     # Find prompt and response series
-    token_count_series = {
-        series.dimensions[0].value: series.values
-        for series in token_count_metrics[0].numeric_series
-        if series.dimensions[0].name == "location"
-    }
+    token_count_series = get_count_metrics_splitted_by_prompt_and_response(
+        token_count_metrics,
+    )
 
     # Check token counts
     total_prompt_tokens = sum(v.value for v in token_count_series["prompt"])
@@ -162,24 +174,30 @@ def test_shield_empty_token_count(
     assert total_prompt_tokens == expected_prompt_tokens
     assert total_response_tokens == expected_response_tokens
 
+    # Verify that conversation_id and user_id dimensions are present
+    for series in token_count_metrics[0].numeric_series:
+        conversation_id_dim = next(
+            (d for d in series.dimensions if d.name == "conversation_id"),
+            None,
+        )
+        user_id_dim = next((d for d in series.dimensions if d.name == "user_id"), None)
+        assert conversation_id_dim is not None, "Expected conversation_id dimension"
+        assert user_id_dim is not None, "Expected user_id dimension"
+        assert conversation_id_dim.value in [
+            "conversation_id_1",
+            "conversation_id_2",
+            "conversation_id_3",
+        ]
+        assert user_id_dim.value in ["user_id_1", "user_id_2"]
+
     # Check that the token cost metric exists
     token_cost_metrics = [m for m in metrics if m.name == f"token_cost.{model_name}"]
     assert len(token_cost_metrics) == 1
 
-    # Find prompt and response cost series
-    prompt_cost_series = next(
-        s
-        for s in token_cost_metrics[0].numeric_series
-        if s.dimensions[0].name == "location" and s.dimensions[0].value == "prompt"
-    )
-    response_cost_series = next(
-        s
-        for s in token_cost_metrics[0].numeric_series
-        if s.dimensions[0].name == "location" and s.dimensions[0].value == "response"
-    )
+    cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
 
     # Check costs
-    total_prompt_cost = sum(v.value for v in prompt_cost_series.values)
-    total_response_cost = sum(v.value for v in response_cost_series.values)
+    total_prompt_cost = sum(v.value for v in cost_series["prompt"])
+    total_response_cost = sum(v.value for v in cost_series["response"])
     assert round(total_prompt_cost, 5) == expected_prompt_cost
     assert round(total_response_cost, 5) == expected_response_cost
