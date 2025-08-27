@@ -1051,32 +1051,24 @@
             "type": "integer"
           },
           "page_params": {
-            "anyOf": [
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
               {
-                "maxItems": 2,
-                "minItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "integer"
-                  }
-                ],
-                "type": "array"
+                "type": "integer"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ],
-            "default": [
-              1,
-              25
-            ],
-            "description": "Computed tuple of (page, page_size)",
-            "title": "Page Params"
+            "readOnly": true,
+            "title": "Page Params",
+            "type": "array"
           }
         },
+        "required": [
+          "page_params"
+        ],
         "title": "ConnectorPaginationOptions",
         "type": "object"
       },
