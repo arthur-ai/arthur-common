@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 
 from arthur_common.models.constants import (
     DEFAULT_RULE_ADMIN,
@@ -111,6 +111,15 @@ class TaskType(BaseEnum):
 class TokenUsageScope(BaseEnum):
     RULE_TYPE = "rule_type"
     TASK = "task"
+
+
+class ToolClassEnum(IntEnum):
+    WRONG_TOOL_SELECTED = 0
+    CORRECT_TOOL_SELECTED = 1
+    NO_TOOL_SELECTED = 2
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class ToxicityViolationType(BaseEnum):
