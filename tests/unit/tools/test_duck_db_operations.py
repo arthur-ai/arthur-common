@@ -432,3 +432,49 @@ def test_simple_load_data_with_schema_special_character_names(
 
     res = conn.sql("SELECT count(*) FROM joined").fetchall()
     assert res[0][0] == 2
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        DatasetSchema(
+            alias_mask={},
+            columns=[
+                DatasetColumn(
+                    id=uuid4(),
+                    source_name="id",
+                    definition=DatasetScalarType(id=uuid4(), dtype=DType.UUID),
+                ),
+                DatasetColumn(
+                    id=uuid4(),
+                    source_name="timestamp",
+                    definition=DatasetScalarType(id=uuid4(), dtype=DType.TIMESTAMP),
+                ),
+                DatasetColumn(
+                    id=uuid4(),
+                    source_name="long_field",
+                    definition=DatasetScalarType(id=uuid4(), dtype=DType.STRING),
+                ),
+            ],
+        ),
+        None,
+    ],
+)
+def test_simple_load_data_with_large_json_object(schema):
+    data = [
+        {
+            "id": "991ff637-2c13-4289-ba17-a23c1c2b20b8",
+            "timestamp": "2024-07-28T13:46:12+0000",
+            "long_field": "a" * 1024 * 1024 * 100,  # 100MB
+        },
+    ]
+
+    conn = DuckDBOperator.load_data_to_duckdb(data, schema=schema)
+    results = conn.sql("SELECT * FROM inferences").fetchall()
+    assert len(results) == 1
+
+    if schema is not None:
+        for row in results:
+            assert type(row[0]) == UUID
+            assert type(row[1]) == datetime
+            assert type(row[2]) == str

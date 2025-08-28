@@ -18,14 +18,14 @@ pip install arthur-common
 
 ## Requirements
 
-- Python 3.12
+- Python 3.13
 
 ## Development
 
 To set up the development environment, ensure you have [Poetry](https://python-poetry.org/) installed, then run:
 
 ```bash
-poetry env use 3.12
+poetry env use 3.13
 poetry install
 ```
 
