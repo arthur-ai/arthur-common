@@ -7,7 +7,7 @@ license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "3.12.*"
 pydantic = ">=2"
 typing-extensions = ">=4.7.1"
 pandas = ">=2.2.2"
