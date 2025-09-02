@@ -37,7 +37,6 @@ This project uses [pytest](https://pytest.org/) for testing. To run the tests, e
 poetry run pytest
 ```
 
-
 ## Release process
 1. Merge changes into **main** branch
 2. Go to **Actions** -> **Arthur Common Version Bump**

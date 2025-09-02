@@ -1,16 +1,6 @@
 from enum import Enum
 
 
-# TODO: Remove after migration
-class ModelProblemType(str, Enum):
-    REGRESSION = "regression"
-    BINARY_CLASSIFICATION = "binary_classification"
-    ARTHUR_SHIELD = "arthur_shield"
-    CUSTOM = "custom"
-    MULTICLASS_CLASSIFICATION = "multiclass_classification"
-    AGENTIC_TRACE = "agentic_trace"
-
-
 class DatasetFileType(str, Enum):
     JSON = "json"
     CSV = "csv"
