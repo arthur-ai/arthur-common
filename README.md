@@ -37,9 +37,6 @@ This project uses [pytest](https://pytest.org/) for testing. To run the tests, e
 poetry run pytest
 ```
 
-## Generating OpenAPI spec
-Generate the OpenAPI spec file by running the generate_spec shell file.
-
 
 ## Release process
 1. Merge changes into **main** branch
