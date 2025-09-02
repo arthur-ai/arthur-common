@@ -1,13 +1,10 @@
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
-# Currently unused. Openapi schema is not generated correctly.
-# Adding computed_field decorator still marks property as required in the schema.
 class ConnectorPaginationOptions(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=25, ge=1, le=500)
 
-    @computed_field()  # type: ignore[prop-decorator]
     @property
     def page_params(self) -> tuple[int, int]:
         if self.page is not None:
@@ -16,10 +13,6 @@ class ConnectorPaginationOptions(BaseModel):
             raise ValueError(
                 "Pagination options must be set to return a page and page size",
             )
-
-    model_config = ConfigDict(
-        json_schema_mode_override="serialization",
-    )
 
 
 # connector constants
