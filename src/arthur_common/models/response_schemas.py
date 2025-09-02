@@ -578,64 +578,64 @@ class ChatDefaultTaskResponse(BaseModel):
     task_id: str
 
 
-class SpanResponse(BaseModel):
-    id: str
-    trace_id: str
-    span_id: str
-    parent_span_id: Optional[str] = None
-    span_kind: Optional[str] = None
-    start_time: datetime
-    end_time: datetime
-    task_id: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    raw_data: dict[str, Any]
-    # Span features for LLM spans (computed on-demand)
-    system_prompt: Optional[str] = None
-    user_query: Optional[str] = None
-    response: Optional[str] = None
-    context: Optional[List[dict[str, Any]]] = None
+# class SpanResponse(BaseModel):
+#     id: str
+#     trace_id: str
+#     span_id: str
+#     parent_span_id: Optional[str] = None
+#     span_kind: Optional[str] = None
+#     start_time: datetime
+#     end_time: datetime
+#     task_id: Optional[str] = None
+#     created_at: datetime
+#     updated_at: datetime
+#     raw_data: dict[str, Any]
+#     # Span features for LLM spans (computed on-demand)
+#     system_prompt: Optional[str] = None
+#     user_query: Optional[str] = None
+#     response: Optional[str] = None
+#     context: Optional[List[dict[str, Any]]] = None
 
 
-class QuerySpansResponse(BaseModel):
-    count: int = Field(
-        description="The total number of spans matching the query parameters",
-    )
-    spans: list[SpanResponse] = Field(
-        description="List of spans matching the search filters",
-    )
+# class QuerySpansResponse(BaseModel):
+#     count: int = Field(
+#         description="The total number of spans matching the query parameters",
+#     )
+#     spans: list[SpanResponse] = Field(
+#         description="List of spans matching the search filters",
+#     )
 
 
-class ComputeMetricsFiltersResponse(BaseModel):
-    start_time: Optional[datetime] = Field(
-        description="Start time filter applied",
-        default=None,
-    )
-    end_time: Optional[datetime] = Field(
-        description="End time filter applied",
-        default=None,
-    )
-    conversation_id: Optional[str] = Field(
-        description="Conversation ID filter applied",
-        default=None,
-    )
-    user_id: Optional[str] = Field(description="User ID filter applied", default=None)
-    page: int = Field(description="Page number used for pagination")
-    page_size: int = Field(description="Page size used for pagination")
+# class ComputeMetricsFiltersResponse(BaseModel):
+#     start_time: Optional[datetime] = Field(
+#         description="Start time filter applied",
+#         default=None,
+#     )
+#     end_time: Optional[datetime] = Field(
+#         description="End time filter applied",
+#         default=None,
+#     )
+#     conversation_id: Optional[str] = Field(
+#         description="Conversation ID filter applied",
+#         default=None,
+#     )
+#     user_id: Optional[str] = Field(description="User ID filter applied", default=None)
+#     page: int = Field(description="Page number used for pagination")
+#     page_size: int = Field(description="Page size used for pagination")
 
 
-class ComputeMetricsResponse(BaseModel):
-    task_id: str = Field(description="ID of the task for which metrics were computed")
-    metrics: list[MetricResponse] = Field(
-        description="List of metrics associated with the task",
-    )
-    span_count: int = Field(description="Number of spans matching the filters")
-    spans: list[SpanResponse] = Field(
-        description="List of spans used for metric computation",
-    )
-    filters_applied: ComputeMetricsFiltersResponse = Field(
-        description="Filters that were applied to the data",
-    )
+# class ComputeMetricsResponse(BaseModel):
+#     task_id: str = Field(description="ID of the task for which metrics were computed")
+#     metrics: list[MetricResponse] = Field(
+#         description="List of metrics associated with the task",
+#     )
+#     span_count: int = Field(description="Number of spans matching the filters")
+#     spans: list[SpanResponse] = Field(
+#         description="List of spans used for metric computation",
+#     )
+#     filters_applied: ComputeMetricsFiltersResponse = Field(
+#         description="Filters that were applied to the data",
+#     )
 
 
 class MetricResultResponse(BaseModel):
@@ -728,4 +728,13 @@ class QueryTracesWithMetricsResponse(BaseModel):
     )
     traces: list[TraceResponse] = Field(
         description="List of traces containing nested spans matching the search filters",
+    )
+
+
+class QuerySpansResponse(BaseModel):
+    count: int = Field(
+        description="The total number of spans matching the query parameters",
+    )
+    spans: list[SpanWithMetricsResponse] = Field(
+        description="List of spans with metrics matching the search filters",
     )
