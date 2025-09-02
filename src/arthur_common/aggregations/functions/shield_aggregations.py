@@ -600,7 +600,9 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(
             f"\
                 with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results \
+                                        unnest(inference_response.response_rule_results) as rule_results, \
+                                        conversation_id, \
+                                        user_id \
                                         from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     length(list_filter(rule_results.details.claims, x -> x.valid)) as num_valid_claims, \
@@ -675,7 +677,9 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(
             f"\
                 with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results \
+                                        unnest(inference_response.response_rule_results) as rule_results, \
+                                        conversation_id, \
+                                        user_id \
                                         from {dataset.dataset_table_name}) \
                 select ts as timestamp, \
                     length(list_filter(rule_results.details.claims, x -> not x.valid)) as num_failed_claims, \
