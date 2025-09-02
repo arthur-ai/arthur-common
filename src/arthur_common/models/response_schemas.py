@@ -600,6 +600,7 @@ class SpanWithMetricsResponse(BaseModel):
     span_id: str
     parent_span_id: Optional[str] = None
     span_kind: Optional[str] = None
+    span_name: Optional[str] = None
     start_time: datetime
     end_time: datetime
     task_id: Optional[str] = None
@@ -625,6 +626,7 @@ class NestedSpanWithMetricsResponse(BaseModel):
     span_id: str
     parent_span_id: Optional[str] = None
     span_kind: Optional[str] = None
+    span_name: Optional[str] = None
     start_time: datetime
     end_time: datetime
     task_id: Optional[str] = None
