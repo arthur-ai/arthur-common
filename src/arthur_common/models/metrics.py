@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
-from arthur_common.models.datasets import ModelProblemType
+from arthur_common.models.enums import ModelProblemType
 from arthur_common.models.schema_definitions import (
     DType,
     SchemaTypeUnion,

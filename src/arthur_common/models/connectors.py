@@ -1,14 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class ConnectorPaginationOptions(BaseModel):
     page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=25, gt=0, le=500)
+    page_size: int = Field(default=25, ge=1, le=500)
 
     @property
     def page_params(self) -> tuple[int, int]:
         if self.page is not None:
-            return self.page, self.page_size
+            return (self.page, self.page_size)
         else:
             raise ValueError(
                 "Pagination options must be set to return a page and page size",

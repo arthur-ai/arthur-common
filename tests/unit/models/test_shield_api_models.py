@@ -3,18 +3,17 @@ from datetime import datetime, timezone
 
 import pytest
 
-from arthur_common.models.shield import (
+from arthur_common.models.common_schemas import (
     ExampleConfig,
     ExamplesConfig,
     KeywordsConfig,
-    NewRuleRequest,
     PIIConfig,
     RegexConfig,
-    RuleResponse,
-    RuleScope,
-    RuleType,
     ToxicityConfig,
 )
+from arthur_common.models.enums import RuleScope, RuleType
+from arthur_common.models.request_schemas import NewRuleRequest
+from arthur_common.models.response_schemas import RuleResponse
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,7 @@ from uuid import UUID
 from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.aggregator import NumericAggregationFunction
-from arthur_common.models.datasets import ModelProblemType
+from arthur_common.models.enums import ModelProblemType
 from arthur_common.models.metrics import (
     BaseReportedAggregation,
     DatasetReference,
