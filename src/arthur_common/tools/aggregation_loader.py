@@ -10,7 +10,6 @@ from arthur_common.aggregations.aggregator import (
     SketchAggregationFunction,
 )
 from arthur_common.models.metrics import (
-    AggregationMetricType,
     AggregationSpecSchema,
     CustomAggregationSchema,
     MetricsParameterSchemaUnion,
@@ -69,9 +68,7 @@ class AggregationLoader:
         custom_aggregations: list[CustomAggregationSchema],
     ) -> list[tuple[AggregationSpecSchema, None]]:
         aggregation_specs: list[AggregationSpecSchema] = []
-        # question: do we want to return all versions of the custom aggregations or just the latest?
 
-        # Code to get latest version of custom aggregation
         for custom_aggregation in custom_aggregations:
             aggregation_specs.append(
                 AggregationSpecSchema(
@@ -82,8 +79,8 @@ class AggregationLoader:
                         if custom_aggregation.description
                         else ""
                     ),
-                    metric_type=AggregationMetricType.NUMERIC,  # What should this be?
-                    init_args=[],  # What should I input here?
+                    metric_type=custom_aggregation.metric_type,
+                    init_args=[],
                     aggregate_args=cast(
                         list[MetricsParameterSchemaUnion],
                         custom_aggregation.versions[0].aggregate_args,
@@ -95,28 +92,4 @@ class AggregationLoader:
                 ),
             )
 
-        # Code to get all versions
-        # for custom_aggregation in custom_aggregations:
-        #     for version in custom_aggregation.versions:
-        #         aggregation_specs.append(
-        #             AggregationSpecSchema(
-        #                 name=custom_aggregation.name,
-        #                 id=custom_aggregation.id,
-        #                 description=(
-        #                     custom_aggregation.description
-        #                     if custom_aggregation.description
-        #                     else ""
-        #                 ),
-        #                 metric_type=AggregationMetricType.NUMERIC,  # What should this be?
-        #                 init_args=[],  # What should I input here?
-        #                 aggregate_args=cast(
-        #                     list[MetricsParameterSchemaUnion],
-        #                     custom_aggregation.versions[0].aggregate_args,
-        #                 ),
-        #                 reported_aggregations=cast(
-        #                     list[ReportedAggregationsSchemaUnion],
-        #                     custom_aggregation.versions[0].reported_aggregations,
-        #                 ),
-        #             ),
-        #         )
         return [(aggregation_spec, None) for aggregation_spec in aggregation_specs]

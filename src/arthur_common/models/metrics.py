@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -240,8 +240,9 @@ class ReportedCustomAggregation(BaseReportedAggregation):
     timestamp_column: str = Field(
         description="Name of the column returned from the SQL query holding the timestamp buckets.",
     )
-    metric_kind: AggregationMetricType = Field(
+    metric_kind: Optional[AggregationMetricType] = Field(
         description="Return type of the reported aggregation metric value.",
+        default=None,
     )
     dimension_columns: list[str] = Field(
         description="Name of any dimension columns returned from the SQL query. Max length is 1.",
@@ -338,11 +339,38 @@ class CustomAggregationSchema(BaseModel):
     workspace_id: UUID = Field(
         description="Unique identifier of the custom aggregation's parent workspace.",
     )
+    metric_type: AggregationMetricType = Field(
+        description="Return type of the aggregations aggregate function.",
+    )
     versions: list[CustomAggregationVersionSpecSchema] = Field(
         description="List of versions of the custom aggregation configuration.",
+        min_length=1,
     )
     latest_version: int = Field(
         description="Max/latest version of the custom aggregation that exists. This version may"
         " or may not be included in the list of versions depending on applied "
         "filters.",
     )
+
+    # TODO: Delete this once we don't need backwards compatibility
+    @model_validator(mode="before")
+    @classmethod
+    def set_metric_type_from_reported_aggregations(
+        cls,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Automatically set metric_type from the first object in reported_aggregations during model loading.
+        """
+        if versions := values.get("versions"):
+            first_version: CustomAggregationVersionSpecSchema = versions[0]
+            if not first_version.reported_aggregations:
+                return values
+
+            first_aggregation = first_version.reported_aggregations[0]
+            if metric_kind := first_aggregation.metric_kind:
+                values["metric_type"] = metric_kind
+
+            return values
+        else:
+            return values
