@@ -1,6 +1,8 @@
 from arthur_common.models.metrics import AggregationMetricType, CustomAggregationSchema
 from arthur_common.tools.aggregation_loader import AggregationLoader
 
+from .helpers import compare_aggregate_arguments, compare_reported_aggregations
+
 
 def test_load_custom_aggregations_spec(
     custom_aggregations: list[CustomAggregationSchema],
@@ -17,12 +19,12 @@ def test_load_custom_aggregations_spec(
     )
     assert loaded_custom_aggregations[0][0].metric_type == AggregationMetricType.NUMERIC
     assert loaded_custom_aggregations[0][0].init_args == []
-    assert (
-        loaded_custom_aggregations[0][0].aggregate_args
-        == custom_aggregations[0].versions[0].aggregate_args
+    compare_aggregate_arguments(
+        loaded_custom_aggregations[0][0].aggregate_args,
+        custom_aggregations[0].versions[0].aggregate_args,
     )
-    assert (
-        loaded_custom_aggregations[0][0].reported_aggregations
-        == custom_aggregations[0].versions[0].reported_aggregations
+    compare_reported_aggregations(
+        loaded_custom_aggregations[0][0].reported_aggregations,
+        custom_aggregations[0].versions[0].reported_aggregations,
     )
     assert loaded_custom_aggregations[0][1] is None

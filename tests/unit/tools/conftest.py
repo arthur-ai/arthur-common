@@ -7,6 +7,7 @@ from arthur_common.models.metrics import (
     AggregationMetricType,
     CustomAggregationSchema,
     CustomAggregationVersionSpecSchema,
+    MetricsColumnParameterSchema,
     ReportedCustomAggregation,
 )
 
@@ -26,7 +27,13 @@ def custom_aggregations() -> list[CustomAggregationSchema]:
                     custom_aggregation_id=custom_aggregation_id,
                     version=1,
                     created_at=datetime(2021, 1, 1, 0, 0, 1),
-                    aggregate_args=[],
+                    aggregate_args=[
+                        MetricsColumnParameterSchema(
+                            parameter_key="column",
+                            friendly_name="Column",
+                            description="Column to aggregate",
+                        ),
+                    ],
                     reported_aggregations=[
                         ReportedCustomAggregation(
                             metric_name="reported_custom_aggregation",

@@ -11,7 +11,8 @@ repos:
         exclude: |
           (?x)^(
             tests/test_data/|
-            tests/unit/aggregation_functions/helpers.py
+            tests/unit/aggregation_functions/helpers.py|
+            tests/unit/tools/helpers.py
           )
   - repo: https://github.com/pycqa/autoflake
     rev: v2.2.1
