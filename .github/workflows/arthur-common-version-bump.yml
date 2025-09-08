@@ -51,8 +51,4 @@ jobs:
           git status
 
           git push origin
-          # Get the new version after bump
-          NEW_VERSION=$(poetry version -s)
-          echo $NEW_VERSION          
-          # Create and push tag
-          git push origin "${NEW_VERSION}"
+
