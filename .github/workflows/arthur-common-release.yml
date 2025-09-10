@@ -1,16 +1,17 @@
 name: Arthur Common Release
 
 on:
-  pull_request:
+  push:
     branches:
       - main
+      - automation_updates
 
 jobs:
   pypi-build:
     # Should be separate from publish job: https://docs.pypi.org/trusted-publishers/security-model/#:~:text=Retrieve%20the%20publishable%20distribution%20files%20from%20a%20separate%20build%20job%3B
     # written from guide: https://johnfraney.ca/blog/how-to-publish-a-python-package-with-poetry-and-github-actions/
     name: Build release for PyPI
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Bump version to')
+    if: contains(github.event.head_commit.message, 'Increment arthur-engine version to')
     runs-on: ubuntu-latest
     env:
       GIT_DEPTH: 100
@@ -49,7 +50,7 @@ jobs:
     needs: pypi-build
     # does not run on dev—https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers:~:text=Local%20version%20identifiers%20SHOULD%20NOT%20be%20used%20when%20publishing%20upstream%20projects%20to%20a%20public%20index%20server%2C%20but%20MAY%20be%20used%20to%20identify%20private%20builds%20created%20directly%20from%20the%20project%20source.
     name: Upload release to PyPI
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Bump version to')
+    if: contains(github.event.head_commit.message, 'Increment arthur-engine version to')
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
@@ -69,3 +70,25 @@ jobs:
           uses: pypa/gh-action-pypi-publish@release/v1
           with:
             packages-dir: dist
+
+  create-git-tag:
+    needs: pypi-publish
+    name: Create git tag for the release
+    if: contains(github.event.head_commit.message, 'Increment arthur-engine version to')
+    runs-on: ubuntu-latest
+    environment:  # must be the same as what is set for the trusted publisher in PyPI
+      name: shared-protected-branch-secrets
+      url: https://pypi.org/project/arthur-common/
+    permissions:
+      contents: write
+    steps:
+      - name: Get current version
+        id: get-version
+        run: |
+          VERSION=$(poetry version --short)
+          echo "Current version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Create and push git tag
+        run: |
+          git tag ${{ steps.get-version.outputs.version }}
+          git push origin ${{ steps.get-version.outputs.version }}
