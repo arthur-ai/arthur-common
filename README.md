@@ -38,12 +38,11 @@ poetry run pytest
 ```
 
 ## Release process
-1. Merge changes into **main** branch
+1. Merge changes into `main` branch
 2. Go to **Actions** -> **Arthur Common Version Bump**
-3. Manually trigger workflow there, it will create a PR with version bumping
-4. Go to **Pull requests** and check PR for version bump, accept it if everything is okay
-5. Version bump commit will be merged to **main** branch and it will start release process
-6. Update package version in your project (arthur-engine)
+3. Click **Run workflow**. The workflow will create a new commit with the version bump, push it back to the same branch it is triggered on (default `main`), and start the release process
+4. Watch in [GitHub Actions](https://github.com/arthur-ai/arthur-common/actions) for Arthur Common Release to run
+5. Update package version in your project (arthur-engine)
 
 ## License
 
