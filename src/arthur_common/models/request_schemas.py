@@ -49,9 +49,14 @@ class NewRuleRequest(BaseModel):
         description="Boolean value to enable or disable the rule for llm response",
         examples=[False],
     )
-    config: Optional[
-        Union[RegexConfig, KeywordsConfig, ToxicityConfig, PIIConfig, ExamplesConfig]
-    ] = Field(description="Config for the rule", default=None)
+    config: (
+            KeywordsConfig
+            | RegexConfig
+            | ExamplesConfig
+            | ToxicityConfig
+            | PIIConfig
+            | None
+    ) = Field(description="Config of the rule", default=None)
 
     model_config = ConfigDict(
         json_schema_extra={
