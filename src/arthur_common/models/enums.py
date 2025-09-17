@@ -48,6 +48,11 @@ class ModelProblemType(BaseEnum):
     AGENTIC_TRACE = "agentic_trace"
 
 
+class SnowflakeConnectorAuthenticatorMethods(BaseEnum):
+    SNOWFLAKE_KEY_PAIR = "snowflake_key_pair"
+    SNOWFLAKE_PASSWORD = "snowflake_password"
+
+
 # Using version from arthur-engine, which has str and enum type inheritance.
 # Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
 class PIIEntityTypes(BaseEnum):
