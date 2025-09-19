@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 import duckdb
@@ -314,11 +315,40 @@ def escape_identifier(identifier: str) -> str:
     """
     Escape an identifier (e.g., column name) for use in a SQL query.
     This method handles special characters and ensures proper quoting.
+
+    For struct fields, the identifiers must be escaped as following:
+    "struct_column_name"."struct_field"
     """
     # Replace any double quotes with two double quotes
     escaped = identifier.replace('"', '""')
     # Wrap the entire identifier in double quotes and return
     return f'"{escaped}"'
+
+
+def unescape_identifier(identifier: str) -> str:
+    """
+    Unescape an identifier (e.g., column name).
+
+    This removes the double quotes and properly handles struct fields, which may be escaped as follows:
+    "struct_column_name"."struct_field"
+
+    Here's a hard case for help understanding this function: "struct "" column name with quotes"."struct.field.name.with.dots"
+    """
+    unescaped_identifiers = []
+    # strip top-level quotes
+    identifier = identifier[1:-1]
+    # split identifier into struct fields based on delimiter pattern "."
+    # at this point there are no external double quotes left; any remaining are escaped double quotes belonging to
+    # the column name
+    identifier_split_in_struct_fields = re.split(r'"\."', identifier)
+
+    for identifier in identifier_split_in_struct_fields:
+        # replace any escaped double quotes in the column
+        unescaped_identifier = identifier.replace('""', '"')
+        unescaped_identifiers.append(unescaped_identifier)
+
+    # join back any struct fields via dot syntax without the escape identifiers
+    return ".".join(unescaped_identifiers)
 
 
 def escape_str_literal(literal: str) -> str:

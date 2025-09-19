@@ -16,17 +16,15 @@ def is_column_possible_segmentation(
     2. Has an allowed DType.
 
     PreReq: Table with column should already be loaded in DuckDB
+    column_name already has DuckDB escape identifier for the query syntax
     """
     segmentation_col_unique_val_limit = Config.segmentation_col_unique_values_limit()
     if column_dtype not in SEGMENTATION_ALLOWED_DTYPES:
         return False
 
-    # check column for unique value count
-    escaped_column = escape_identifier(column_name)
-
-    # count distinct values in this column
+    # check column for unique value count - count distinct values in this column
     distinct_count_query = f"""
-        SELECT COUNT(DISTINCT {escaped_column}) as distinct_count
+        SELECT COUNT(DISTINCT {column_name}) as distinct_count
         FROM {table}
     """
     result = conn.sql(distinct_count_query).fetchone()

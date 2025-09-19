@@ -5,6 +5,7 @@ from arthur_common.aggregations.functions.multiclass_confusion_matrix import (
     MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -32,9 +33,9 @@ def test_multiclass_single_class_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="Timestamp",
-        prediction_col="PredictedLabel",
-        gt_values_col="TrueLabel",
+        timestamp_col=escape_identifier("Timestamp"),
+        prediction_col=escape_identifier("PredictedLabel"),
+        gt_values_col=escape_identifier("TrueLabel"),
         positive_class_label=positive_label,
     )
     validate_expected_metric_names(cm_aggregator, metrics)
@@ -83,11 +84,11 @@ def test_multiclass_with_segmentation(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="timestamp",
-        prediction_col="classification_pred",
-        gt_values_col="classification_gt",
+        timestamp_col=escape_identifier("timestamp"),
+        prediction_col=escape_identifier("classification_pred"),
+        gt_values_col=escape_identifier("classification_gt"),
         positive_class_label="functional",
-        segmentation_cols=["prompt_version_id"],
+        segmentation_cols=[escape_identifier("prompt_version_id")],
     )
     assert_dimension_in_metric(metrics[0], "prompt_version_id")
     validate_expected_metric_names(cm_aggregator, metrics)

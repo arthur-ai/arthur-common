@@ -110,7 +110,7 @@ class SchemaInferer:
                 if not is_nested_col and is_column_possible_segmentation(
                     self.conn,
                     table,
-                    col_name,
+                    escape_identifier(col_name),
                     scalar_schema.dtype,
                 ):
                     scalar_schema.tag_hints.append(ScopeSchemaTag.POSSIBLE_SEGMENTATION)

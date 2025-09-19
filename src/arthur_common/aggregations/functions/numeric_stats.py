@@ -18,7 +18,8 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_identifier, escape_str_literal
+
+from arthur_common.tools.duckdb_data_loader import unescape_identifier, escape_str_literal
 
 
 class NumericSketchAggregationFunction(SketchAggregationFunction):
@@ -95,41 +96,37 @@ class NumericSketchAggregationFunction(SketchAggregationFunction):
         ] = None,
     ) -> list[SketchMetric]:
         """Executed SQL with no segmentation columns:
-                    select {escaped_timestamp_col_id} as ts, \
-                       {escaped_numeric_col_id}, \
+                    select {timestamp_col} as ts, \
+                       {numeric_col}, \
                        {numeric_col_name_str} as column_name \
                 from {dataset.dataset_table_name} \
-                where {escaped_numeric_col_id} is not null \
+                where {numeric_col} is not null \
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        escaped_timestamp_col_id = escape_identifier(timestamp_col)
-        escaped_numeric_col_id = escape_identifier(numeric_col)
-        numeric_col_name_str = escape_str_literal(numeric_col)
+        numeric_col_name_str = escape_str_literal(unescape_identifier(numeric_col))
 
         # build query components with segmentation columns
-        escaped_segmentation_cols = [
-            escape_identifier(col) for col in segmentation_cols
-        ]
         all_select_clause_cols = [
-            f"{escaped_timestamp_col_id} as ts",
-            f"{escaped_numeric_col_id}",
+            f"{timestamp_col} as ts",
+            f"{numeric_col}",
             f"{numeric_col_name_str} as column_name",
-        ] + escaped_segmentation_cols
+        ] + segmentation_cols
         extra_dims = ["column_name"]
 
         # build query
         data_query = f"""
                     select {", ".join(all_select_clause_cols)}
                     from {dataset.dataset_table_name}
-                    where {escaped_numeric_col_id} is not null
+                    where {numeric_col} is not null
                 """
 
         results = ddb_conn.sql(data_query).df()
+        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
 
         series = self.group_query_results_to_sketch_metrics(
             results,
-            numeric_col,
-            segmentation_cols + extra_dims,
+            unescape_identifier(numeric_col),
+            unescaped_segmentation_cols + extra_dims,
             "ts",
         )
 
