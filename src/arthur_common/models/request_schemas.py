@@ -750,7 +750,7 @@ class TraceQueryRequest(BaseModel):
 
     @field_validator("tool_selection", "tool_usage", mode="before")
     @classmethod
-    def validate_tool_classification(cls, value) -> Optional[ToolClassEnum]:
+    def validate_tool_classification(cls, value: Any) -> Optional[ToolClassEnum]:
         """Validate tool classification enum values."""
         if value is not None:
             # Handle both integer and enum inputs
@@ -788,7 +788,7 @@ class TraceQueryRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_filter_combinations(self):
+    def validate_filter_combinations(self) -> Self:
         """Validate that filter combinations are logically valid."""
         # Check mutually exclusive filters for each metric type
         for prefix in ["query_relevance", "response_relevance", "trace_duration"]:
