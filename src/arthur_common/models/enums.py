@@ -114,9 +114,9 @@ class TokenUsageScope(BaseEnum):
 
 
 class ToolClassEnum(IntEnum):
-    WRONG_TOOL_SELECTED = 0
-    CORRECT_TOOL_SELECTED = 1
-    NO_TOOL_SELECTED = 2
+    INCORRECT = 0
+    CORRECT = 1
+    NA = 2
 
     def __str__(self) -> str:
         return str(self.value)
@@ -142,3 +142,11 @@ class UserPermissionResource(BaseEnum):
     RESPONSES = "responses"
     RULES = "rules"
     TASKS = "tasks"
+
+
+class ComparisonOperatorEnum(BaseEnum):
+    EQUAL = "eq"
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
