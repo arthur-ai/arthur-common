@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 from typing import Annotated, Any
@@ -899,3 +900,230 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
+
+
+class AgenticTraceLatencyAggregation(SketchAggregationFunction):
+    METRIC_NAME = "trace_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("00000000-0000-0000-0000-000000000039")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Trace Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Metric that reports the latency of the agentic trace."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticTraceLatencyAggregation.METRIC_NAME,
+                description=AgenticTraceLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace dataset containing traces with nested spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        # Query traces by timestamp
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                root_spans
+            FROM {dataset.dataset_table_name}
+            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        latency_data = []
+        for _, row in results.iterrows():
+            ts = row["ts"]
+            start_time = row["start_time"]
+            end_time = row["end_time"]
+
+            if start_time and end_time:
+                try:
+                    # Calculate trace latency in milliseconds
+                    latency_ms = int((end_time - start_time).total_seconds() * 1000)
+                    if latency_ms > 0:
+                        latency_data.append(
+                            {
+                                "ts": ts,
+                                "latency_ms": latency_ms,
+                            }
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+        if not latency_data:
+            return []
+
+        df = pd.DataFrame(latency_data)
+        series = self.group_query_results_to_sketch_metrics(
+            df,
+            "latency_ms",
+            [],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticSpanLatencyAggregation(SketchAggregationFunction):
+    METRIC_NAME = "span_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("00000000-0000-0000-0000-000000000040")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Metric that reports the latency of the agentic span."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanLatencyAggregation.METRIC_NAME,
+                description=AgenticSpanLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace dataset containing traces with nested spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        # Query traces by timestamp
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                root_spans
+            FROM {dataset.dataset_table_name}
+            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        latency_data = []
+        for _, row in results.iterrows():
+            ts = row["ts"]
+            root_spans = row["root_spans"]
+
+            # Parse root_spans if it's a string
+            if isinstance(root_spans, str):
+                root_spans = json.loads(root_spans)
+
+            # Extract all spans with their timing data
+            spans_with_timing = self._extract_spans_with_timing(root_spans)
+
+            for span_data in spans_with_timing:
+                span, current_agent, latency_ms = span_data
+                span_kind = span.get("span_kind", "unknown")
+
+                if latency_ms is not None and latency_ms > 0:
+                    latency_data.append(
+                        {
+                            "ts": ts,
+                            "latency_ms": latency_ms,
+                            "span_kind": span_kind,
+                            "agent_name": current_agent,
+                        }
+                    )
+
+        if not latency_data:
+            return []
+
+        # Convert to DataFrame and create sketch metrics
+        df = pd.DataFrame(latency_data)
+        series = self.group_query_results_to_sketch_metrics(
+            df,
+            "latency_ms",
+            ["span_kind", "agent_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+    def _extract_spans_with_timing(
+        self, spans: list[str | dict[str, Any]], current_agent: str = "unknown"
+    ) -> list[tuple[dict[str, Any], int | None]]:
+        """Recursively extract spans with calculated latency in milliseconds"""
+        spans_with_timing = []
+
+        for span_to_parse in spans:
+            if isinstance(span_to_parse, str):
+                span = json.loads(span_to_parse)
+            else:
+                span = span_to_parse
+
+                # Update current agent name if this span is an AGENT
+
+            if span.get("span_kind") == "AGENT":
+                try:
+                    raw_data = span.get("raw_data", {})
+                    if isinstance(raw_data, str):
+                        raw_data = json.loads(raw_data)
+
+                    # Try to get agent name from the span's name field
+                    agent_name = raw_data.get("name", "unknown")
+                    if agent_name != "unknown":
+                        current_agent = agent_name
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    logger.error(
+                        f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
+                    )
+
+            # Calculate latency if both start_time and end_time exist
+            start_time = span.get("start_time")
+            end_time = span.get("end_time")
+            latency_ms = None
+
+            if start_time and end_time:
+                try:
+                    # Parse ISO format timestamps and calculate latency in milliseconds
+                    start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                    latency_ms = int((end_dt - start_dt).total_seconds() * 1000)
+                except (ValueError, TypeError) as e:
+                    logger.warning(
+                        f"Error calculating latency for span {span.get('span_id')}: {e}"
+                    )
+                    pass
+
+            spans_with_timing.append((span, current_agent, latency_ms))
+
+            # Recursively process children
+            if children := span.get("children", []):
+                spans_with_timing.extend(
+                    self._extract_spans_with_timing(children, current_agent)
+                )
+
+        return spans_with_timing
