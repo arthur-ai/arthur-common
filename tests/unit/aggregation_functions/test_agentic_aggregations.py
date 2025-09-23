@@ -1,4 +1,7 @@
+from datetime import datetime
 from duckdb import DuckDBPyConnection
+from base64 import b64decode
+from datasketches import kll_floats_sketch
 
 from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticEventCountAggregation,
@@ -8,6 +11,7 @@ from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticSpanLatencyAggregation,
     AgenticToolPassFailCountAggregation,
     AgenticToolSelectionAndUsageByAgentAggregation,
+    AgenticTraceLatencyAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
 
@@ -1357,9 +1361,6 @@ def test_agentic_span_latency_aggregation_sketch_values(
     This test verifies that the sketches contain reasonable latency values
     and can be deserialized properly.
     """
-    import math
-    from base64 import b64decode
-    from datasketches import kll_floats_sketch
 
     conn, dataset_ref = get_agentic_dataset_conn
     aggregation = AgenticSpanLatencyAggregation()
@@ -1373,7 +1374,7 @@ def test_agentic_span_latency_aggregation_sketch_values(
         for point in series.values:
             # Deserialize the sketch
             sketch = kll_floats_sketch.deserialize(b64decode(point.value))
-            print(sketch)
+
             # Verify sketch has data
             assert sketch.n > 0, "Sketch should contain data points"
 
@@ -1517,3 +1518,248 @@ def test_agentic_span_latency_aggregation_metric_names(
         metric.metric_name for metric in aggregation.reported_aggregations()
     ]
     assert "span_latency" in expected_names
+
+
+def test_agentic_trace_latency_aggregation_basic(
+    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test basic functionality of trace latency aggregation.
+
+    Expected result: Returns sketch metrics with trace latency data
+    """
+    conn, dataset_ref = get_agentic_dataset_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return exactly one metric
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.name == "trace_latency"
+
+    # Should have sketch series data
+    assert hasattr(metric, "sketch_series")
+    assert len(metric.sketch_series) > 0
+
+    # Verify sketch series structure
+    series = metric.sketch_series[0]
+    assert hasattr(series, "values")
+    assert len(series.values) > 0, "Sketch series should have data points"
+
+
+def test_agentic_trace_latency_aggregation_sketch_values(
+    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test that trace latency aggregation produces valid sketch values.
+
+    Expected result: Valid sketch metrics with reasonable latency values
+    """
+    conn, dataset_ref = get_agentic_dataset_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+    series = metric.sketch_series[0]
+
+    # Check that we have valid sketch values
+    for sketch_value in series.values:
+        assert hasattr(sketch_value, "timestamp")
+
+        # Deserialize the sketch from the base64-encoded value
+        sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+
+        # Verify sketch contains expected percentiles
+        assert hasattr(sketch, "get_quantile")
+        
+        # Get percentiles using the correct method
+        p50 = sketch.get_quantile(0.5)
+        p95 = sketch.get_quantile(0.95)
+        p99 = sketch.get_quantile(0.99)
+        
+        # Verify percentiles are reasonable (latency should be positive)
+        assert p50 > 0, f"P50 should be positive, got {p50}"
+        assert p95 > 0, f"P95 should be positive, got {p95}"
+        assert p99 > 0, f"P99 should be positive, got {p99}"
+
+
+def test_agentic_trace_latency_aggregation_time_buckets(
+    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test that trace latency aggregation creates proper time buckets.
+
+    Expected result: Time buckets are created with 5-minute intervals
+    """
+    conn, dataset_ref = get_agentic_dataset_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+    series = metric.sketch_series[0]
+
+    # Check that timestamps are reasonable (should be around 2024-01-01 12:00:00)
+    expected_start = datetime(2024, 1, 1, 12, 0, 0)
+    expected_end = datetime(2024, 1, 1, 12, 25, 0)  # 5 traces, 5 minutes apart
+
+    for sketch_value in series.values:
+        timestamp = sketch_value.timestamp
+        # Convert timestamp to datetime for comparison
+        if isinstance(timestamp, str):
+            timestamp_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        else:
+            timestamp_dt = timestamp
+            
+        # Verify timestamp is within expected range
+        assert expected_start <= timestamp_dt <= expected_end, (
+            f"Timestamp {timestamp} seems too far from expected range "
+            f"({expected_start} to {expected_end})"
+        )
+
+
+def test_agentic_trace_latency_aggregation_empty_data(
+    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test trace latency aggregation with dataset containing traces but no valid timing data.
+
+    Expected result: Should still return metrics since traces have start_time and end_time
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # The no_metrics fixture still contains traces with timing data, so we should get results
+    assert len(metrics) == 1  # Should return one metric
+    metric = metrics[0]
+    assert metric.name == "trace_latency"
+
+    # Should have sketch series data
+    assert hasattr(metric, "sketch_series")
+    assert len(metric.sketch_series) > 0
+
+
+def test_agentic_trace_latency_aggregation_truly_empty_data():
+    """Test trace latency aggregation with truly empty dataset.
+
+    Expected result: Empty list of metrics
+    """
+    import duckdb
+    from arthur_common.models.metrics import DatasetReference
+    from uuid import uuid4
+
+    # Create a completely empty dataset
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="empty_dataset",
+        dataset_table_name="empty_test_data",
+        dataset_id=uuid4(),
+    )
+
+    # Create empty table
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """
+    )
+
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return empty list for empty dataset
+    assert len(metrics) == 0
+
+
+def test_agentic_trace_latency_aggregation_null_timing_data():
+    """Test trace latency aggregation with null timing data.
+
+    Expected result: Empty list of metrics
+    """
+    import duckdb
+    from arthur_common.models.metrics import DatasetReference
+    from uuid import uuid4
+
+    # Create dataset with null timing data
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="null_timing_dataset",
+        dataset_table_name="null_timing_test_data",
+        dataset_id=uuid4(),
+    )
+
+    # Create table with null timing data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """
+    )
+
+    # Insert data with null timing
+    conn.sql(
+        f"""
+        INSERT INTO {dataset_ref.dataset_table_name} VALUES
+        ('trace-001', NULL, NULL, '[]'),
+        ('trace-002', NULL, '2024-01-01 12:00:00', '[]'),
+        ('trace-003', '2024-01-01 12:00:00', NULL, '[]')
+        """
+    )
+
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return empty list for null timing data
+    assert len(metrics) == 0
+
+
+def test_agentic_trace_latency_aggregation_metric_names(
+    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test that trace latency aggregation returns expected metric names.
+
+    Expected metric name: "trace_latency"
+    """
+    conn, dataset_ref = get_agentic_dataset_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should have exactly one metric with the expected name
+    assert len(metrics) == 1
+    assert metrics[0].name == "trace_latency"
+
+    # Verify the metric name matches what's reported
+    expected_names = [
+        metric.metric_name for metric in aggregation.reported_aggregations()
+    ]
+    assert "trace_latency" in expected_names
+
+
+def test_agentic_trace_latency_aggregation_metadata():
+    """Test that trace latency aggregation has correct metadata.
+
+    Expected result: Correct UUID, display name, and description
+    """
+    aggregation = AgenticTraceLatencyAggregation()
+    
+    # Test UUID
+    expected_uuid = "00000000-0000-0000-0000-000000000039"
+    assert str(aggregation.id()) == expected_uuid
+    
+    # Test display name
+    assert aggregation.display_name() == "Trace Latency"
+    
+    # Test description
+    assert aggregation.description() == "Metric that reports the latency of the agentic trace."
+    
+    # Test reported aggregations
+    reported = aggregation.reported_aggregations()
+    assert len(reported) == 1
+    assert reported[0].metric_name == "trace_latency"
+    assert reported[0].description == "Metric that reports the latency of the agentic trace."

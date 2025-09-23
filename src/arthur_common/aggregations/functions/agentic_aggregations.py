@@ -1,6 +1,6 @@
-from datetime import datetime
 import json
 import logging
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -943,9 +943,10 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
+                start_time,
+                end_time
             FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
+            WHERE start_time IS NOT NULL AND end_time IS NOT NULL
             ORDER BY ts DESC;
             """,
         ).df()
@@ -974,12 +975,9 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
             return []
 
         df = pd.DataFrame(latency_data)
-        series = self.group_query_results_to_sketch_metrics(
-            df,
-            "latency_ms",
-            [],
-            "ts",
-        )
+        # Create a single time series without grouping dimensions
+        # Since we have no dimensions to group by, we create one time series for all data
+        series = [self._group_to_series(df, "ts", [], "latency_ms")]
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
 
