@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import json
 import logging
 from typing import Annotated, Any
@@ -1074,7 +1074,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
 
     def _extract_spans_with_timing(
         self, spans: list[str | dict[str, Any]], current_agent: str = "unknown"
-    ) -> list[tuple[dict[str, Any], int | None]]:
+    ) -> list[tuple[dict[str, Any], str, int | None]]:
         """Recursively extract spans with calculated latency in milliseconds"""
         spans_with_timing = []
 
