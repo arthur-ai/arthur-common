@@ -959,9 +959,9 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
 
             if start_time and end_time:
                 try:
-                    # Parse ISO format timestamps and calculate latency in milliseconds
-                    start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                    end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                    # Parse timestamps and calculate latency in milliseconds
+                    start_dt = pd.to_datetime(start_time)
+                    end_dt = pd.to_datetime(end_time)
                     latency_ms = int((end_dt - start_dt).total_seconds() * 1000)
 
                     if latency_ms > 0:
