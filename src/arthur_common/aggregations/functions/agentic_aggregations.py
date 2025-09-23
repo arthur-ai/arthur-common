@@ -959,14 +959,11 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
 
             if start_time and end_time:
                 try:
-                    # Ensure we have datetime objects for calculation
-                    if isinstance(start_time, str):
-                        start_time = pd.to_datetime(start_time)
-                    if isinstance(end_time, str):
-                        end_time = pd.to_datetime(end_time)
+                    # Parse ISO format timestamps and calculate latency in milliseconds
+                    start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                    latency_ms = int((end_dt - start_dt).total_seconds() * 1000)
 
-                    # Calculate trace latency in milliseconds
-                    latency_ms = int((end_time - start_time).total_seconds() * 1000)
                     if latency_ms > 0:
                         latency_data.append(
                             {
@@ -974,7 +971,7 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
                                 "latency_ms": latency_ms,
                             }
                         )
-                except (ValueError, TypeError, pd.errors.ParserError) as e:
+                except (ValueError, TypeError) as e:
                     logger.warning(f"Failed to calculate latency for trace: {e}")
                     continue
 
