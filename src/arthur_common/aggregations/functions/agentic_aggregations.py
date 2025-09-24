@@ -50,6 +50,24 @@ def span_parser(span_to_parse: str | dict[str, Any]) -> dict[str, Any]:
     return span_to_parse
 
 
+def extract_agent_name_from_span(span: dict[str, Any]) -> str | None:
+    try:
+        raw_data = span.get("raw_data", {})
+        if isinstance(raw_data, str):
+            raw_data = json.loads(raw_data)
+
+        # Try to get agent name from the span's name field
+        agent_name = raw_data.get("name", "unknown")
+        if agent_name != "unknown":
+            return agent_name
+    except (json.JSONDecodeError, KeyError, TypeError):
+        logger.error(
+            f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
+        )
+
+    return None
+
+
 # TODO: create TypedDict for span
 def extract_spans_with_metrics_and_agents(
     root_spans: list[str | dict[str, Any]],
@@ -64,36 +82,26 @@ def extract_spans_with_metrics_and_agents(
     # TODO: Improve function so it won't modify variable outside of its scope
     def traverse_spans(
         spans: list[str | dict[str, Any]],
-        current_agent_name: str = "unknown",
+        current_agent: str = "unknown",
     ) -> None:
         for span_to_parse in spans:
             parsed_span = span_parser(span_to_parse)
 
             # Update current agent name if this span is an AGENT
             if parsed_span.get("span_kind") == "AGENT":
-                try:
-                    raw_data = parsed_span.get("raw_data", {})
-                    if isinstance(raw_data, str):
-                        raw_data = json.loads(raw_data)
-
-                    # Try to get agent name from the span's name field
-                    agent_name = raw_data.get("name", "unknown")
-                    if agent_name != "unknown":
-                        current_agent_name = agent_name
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    logger.error(
-                        f"Error parsing attributes from span (span_id: {parsed_span.get('span_id')}) in trace {parsed_span.get('trace_id')}",
-                    )
+                agent_name = extract_agent_name_from_span(parsed_span)
+                if agent_name:
+                    current_agent = agent_name
 
             # Check if this span has metrics
             if parsed_span.get("metric_results", []):
                 spans_with_metrics_and_agents.append(
-                    (parsed_span, current_agent_name),
+                    (parsed_span, current_agent),
                 )
 
             # Recursively traverse children with the current agent name
             if children_span := parsed_span.get("children", []):
-                traverse_spans(children_span, current_agent_name)
+                traverse_spans(children_span, current_agent)
 
     traverse_spans(root_spans)
     return spans_with_metrics_and_agents
@@ -1021,19 +1029,9 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
 
             # Update current agent name if this span is an AGENT
             if span.get("span_kind") == "AGENT":
-                try:
-                    raw_data = span.get("raw_data", {})
-                    if isinstance(raw_data, str):
-                        raw_data = json.loads(raw_data)
-
-                    # Try to get agent name from the span's name field
-                    agent_name = raw_data.get("name", "unknown")
-                    if agent_name != "unknown":
-                        current_agent = agent_name
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    logger.error(
-                        f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
-                    )
+                agent_name = extract_agent_name_from_span(span)
+                if agent_name:
+                    current_agent = agent_name
 
             # Calculate latency if both start_time and end_time exist
             start_time = span.get("start_time")
