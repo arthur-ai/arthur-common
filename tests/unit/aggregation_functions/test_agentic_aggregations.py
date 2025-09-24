@@ -1548,12 +1548,12 @@ def test_agentic_trace_latency_aggregation_sketch_values(
 
         # Verify sketch contains expected percentiles
         assert hasattr(sketch, "get_quantile")
-        
+
         # Get percentiles using the correct method
         p50 = sketch.get_quantile(0.5)
         p95 = sketch.get_quantile(0.95)
         p99 = sketch.get_quantile(0.99)
-        
+
         # Verify percentiles are reasonable (latency should be positive)
         assert p50 > 0, f"P50 should be positive, got {p50}"
         assert p95 > 0, f"P95 should be positive, got {p95}"
@@ -1583,10 +1583,10 @@ def test_agentic_trace_latency_aggregation_time_buckets(
         timestamp = sketch_value.timestamp
         # Convert timestamp to datetime for comparison
         if isinstance(timestamp, str):
-            timestamp_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            timestamp_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         else:
             timestamp_dt = timestamp
-            
+
         # Verify timestamp is within expected range
         assert expected_start <= timestamp_dt <= expected_end, (
             f"Timestamp {timestamp} seems too far from expected range "
@@ -1725,19 +1725,25 @@ def test_agentic_trace_latency_aggregation_metadata():
     Expected result: Correct UUID, display name, and description
     """
     aggregation = AgenticTraceLatencyAggregation()
-    
+
     # Test UUID
     expected_uuid = "00000000-0000-0000-0000-000000000039"
     assert str(aggregation.id()) == expected_uuid
-    
+
     # Test display name
     assert aggregation.display_name() == "Trace Latency"
-    
+
     # Test description
-    assert aggregation.description() == "Metric that reports the latency of the agentic trace."
-    
+    assert (
+        aggregation.description()
+        == "Metric that reports the latency of the agentic trace."
+    )
+
     # Test reported aggregations
     reported = aggregation.reported_aggregations()
     assert len(reported) == 1
     assert reported[0].metric_name == "trace_latency"
-    assert reported[0].description == "Metric that reports the latency of the agentic trace."
+    assert (
+        reported[0].description
+        == "Metric that reports the latency of the agentic trace."
+    )
