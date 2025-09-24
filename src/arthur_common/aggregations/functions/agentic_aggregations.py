@@ -938,47 +938,24 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        # Query traces by timestamp
+        # Query traces by timestamp and calculate latency directly in SQL
         results = ddb_conn.sql(
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                start_time,
-                end_time
+                CAST(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000 AS INTEGER) as latency_ms
             FROM {dataset.dataset_table_name}
-            WHERE start_time IS NOT NULL AND end_time IS NOT NULL
+            WHERE start_time IS NOT NULL 
+                AND end_time IS NOT NULL
+                AND end_time > start_time
             ORDER BY ts DESC;
             """,
         ).df()
-
-        latency_data = []
-        for _, row in results.iterrows():
-            ts = row["ts"]
-            start_time = row["start_time"]
-            end_time = row["end_time"]
-
-            if start_time and end_time:
-                try:
-                    # Parse timestamps and calculate latency in milliseconds
-                    start_dt = pd.to_datetime(start_time)
-                    end_dt = pd.to_datetime(end_time)
-                    latency_ms = int((end_dt - start_dt).total_seconds() * 1000)
-
-                    if latency_ms > 0:
-                        latency_data.append(
-                            {
-                                "ts": ts,
-                                "latency_ms": latency_ms,
-                            }
-                        )
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Failed to calculate latency for trace: {e}")
-                    continue
-
-        if not latency_data:
+        print(results)
+        if results.empty:
             return []
 
-        df = pd.DataFrame(latency_data)
+        df = results
         # Create a single time series without grouping dimensions
         # Since we have no dimensions to group by, we create one time series for all data
         series = [self._group_to_series(df, "ts", [], "latency_ms")]
