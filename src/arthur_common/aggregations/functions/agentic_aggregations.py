@@ -28,6 +28,21 @@ TOOL_SCORE_NO_TOOL_VALUE = 2
 logger = logging.getLogger(__name__)
 
 
+def root_span_in_time_buckets(
+    ddb_conn: DuckDBPyConnection, dataset: DatasetReference
+) -> pd.DataFrame:
+    return ddb_conn.sql(
+        f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                root_spans
+            FROM {dataset.dataset_table_name}
+            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
+            ORDER BY ts DESC;
+            """,
+    ).df()
+
+
 # TODO: create TypedDict for span
 def extract_spans_with_metrics_and_agents(
     root_spans: list[str | dict[str, Any]],
@@ -154,16 +169,7 @@ class AgenticMetricsOverTimeAggregation(SketchAggregationFunction):
         ],
     ) -> list[SketchMetric]:
         # Query traces by timestamp
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         # Process traces and extract spans with metrics
         tool_selection_data = []
@@ -410,17 +416,7 @@ class AgenticRelevancePassFailCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        # Query traces by timestamp
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         # Process traces and extract spans with metrics
         processed_data = []
@@ -535,17 +531,7 @@ class AgenticToolPassFailCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        # Query traces by timestamp
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         # Process traces and extract spans with metrics
         processed_data = []
@@ -714,16 +700,7 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         # Process traces and count LLM spans
         llm_call_counts = {}
@@ -814,16 +791,7 @@ class AgenticToolSelectionAndUsageByAgentAggregation(NumericAggregationFunction)
         ],
     ) -> list[NumericMetric]:
         # Query traces by timestamp
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         # Process traces and extract spans with metrics
         processed_data = []
@@ -951,7 +919,7 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
             ORDER BY ts DESC;
             """,
         ).df()
-        print(results)
+
         if results.empty:
             return []
 
@@ -999,17 +967,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        # Query traces by timestamp
-        results = ddb_conn.sql(
-            f"""
-            SELECT
-                time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                root_spans
-            FROM {dataset.dataset_table_name}
-            WHERE root_spans IS NOT NULL AND length(root_spans) > 0
-            ORDER BY ts DESC;
-            """,
-        ).df()
+        results = root_span_in_time_buckets(ddb_conn, dataset)
 
         latency_data = []
         for _, row in results.iterrows():
