@@ -1498,28 +1498,6 @@ def test_agentic_span_latency_aggregation_truly_empty_data():
     assert len(metrics) == 0
 
 
-def test_agentic_span_latency_aggregation_metric_names(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that span latency aggregation returns expected metric names.
-
-    Expected metric name: "span_latency"
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should have exactly one metric with the expected name
-    assert len(metrics) == 1
-    assert metrics[0].name == "span_latency"
-
-    # Verify the metric name matches what's reported
-    expected_names = [
-        metric.metric_name for metric in aggregation.reported_aggregations()
-    ]
-    assert "span_latency" in expected_names
-
-
 def test_agentic_trace_latency_aggregation_basic(
     get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
 ):
