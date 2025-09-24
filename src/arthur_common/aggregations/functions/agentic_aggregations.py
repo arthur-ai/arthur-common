@@ -1048,7 +1048,6 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
                     logger.warning(
                         f"Error calculating latency for span {span.get('span_id')}: {e}"
                     )
-                    pass
 
             spans_with_timing.append((span, current_agent, latency_ms))
 

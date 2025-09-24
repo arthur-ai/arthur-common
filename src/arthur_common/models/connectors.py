@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, Field
 
 
 class ConnectorPaginationOptions(BaseModel):
