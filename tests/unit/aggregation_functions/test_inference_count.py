@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.inference_count import (
     InferenceCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -15,7 +16,7 @@ def test_inference_count(
     # run test on balloons dataset
     conn, dataset_ref = get_balloons_dataset_conn
     inference_counter = InferenceCountAggregationFunction()
-    metrics = inference_counter.aggregate(conn, dataset_ref, "flight start")
+    metrics = inference_counter.aggregate(conn, dataset_ref, escape_identifier("flight start"))
     validate_expected_metric_names(inference_counter, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "inference_count"
@@ -33,8 +34,8 @@ def test_inference_count(
     metrics = inference_counter.aggregate(
         conn,
         dataset_ref,
-        "timestamp",
-        ["prompt_version_id"],
+        escape_identifier("timestamp"),
+        [escape_identifier("prompt_version_id")],
     )
     assert len(metrics) == 1
     assert metrics[0].name == "inference_count"

@@ -12,6 +12,7 @@ from arthur_common.aggregations.functions.numeric_sum import (
     NumericSumAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -35,8 +36,8 @@ def test_inference_sum(
     metric = inference_sum.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="flight start",
-        numeric_col=column_name,
+        timestamp_col=escape_identifier("flight start"),
+        numeric_col=escape_identifier(column_name),
     )
     validate_expected_metric_names(inference_sum, metric)
     assert metric[0].name == "numeric_sum"
@@ -51,9 +52,9 @@ def test_inference_sum(
     metrics = inference_sum.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="flight start",
-        numeric_col=column_name,
-        segmentation_cols=["weather conditions"],
+        timestamp_col=escape_identifier("flight start"),
+        numeric_col=escape_identifier(column_name),
+        segmentation_cols=[escape_identifier("weather conditions")],
     )
     assert_dimension_in_metric(metrics[0], "weather conditions")
 
@@ -79,8 +80,8 @@ def test_inference_numeric_sketch(
     metrics = numeric_sketch_func.aggregate(
         conn,
         dataset_ref,
-        "flight start",
-        column_name,
+        escape_identifier("flight start"),
+        escape_identifier(column_name),
     )
     validate_expected_metric_names(numeric_sketch_func, metrics)
     assert len(metrics) == 1
@@ -110,8 +111,8 @@ def test_inference_numeric_sketch(
     metrics = numeric_sketch_func.aggregate(
         conn,
         dataset_ref,
-        "flight start",
-        column_name,
-        segmentation_cols=["weather conditions"],
+        escape_identifier("flight start"),
+        escape_identifier(column_name),
+        segmentation_cols=[escape_identifier("weather conditions")],
     )
     assert_dimension_in_metric(metrics[0], "weather conditions")

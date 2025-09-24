@@ -5,6 +5,7 @@ from arthur_common.aggregations.functions.inference_null_count import (
     InferenceNullCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -37,8 +38,8 @@ def test_inference_null_count(
     metrics = inference_null_counter.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="flight start",
-        nullable_col=column_name,
+        timestamp_col=escape_identifier("flight start"),
+        nullable_col=escape_identifier(column_name),
     )
     validate_expected_metric_names(inference_null_counter, metrics)
     assert len(metrics) == 1
@@ -56,8 +57,8 @@ def test_inference_null_count(
     metrics = inference_null_counter.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="flight start",
-        nullable_col=column_name,
-        segmentation_cols=["weather conditions"],
+        timestamp_col=escape_identifier("flight start"),
+        nullable_col=escape_identifier(column_name),
+        segmentation_cols=[escape_identifier("weather conditions")],
     )
     assert_dimension_in_metric(metrics[0], "weather conditions")

@@ -19,7 +19,7 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_identifier
+from arthur_common.tools.duckdb_data_loader import unescape_identifier
 
 
 class MeanAbsoluteErrorAggregationFunction(NumericAggregationFunction):
@@ -111,50 +111,45 @@ class MeanAbsoluteErrorAggregationFunction(NumericAggregationFunction):
         ] = None,
     ) -> list[NumericMetric]:
         """Executed SQL with no segmentation columns:
-                SELECT time_bucket(INTERVAL '5 minutes', {escaped_timestamp_col}) as ts, \
-                SUM(ABS({escaped_prediction_col} - {escaped_ground_truth_col})) as ae, \
+                SELECT time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts, \
+                SUM(ABS({prediction_col} - {ground_truth_col})) as ae, \
                 COUNT(*) as count \
                 FROM {dataset.dataset_table_name} \
-                WHERE {escaped_prediction_col} IS NOT NULL \
-                AND {escaped_ground_truth_col} IS NOT NULL \
+                WHERE {prediction_col} IS NOT NULL \
+                AND {ground_truth_col} IS NOT NULL \
                 GROUP BY ts order by ts desc \
                 """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        escaped_timestamp_col = escape_identifier(timestamp_col)
-        escaped_prediction_col = escape_identifier(prediction_col)
-        escaped_ground_truth_col = escape_identifier(ground_truth_col)
 
         # build query components with segmentation columns
-        escaped_segmentation_cols = [
-            escape_identifier(col) for col in segmentation_cols
-        ]
         all_select_clause_cols = [
-            f"time_bucket(INTERVAL '5 minutes', {escaped_timestamp_col}) as ts",
-            f"SUM(ABS({escaped_prediction_col} - {escaped_ground_truth_col})) as ae",
+            f"time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts",
+            f"SUM(ABS({prediction_col} - {ground_truth_col})) as ae",
             f"COUNT(*) as count",
-        ] + escaped_segmentation_cols
-        all_group_by_cols = ["ts"] + escaped_segmentation_cols
+        ] + segmentation_cols
+        all_group_by_cols = ["ts"] + segmentation_cols
 
         # build query
         mae_query = f"""
             SELECT {", ".join(all_select_clause_cols)}
             FROM {dataset.dataset_table_name}
-            WHERE {escaped_prediction_col} IS NOT NULL
-                  AND {escaped_ground_truth_col} IS NOT NULL
+            WHERE {prediction_col} IS NOT NULL
+                  AND {ground_truth_col} IS NOT NULL
             GROUP BY {", ".join(all_group_by_cols)} order by ts desc
         """
 
         results = ddb_conn.sql(mae_query).df()
+        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
         count_series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            segmentation_cols,
+            unescaped_segmentation_cols,
             "ts",
         )
         absolute_error_series = self.group_query_results_to_numeric_metrics(
             results,
             "ae",
-            segmentation_cols,
+            unescaped_segmentation_cols,
             "ts",
         )
 

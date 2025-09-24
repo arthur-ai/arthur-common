@@ -7,6 +7,7 @@ from arthur_common.aggregations.functions.confusion_matrix import (
     BinaryClassifierStringLabelConfusionMatrixAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -34,9 +35,9 @@ def test_int_bool_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=prediction_col,
-        gt_values_col="malicious",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(prediction_col),
+        gt_values_col=escape_identifier("malicious"),
     )
     validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 4
@@ -54,10 +55,10 @@ def test_int_bool_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=prediction_col,
-        gt_values_col="malicious",
-        segmentation_cols=["packet type"],
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(prediction_col),
+        gt_values_col=escape_identifier("malicious"),
+        segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
     # prediction column name should be included as a dimension
@@ -119,9 +120,9 @@ def test_str_label_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} str label",
-        gt_values_col="malicious str label",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} str label"),
+        gt_values_col=escape_identifier("malicious str label"),
         true_label="MALICIOUS",
         false_label="NOT_MALICIOUS",
     )
@@ -147,12 +148,12 @@ def test_str_label_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} str label",
-        gt_values_col="malicious str label",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} str label"),
+        gt_values_col=escape_identifier("malicious str label"),
         true_label="MALICIOUS",
         false_label="NOT_MALICIOUS",
-        segmentation_cols=["packet type"],
+        segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
 
@@ -196,9 +197,9 @@ def test_prediction_threshold_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} float value",
-        gt_values_col="malicious",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} float value"),
+        gt_values_col=escape_identifier("malicious"),
         threshold=0.93,
     )
     validate_expected_metric_names(cm_aggregator, metrics)
@@ -223,10 +224,10 @@ def test_prediction_threshold_confusion_matrix(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} float value",
-        gt_values_col="malicious",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} float value"),
+        gt_values_col=escape_identifier("malicious"),
         threshold=0.93,
-        segmentation_cols=["packet type"],
+        segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")

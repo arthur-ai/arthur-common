@@ -6,6 +6,7 @@ from arthur_common.aggregations.functions.inference_count_by_class import (
     BinaryClassifierCountThresholdClassAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference, Dimension
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -31,8 +32,8 @@ def test_int_bool_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=prediction_col,
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(prediction_col),
     )
     validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 1
@@ -52,9 +53,9 @@ def test_int_bool_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=prediction_col,
-        segmentation_cols=["packet type"],
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(prediction_col),
+        segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
 
@@ -94,8 +95,8 @@ def test_prediction_threshold_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} float value",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} float value"),
         threshold=0.93,
         true_label="yeetyeetyes",
         false_label="no",
@@ -119,12 +120,12 @@ def test_prediction_threshold_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="sent timestamp",
-        prediction_col=f"{prediction_col} float value",
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} float value"),
         threshold=0.93,
         true_label="yeetyeetyes",
         false_label="no",
-        segmentation_cols=["packet type"],
+        segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
     validate_expected_metric_names(cm_aggregator, metrics)
