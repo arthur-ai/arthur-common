@@ -20,7 +20,8 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_identifier, escape_str_literal
+
+from arthur_common.tools.duckdb_data_loader import escape_str_literal, unescape_identifier
 
 
 class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFunction(
@@ -194,11 +195,11 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
             Returns the following SQL with no segmentation:
             WITH normalized_data AS (
                     SELECT
-                        {escaped_timestamp_col} AS timestamp,
-                        {prediction_normalization_case.replace('value', escaped_prediction_col)} AS prediction,
-                        {gt_normalization_case.replace('value', escaped_gt_values_col)} AS actual_value
+                        {timestamp_col} AS timestamp,
+                        {prediction_normalization_case.replace('value', prediction_col)} AS prediction,
+                        {gt_normalization_case.replace('value', gt_values_col)} AS actual_value
                     FROM {dataset.dataset_table_name}
-                    WHERE {escaped_timestamp_col} IS NOT NULL
+                    WHERE {timestamp_col} IS NOT NULL
                 )
                 SELECT
                     time_bucket(INTERVAL '5 minutes', timestamp) AS ts,
@@ -212,19 +213,12 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
                 ORDER BY ts
 
         """
-        escaped_timestamp_col = escape_identifier(timestamp_col)
-        escaped_prediction_col = escape_identifier(prediction_col)
-        escaped_gt_values_col = escape_identifier(gt_values_col)
-
         # build query components with segmentation columns
-        escaped_segmentation_cols = [
-            escape_identifier(col) for col in segmentation_cols
-        ]
         first_subquery_select_cols = [
-            f"{escaped_timestamp_col} AS timestamp",
-            f"{prediction_normalization_case.replace('value', escaped_prediction_col)} AS prediction",
-            f"{gt_normalization_case.replace('value', escaped_gt_values_col)} AS actual_value",
-        ] + escaped_segmentation_cols
+            f"{timestamp_col} AS timestamp",
+            f"{prediction_normalization_case.replace('value', prediction_col)} AS prediction",
+            f"{gt_normalization_case.replace('value', gt_values_col)} AS actual_value",
+        ] + segmentation_cols
         second_subquery_select_cols = [
             "time_bucket(INTERVAL '5 minutes', timestamp) AS ts",
             "SUM(CASE WHEN prediction = 1 AND actual_value = 1 THEN 1 ELSE 0 END) AS true_positive_count",
@@ -232,8 +226,8 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
             "SUM(CASE WHEN prediction = 0 AND actual_value = 1 THEN 1 ELSE 0 END) AS false_negative_count",
             "SUM(CASE WHEN prediction = 0 AND actual_value = 0 THEN 1 ELSE 0 END) AS true_negative_count",
             f"any_value({escaped_positive_class_label}) as class_label",
-        ] + escaped_segmentation_cols
-        second_subquery_group_by_cols = ["ts"] + escaped_segmentation_cols
+        ] + segmentation_cols
+        second_subquery_group_by_cols = ["ts"] + segmentation_cols
         extra_dims = ["class_label"]
 
         # build query
@@ -241,7 +235,7 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
         WITH normalized_data AS (
             SELECT {", ".join(first_subquery_select_cols)}
             FROM {dataset.dataset_table_name}
-            WHERE {escaped_timestamp_col} IS NOT NULL
+            WHERE {timestamp_col} IS NOT NULL
         )
         SELECT {", ".join(second_subquery_select_cols)}
         FROM normalized_data
@@ -250,29 +244,30 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
 """
 
         results = ddb_conn.sql(confusion_matrix_query).df()
+        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
 
         tp = self.group_query_results_to_numeric_metrics(
             results,
             "true_positive_count",
-            dim_columns=segmentation_cols + extra_dims,
+            dim_columns=unescaped_segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         fp = self.group_query_results_to_numeric_metrics(
             results,
             "false_positive_count",
-            dim_columns=segmentation_cols + extra_dims,
+            dim_columns=unescaped_segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         fn = self.group_query_results_to_numeric_metrics(
             results,
             "false_negative_count",
-            dim_columns=segmentation_cols + extra_dims,
+            dim_columns=unescaped_segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         tn = self.group_query_results_to_numeric_metrics(
             results,
             "true_negative_count",
-            dim_columns=segmentation_cols + extra_dims,
+            dim_columns=unescaped_segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         tp_metric = self.series_to_metric(

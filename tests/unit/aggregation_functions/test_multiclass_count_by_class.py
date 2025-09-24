@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.multiclass_inference_count_by_class im
     MulticlassClassifierCountByClassAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -17,8 +18,8 @@ def test_multiclass_str_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="Timestamp",
-        prediction_col="PredictedLabel",
+        timestamp_col=escape_identifier("Timestamp"),
+        prediction_col=escape_identifier("PredictedLabel"),
     )
     validate_expected_metric_names(cm_aggregator, metrics)
     assert len(metrics) == 1
@@ -50,9 +51,9 @@ def test_multiclass_str_count_by_class(
     metrics = cm_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="Timestamp",
-        prediction_col="classification_pred",
-        segmentation_cols=["prompt_version_id"],
+        timestamp_col=escape_identifier("Timestamp"),
+        prediction_col=escape_identifier("classification_pred"),
+        segmentation_cols=[escape_identifier("prompt_version_id")],
     )
     assert_dimension_in_metric(metrics[0], "prompt_version_id")
     validate_expected_metric_names(cm_aggregator, metrics)

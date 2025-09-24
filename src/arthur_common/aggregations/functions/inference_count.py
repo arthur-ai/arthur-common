@@ -18,7 +18,7 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_identifier
+from arthur_common.tools.duckdb_data_loader import unescape_identifier
 
 
 class InferenceCountAggregationFunction(NumericAggregationFunction):
@@ -80,23 +80,19 @@ class InferenceCountAggregationFunction(NumericAggregationFunction):
         ] = None,
     ) -> list[NumericMetric]:
         """Executed SQL with no segmentation columns:
-            select time_bucket(INTERVAL '5 minutes', {escaped_timestamp_col}) as ts, \
+            select time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts, \
                     count(*) as count \
                     from {dataset.dataset_table_name} \
                     group by ts \
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        escaped_timestamp_col = escape_identifier(timestamp_col)
 
         # build query components with segmentation columns
-        escaped_segmentation_cols = [
-            escape_identifier(col) for col in segmentation_cols
-        ]
         all_select_clause_cols = [
-            f"time_bucket(INTERVAL '5 minutes', {escaped_timestamp_col}) as ts",
+            f"time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts",
             f"count(*) as count",
-        ] + escaped_segmentation_cols
-        all_group_by_cols = ["ts"] + escaped_segmentation_cols
+        ] + segmentation_cols
+        all_group_by_cols = ["ts"] + segmentation_cols
 
         # build query
         count_query = f"""
@@ -106,10 +102,11 @@ class InferenceCountAggregationFunction(NumericAggregationFunction):
         """
 
         results = ddb_conn.sql(count_query).df()
+        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            segmentation_cols,
+            unescaped_segmentation_cols,
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)

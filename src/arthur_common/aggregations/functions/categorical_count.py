@@ -18,7 +18,8 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_identifier, escape_str_literal
+
+from arthur_common.tools.duckdb_data_loader import unescape_identifier, escape_str_literal
 
 
 class CategoricalCountAggregationFunction(NumericAggregationFunction):
@@ -93,30 +94,25 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
         ] = None,
     ) -> list[NumericMetric]:
         """Executed SQL with no segmentation columns:
-            select time_bucket(INTERVAL '5 minutes', {timestamp_col_escaped}) as ts, \
+            select time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts, \
                 count(*) as count, \
-                {categorical_col_escaped} as category, \
-                {categorical_col_name_escaped} as column_name \
+                {categorical_col} as category, \
+                {categorical_col_name_unescaped} as column_name \
                 from {dataset.dataset_table_name} \
                 where ts is not null \
                 group by ts, category
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        timestamp_col_escaped = escape_identifier(timestamp_col)
-        categorical_col_escaped = escape_identifier(categorical_col)
-        categorical_col_name_escaped = escape_str_literal(categorical_col)
+        categorical_col_name_unescaped = escape_str_literal(unescape_identifier(categorical_col))
 
         # build query components with segmentation columns
-        escaped_segmentation_cols = [
-            escape_identifier(col) for col in segmentation_cols
-        ]
         all_select_clause_cols = [
-            f"time_bucket(INTERVAL '5 minutes', {timestamp_col_escaped}) as ts",
+            f"time_bucket(INTERVAL '5 minutes', {timestamp_col}) as ts",
             f"count(*) as count",
-            f"{categorical_col_escaped} as category",
-            f"{categorical_col_name_escaped} as column_name",
-        ] + escaped_segmentation_cols
-        all_group_by_cols = ["ts", "category"] + escaped_segmentation_cols
+            f"{categorical_col} as category",
+            f"{categorical_col_name_unescaped} as column_name",
+        ] + segmentation_cols
+        all_group_by_cols = ["ts", "category"] + segmentation_cols
         extra_dims = ["column_name", "category"]
 
         # build query
@@ -129,10 +125,11 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
 
         results = ddb_conn.sql(count_query).df()
 
+        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            segmentation_cols + extra_dims,
+            unescaped_segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)

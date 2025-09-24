@@ -4,6 +4,7 @@ from arthur_common.aggregations.functions.categorical_count import (
     CategoricalCountAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -17,8 +18,8 @@ def test_string_categorical_count(
     metric = cat_counter.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="flight start",
-        categorical_col="customer feedback",
+        timestamp_col=escape_identifier("flight start"),
+        categorical_col=escape_identifier("customer feedback"),
     )
     assert len(metric) == 1
     assert metric[0].name == "categorical_count"
@@ -53,9 +54,9 @@ def test_cv_categorical_count_with_dimensions(
     metric = cat_counter.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="timestamp",
-        categorical_col="classification_pred",
-        segmentation_cols=["prompt_version_id"],
+        timestamp_col=escape_identifier("timestamp"),
+        categorical_col=escape_identifier("classification_pred"),
+        segmentation_cols=[escape_identifier("prompt_version_id")],
     )
     assert len(metric) == 1
     assert metric[0].name == "categorical_count"

@@ -5,6 +5,7 @@ from arthur_common.aggregations.functions.mean_squared_error import (
     MeanSquaredErrorAggregationFunction,
 )
 from arthur_common.models.metrics import DatasetReference
+from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 from .helpers import *
 
@@ -42,9 +43,9 @@ def test_mean_squared_error(
     metrics = mae_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="timestamp",
-        prediction_col="expected energy consumption",
-        ground_truth_col="energy usage consumption",
+        timestamp_col=escape_identifier("timestamp"),
+        prediction_col=escape_identifier("expected energy consumption"),
+        ground_truth_col=escape_identifier("energy usage consumption"),
     )
     validate_expected_metric_names(mae_aggregator, metrics)
 
@@ -65,10 +66,10 @@ def test_mean_squared_error(
     metrics = mae_aggregator.aggregate(
         conn,
         dataset_ref,
-        timestamp_col="timestamp",
-        prediction_col="expected energy consumption",
-        ground_truth_col="energy usage consumption",
-        segmentation_cols=["city"],
+        timestamp_col=escape_identifier("timestamp"),
+        prediction_col=escape_identifier("expected energy consumption"),
+        ground_truth_col=escape_identifier("energy usage consumption"),
+        segmentation_cols=[escape_identifier("city")],
     )
     assert_dimension_in_metric(metrics[0], "city")
     validate_expected_metric_names(mae_aggregator, metrics)
