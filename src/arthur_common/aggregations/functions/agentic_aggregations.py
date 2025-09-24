@@ -43,6 +43,13 @@ def root_span_in_time_buckets(
     ).df()
 
 
+def span_parser(span_to_parse: str | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(span_to_parse, str):
+        return json.loads(span_to_parse)
+
+    return span_to_parse
+
+
 # TODO: create TypedDict for span
 def extract_spans_with_metrics_and_agents(
     root_spans: list[str | dict[str, Any]],
@@ -60,10 +67,7 @@ def extract_spans_with_metrics_and_agents(
         current_agent_name: str = "unknown",
     ) -> None:
         for span_to_parse in spans:
-            if isinstance(span_to_parse, str):
-                parsed_span = json.loads(span_to_parse)
-            else:
-                parsed_span = span_to_parse
+            parsed_span = span_parser(span_to_parse)
 
             # Update current agent name if this span is an AGENT
             if parsed_span.get("span_kind") == "AGENT":
@@ -716,10 +720,7 @@ class AgenticLLMCallCountAggregation(NumericAggregationFunction):
             def count_llm_spans(spans: list[str | dict[str, Any]]) -> int:
                 count = 0
                 for span_to_parse in spans:
-                    if isinstance(span_to_parse, str):
-                        span = json.loads(span_to_parse)
-                    else:
-                        span = span_to_parse
+                    span = span_parser(span_to_parse)
 
                     # Check if this span is an LLM span
                     if span.get("span_kind") == "LLM":
@@ -1016,13 +1017,9 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
         spans_with_timing = []
 
         for span_to_parse in spans:
-            if isinstance(span_to_parse, str):
-                span = json.loads(span_to_parse)
-            else:
-                span = span_to_parse
+            span = span_parser(span_to_parse)
 
-                # Update current agent name if this span is an AGENT
-
+            # Update current agent name if this span is an AGENT
             if span.get("span_kind") == "AGENT":
                 try:
                     raw_data = span.get("raw_data", {})
