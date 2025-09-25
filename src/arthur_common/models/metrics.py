@@ -122,20 +122,6 @@ class BaseAggregationParameterSchema(BaseModel):
         description="Description of the parameter.",
     )
 
-    @field_validator("parameter_key")
-    @classmethod
-    def validate_parameter_key_allowed_characters(cls, v: str) -> str:
-        if not v.replace("_", "").isalpha():
-            raise ValueError("Parameter key can only contain letters and underscores.")
-        return v
-
-    @field_validator("friendly_name")
-    @classmethod
-    def validate_friendly_name_allowed_characters(cls, v: str) -> str:
-        if not v.replace("_", "").replace(" ", "").isalpha():
-            raise ValueError("Friendly name can only contain letters and underscores.")
-        return v
-
 
 class MetricsParameterSchema(BaseAggregationParameterSchema):
     # specific to default metrics/Python metrics—not available to custom aggregations
@@ -309,10 +295,3 @@ class ReportedCustomAggregation(BaseReportedAggregation):
     dimension_columns: list[str] = Field(
         description="Name of any dimension columns returned from the SQL query. Max length is 1.",
     )
-
-    @field_validator("dimension_columns")
-    @classmethod
-    def validate_dimension_columns_length(cls, v: list[str]) -> list[str]:
-        if len(v) > 1:
-            raise ValueError("Only one dimension column can be specified.")
-        return v
