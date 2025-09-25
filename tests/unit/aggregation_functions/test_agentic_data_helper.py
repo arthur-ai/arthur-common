@@ -585,6 +585,836 @@ def get_hardcoded_traces_without_metrics() -> List[Dict[str, Any]]:
     ]
 
 
+def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
+    """Generate traces for latency testing that span 5 different 5-minute time buckets.
+
+    Each trace contains spans with their own latency information, where the sum of
+    span latencies is less than or equal to the trace latency.
+    Each bucket contains 5 traces total (1 original + 4 additional).
+
+    Returns:
+        List of trace data dictionaries with proper timing for latency aggregation tests
+    """
+    base_time = datetime(2024, 1, 1, 12, 0, 0, 0)  # Start at 12:00:00
+
+    traces = []
+
+    # Bucket 1: 12:00:00 - 12:04:59 (5 traces)
+    bucket1_start = base_time
+    bucket1_end = base_time + timedelta(minutes=4, seconds=59)
+
+    # Trace 1: 12:00:00 - 12:04:30 (4.5 minutes) - Bucket 1
+    trace1_start = bucket1_start
+    trace1_end = bucket1_start + timedelta(minutes=4, seconds=30)
+    traces.append(
+        {
+            "trace_id": "latency-trace-001",
+            "start_time": trace1_start.isoformat(),
+            "end_time": trace1_end.isoformat(),
+            "root_spans": [
+                json.dumps(
+                    {
+                        "id": "chain-latency-001",
+                        "span_kind": "CHAIN",
+                        "start_time": trace1_start.isoformat(),
+                        "end_time": (
+                            trace1_start + timedelta(minutes=4, seconds=15)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "latency-task-001"}
+                                ),
+                            },
+                        },
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-latency-001",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    trace1_start + timedelta(seconds=10)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace1_start + timedelta(minutes=3, seconds=45)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_1",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-001"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-latency-001",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            trace1_start + timedelta(seconds=30)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace1_start
+                                            + timedelta(minutes=2, seconds=30)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-001"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                    {
+                                        "id": "llm-latency-002",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            trace1_start + timedelta(minutes=3)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace1_start
+                                            + timedelta(minutes=3, seconds=30)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-001"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
+            ],
+        }
+    )
+
+    # Additional traces for Bucket 1
+    for i in range(2, 6):  # traces 2-5 for bucket 1
+        trace_start = bucket1_start + timedelta(
+            seconds=(i - 1) * 45
+        )  # 45 seconds apart
+        trace_end = trace_start + timedelta(minutes=3, seconds=30 + (i - 1) * 10)
+        traces.append(
+            {
+                "trace_id": f"latency-trace-{i:03d}",
+                "start_time": trace_start.isoformat(),
+                "end_time": trace_end.isoformat(),
+                "root_spans": [
+                    json.dumps(
+                        {
+                            "id": f"chain-latency-{i:03d}",
+                            "span_kind": "CHAIN",
+                            "start_time": trace_start.isoformat(),
+                            "end_time": (
+                                trace_start + timedelta(minutes=3, seconds=15)
+                            ).isoformat(),
+                            "raw_data": {
+                                "name": "supervisor",
+                                "attributes": {
+                                    "metadata": json.dumps(
+                                        {"arthur.task": f"latency-task-{i:03d}"}
+                                    ),
+                                },
+                            },
+                            "metric_results": [],
+                            "children": [
+                                {
+                                    "id": f"llm-latency-{i+10:03d}",
+                                    "span_kind": "LLM",
+                                    "start_time": (
+                                        trace_start + timedelta(seconds=15)
+                                    ).isoformat(),
+                                    "end_time": (
+                                        trace_start + timedelta(minutes=2, seconds=30)
+                                    ).isoformat(),
+                                    "raw_data": {
+                                        "name": "ChatOpenAI",
+                                        "attributes": {
+                                            "metadata": json.dumps(
+                                                {"arthur.task": f"latency-task-{i:03d}"}
+                                            ),
+                                        },
+                                    },
+                                    "metric_results": [],
+                                    "children": [],
+                                },
+                            ],
+                        }
+                    ),
+                ],
+            }
+        )
+
+    # Bucket 2: 12:05:00 - 12:09:59 (5 traces)
+    bucket2_start = base_time + timedelta(minutes=5)
+    bucket2_end = base_time + timedelta(minutes=9, seconds=59)
+
+    # Trace 6: 12:05:00 - 12:09:45 (4.75 minutes) - Bucket 2
+    trace6_start = bucket2_start
+    trace6_end = bucket2_start + timedelta(minutes=4, seconds=45)
+    traces.append(
+        {
+            "trace_id": "latency-trace-006",
+            "start_time": trace6_start.isoformat(),
+            "end_time": trace6_end.isoformat(),
+            "root_spans": [
+                json.dumps(
+                    {
+                        "id": "chain-latency-006",
+                        "span_kind": "CHAIN",
+                        "start_time": trace6_start.isoformat(),
+                        "end_time": (
+                            trace6_start + timedelta(minutes=4, seconds=30)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "latency-task-006"}
+                                ),
+                            },
+                        },
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-latency-016",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    trace6_start + timedelta(seconds=15)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace6_start + timedelta(minutes=3, seconds=15)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-006"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [],
+                            },
+                            {
+                                "id": "chain-latency-006-sub",
+                                "span_kind": "CHAIN",
+                                "start_time": (
+                                    trace6_start + timedelta(minutes=3, seconds=30)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace6_start + timedelta(minutes=4, seconds=15)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "sub_chain",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-006"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-latency-017",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            trace6_start
+                                            + timedelta(minutes=3, seconds=45)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace6_start + timedelta(minutes=4)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-006"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
+            ],
+        }
+    )
+
+    # Additional traces for Bucket 2
+    for i in range(7, 11):  # traces 7-10 for bucket 2
+        trace_start = bucket2_start + timedelta(
+            seconds=(i - 6) * 45
+        )  # 45 seconds apart
+        trace_end = trace_start + timedelta(minutes=3, seconds=30 + (i - 6) * 10)
+        traces.append(
+            {
+                "trace_id": f"latency-trace-{i:03d}",
+                "start_time": trace_start.isoformat(),
+                "end_time": trace_end.isoformat(),
+                "root_spans": [
+                    json.dumps(
+                        {
+                            "id": f"chain-latency-{i:03d}",
+                            "span_kind": "CHAIN",
+                            "start_time": trace_start.isoformat(),
+                            "end_time": (
+                                trace_start + timedelta(minutes=3, seconds=15)
+                            ).isoformat(),
+                            "raw_data": {
+                                "name": "supervisor",
+                                "attributes": {
+                                    "metadata": json.dumps(
+                                        {"arthur.task": f"latency-task-{i:03d}"}
+                                    ),
+                                },
+                            },
+                            "metric_results": [],
+                            "children": [
+                                {
+                                    "id": f"llm-latency-{i+15:03d}",
+                                    "span_kind": "LLM",
+                                    "start_time": (
+                                        trace_start + timedelta(seconds=15)
+                                    ).isoformat(),
+                                    "end_time": (
+                                        trace_start + timedelta(minutes=2, seconds=30)
+                                    ).isoformat(),
+                                    "raw_data": {
+                                        "name": "ChatOpenAI",
+                                        "attributes": {
+                                            "metadata": json.dumps(
+                                                {"arthur.task": f"latency-task-{i:03d}"}
+                                            ),
+                                        },
+                                    },
+                                    "metric_results": [],
+                                    "children": [],
+                                },
+                            ],
+                        }
+                    ),
+                ],
+            }
+        )
+
+    # Bucket 3: 12:10:00 - 12:14:59 (5 traces)
+    bucket3_start = base_time + timedelta(minutes=10)
+    bucket3_end = base_time + timedelta(minutes=14, seconds=59)
+
+    # Trace 11: 12:10:00 - 12:14:20 (4.33 minutes) - Bucket 3
+    trace11_start = bucket3_start
+    trace11_end = bucket3_start + timedelta(minutes=4, seconds=20)
+    traces.append(
+        {
+            "trace_id": "latency-trace-011",
+            "start_time": trace11_start.isoformat(),
+            "end_time": trace11_end.isoformat(),
+            "root_spans": [
+                json.dumps(
+                    {
+                        "id": "agent-latency-011",
+                        "span_kind": "AGENT",
+                        "start_time": trace11_start.isoformat(),
+                        "end_time": (
+                            trace11_start + timedelta(minutes=4, seconds=5)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "agent_2",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "latency-task-011"}
+                                ),
+                            },
+                        },
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "llm-latency-021",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    trace11_start + timedelta(seconds=20)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace11_start + timedelta(minutes=2, seconds=40)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-011"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [],
+                            },
+                            {
+                                "id": "llm-latency-022",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    trace11_start + timedelta(minutes=3)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace11_start + timedelta(minutes=3, seconds=50)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-011"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
+            ],
+        }
+    )
+
+    # Additional traces for Bucket 3
+    for i in range(12, 16):  # traces 12-15 for bucket 3
+        trace_start = bucket3_start + timedelta(
+            seconds=(i - 11) * 45
+        )  # 45 seconds apart
+        trace_end = trace_start + timedelta(minutes=3, seconds=30 + (i - 11) * 10)
+        traces.append(
+            {
+                "trace_id": f"latency-trace-{i:03d}",
+                "start_time": trace_start.isoformat(),
+                "end_time": trace_end.isoformat(),
+                "root_spans": [
+                    json.dumps(
+                        {
+                            "id": f"agent-latency-{i:03d}",
+                            "span_kind": "AGENT",
+                            "start_time": trace_start.isoformat(),
+                            "end_time": (
+                                trace_start + timedelta(minutes=3, seconds=15)
+                            ).isoformat(),
+                            "raw_data": {
+                                "name": f"agent_{i-10}",
+                                "attributes": {
+                                    "metadata": json.dumps(
+                                        {"arthur.task": f"latency-task-{i:03d}"}
+                                    ),
+                                },
+                            },
+                            "metric_results": [],
+                            "children": [
+                                {
+                                    "id": f"llm-latency-{i+20:03d}",
+                                    "span_kind": "LLM",
+                                    "start_time": (
+                                        trace_start + timedelta(seconds=15)
+                                    ).isoformat(),
+                                    "end_time": (
+                                        trace_start + timedelta(minutes=2, seconds=30)
+                                    ).isoformat(),
+                                    "raw_data": {
+                                        "name": "ChatOpenAI",
+                                        "attributes": {
+                                            "metadata": json.dumps(
+                                                {"arthur.task": f"latency-task-{i:03d}"}
+                                            ),
+                                        },
+                                    },
+                                    "metric_results": [],
+                                    "children": [],
+                                },
+                            ],
+                        }
+                    ),
+                ],
+            }
+        )
+
+    # Bucket 4: 12:15:00 - 12:19:59 (5 traces)
+    bucket4_start = base_time + timedelta(minutes=15)
+    bucket4_end = base_time + timedelta(minutes=19, seconds=59)
+
+    # Trace 16: 12:15:00 - 12:19:30 (4.5 minutes) - Bucket 4
+    trace16_start = bucket4_start
+    trace16_end = bucket4_start + timedelta(minutes=4, seconds=30)
+    traces.append(
+        {
+            "trace_id": "latency-trace-016",
+            "start_time": trace16_start.isoformat(),
+            "end_time": trace16_end.isoformat(),
+            "root_spans": [
+                json.dumps(
+                    {
+                        "id": "chain-latency-016",
+                        "span_kind": "CHAIN",
+                        "start_time": trace16_start.isoformat(),
+                        "end_time": (
+                            trace16_start + timedelta(minutes=4, seconds=15)
+                        ).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "latency-task-016"}
+                                ),
+                            },
+                        },
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-latency-016",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    trace16_start + timedelta(seconds=5)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace16_start + timedelta(minutes=3, seconds=30)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_3",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-016"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-latency-026",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            trace16_start + timedelta(seconds=25)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace16_start
+                                            + timedelta(minutes=2, seconds=10)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-016"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                            {
+                                "id": "llm-latency-027",
+                                "span_kind": "LLM",
+                                "start_time": (
+                                    trace16_start + timedelta(minutes=3, seconds=45)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace16_start + timedelta(minutes=4, seconds=5)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "ChatOpenAI",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-016"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [],
+                            },
+                        ],
+                    }
+                ),
+            ],
+        }
+    )
+
+    # Additional traces for Bucket 4
+    for i in range(17, 21):  # traces 17-20 for bucket 4
+        trace_start = bucket4_start + timedelta(
+            seconds=(i - 16) * 45
+        )  # 45 seconds apart
+        trace_end = trace_start + timedelta(minutes=3, seconds=30 + (i - 16) * 10)
+        traces.append(
+            {
+                "trace_id": f"latency-trace-{i:03d}",
+                "start_time": trace_start.isoformat(),
+                "end_time": trace_end.isoformat(),
+                "root_spans": [
+                    json.dumps(
+                        {
+                            "id": f"chain-latency-{i:03d}",
+                            "span_kind": "CHAIN",
+                            "start_time": trace_start.isoformat(),
+                            "end_time": (
+                                trace_start + timedelta(minutes=3, seconds=15)
+                            ).isoformat(),
+                            "raw_data": {
+                                "name": "supervisor",
+                                "attributes": {
+                                    "metadata": json.dumps(
+                                        {"arthur.task": f"latency-task-{i:03d}"}
+                                    ),
+                                },
+                            },
+                            "metric_results": [],
+                            "children": [
+                                {
+                                    "id": f"llm-latency-{i+25:03d}",
+                                    "span_kind": "LLM",
+                                    "start_time": (
+                                        trace_start + timedelta(seconds=15)
+                                    ).isoformat(),
+                                    "end_time": (
+                                        trace_start + timedelta(minutes=2, seconds=30)
+                                    ).isoformat(),
+                                    "raw_data": {
+                                        "name": "ChatOpenAI",
+                                        "attributes": {
+                                            "metadata": json.dumps(
+                                                {"arthur.task": f"latency-task-{i:03d}"}
+                                            ),
+                                        },
+                                    },
+                                    "metric_results": [],
+                                    "children": [],
+                                },
+                            ],
+                        }
+                    ),
+                ],
+            }
+        )
+
+    # Bucket 5: 12:20:00 - 12:24:59 (5 traces)
+    bucket5_start = base_time + timedelta(minutes=20)
+    bucket5_end = base_time + timedelta(minutes=24, seconds=59)
+
+    # Trace 21: 12:20:00 - 12:24:15 (4.25 minutes) - Bucket 5
+    trace21_start = bucket5_start
+    trace21_end = bucket5_start + timedelta(minutes=4, seconds=15)
+    traces.append(
+        {
+            "trace_id": "latency-trace-021",
+            "start_time": trace21_start.isoformat(),
+            "end_time": trace21_end.isoformat(),
+            "root_spans": [
+                json.dumps(
+                    {
+                        "id": "chain-latency-021",
+                        "span_kind": "CHAIN",
+                        "start_time": trace21_start.isoformat(),
+                        "end_time": (trace21_start + timedelta(minutes=4)).isoformat(),
+                        "raw_data": {
+                            "name": "supervisor",
+                            "attributes": {
+                                "metadata": json.dumps(
+                                    {"arthur.task": "latency-task-021"}
+                                ),
+                            },
+                        },
+                        "metric_results": [],
+                        "children": [
+                            {
+                                "id": "agent-latency-021",
+                                "span_kind": "AGENT",
+                                "start_time": (
+                                    trace21_start + timedelta(seconds=8)
+                                ).isoformat(),
+                                "end_time": (
+                                    trace21_start + timedelta(minutes=3, seconds=40)
+                                ).isoformat(),
+                                "raw_data": {
+                                    "name": "agent_4",
+                                    "attributes": {
+                                        "metadata": json.dumps(
+                                            {"arthur.task": "latency-task-021"}
+                                        ),
+                                    },
+                                },
+                                "metric_results": [],
+                                "children": [
+                                    {
+                                        "id": "llm-latency-031",
+                                        "span_kind": "LLM",
+                                        "start_time": (
+                                            trace21_start + timedelta(seconds=30)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace21_start
+                                            + timedelta(minutes=2, seconds=15)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "ChatOpenAI",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-021"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [],
+                                    },
+                                    {
+                                        "id": "chain-latency-021-sub",
+                                        "span_kind": "CHAIN",
+                                        "start_time": (
+                                            trace21_start
+                                            + timedelta(minutes=2, seconds=30)
+                                        ).isoformat(),
+                                        "end_time": (
+                                            trace21_start
+                                            + timedelta(minutes=3, seconds=25)
+                                        ).isoformat(),
+                                        "raw_data": {
+                                            "name": "sub_chain",
+                                            "attributes": {
+                                                "metadata": json.dumps(
+                                                    {"arthur.task": "latency-task-021"}
+                                                ),
+                                            },
+                                        },
+                                        "metric_results": [],
+                                        "children": [
+                                            {
+                                                "id": "llm-latency-032",
+                                                "span_kind": "LLM",
+                                                "start_time": (
+                                                    trace21_start
+                                                    + timedelta(minutes=2, seconds=45)
+                                                ).isoformat(),
+                                                "end_time": (
+                                                    trace21_start
+                                                    + timedelta(minutes=3, seconds=10)
+                                                ).isoformat(),
+                                                "raw_data": {
+                                                    "name": "ChatOpenAI",
+                                                    "attributes": {
+                                                        "metadata": json.dumps(
+                                                            {
+                                                                "arthur.task": "latency-task-021"
+                                                            }
+                                                        ),
+                                                    },
+                                                },
+                                                "metric_results": [],
+                                                "children": [],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ),
+            ],
+        }
+    )
+
+    # Additional traces for Bucket 5
+    for i in range(22, 26):  # traces 22-25 for bucket 5
+        trace_start = bucket5_start + timedelta(
+            seconds=(i - 21) * 45
+        )  # 45 seconds apart
+        trace_end = trace_start + timedelta(minutes=3, seconds=30 + (i - 21) * 10)
+        traces.append(
+            {
+                "trace_id": f"latency-trace-{i:03d}",
+                "start_time": trace_start.isoformat(),
+                "end_time": trace_end.isoformat(),
+                "root_spans": [
+                    json.dumps(
+                        {
+                            "id": f"chain-latency-{i:03d}",
+                            "span_kind": "CHAIN",
+                            "start_time": trace_start.isoformat(),
+                            "end_time": (
+                                trace_start + timedelta(minutes=3, seconds=15)
+                            ).isoformat(),
+                            "raw_data": {
+                                "name": "supervisor",
+                                "attributes": {
+                                    "metadata": json.dumps(
+                                        {"arthur.task": f"latency-task-{i:03d}"}
+                                    ),
+                                },
+                            },
+                            "metric_results": [],
+                            "children": [
+                                {
+                                    "id": f"agent-latency-{i:03d}",
+                                    "span_kind": "AGENT",
+                                    "start_time": (
+                                        trace_start + timedelta(seconds=10)
+                                    ).isoformat(),
+                                    "end_time": (
+                                        trace_start + timedelta(minutes=2, seconds=45)
+                                    ).isoformat(),
+                                    "raw_data": {
+                                        "name": f"agent_{i-15}",
+                                        "attributes": {
+                                            "metadata": json.dumps(
+                                                {"arthur.task": f"latency-task-{i:03d}"}
+                                            ),
+                                        },
+                                    },
+                                    "metric_results": [],
+                                    "children": [
+                                        {
+                                            "id": f"llm-latency-{i+30:03d}",
+                                            "span_kind": "LLM",
+                                            "start_time": (
+                                                trace_start + timedelta(seconds=25)
+                                            ).isoformat(),
+                                            "end_time": (
+                                                trace_start
+                                                + timedelta(minutes=2, seconds=15)
+                                            ).isoformat(),
+                                            "raw_data": {
+                                                "name": "ChatOpenAI",
+                                                "attributes": {
+                                                    "metadata": json.dumps(
+                                                        {
+                                                            "arthur.task": f"latency-task-{i:03d}"
+                                                        }
+                                                    ),
+                                                },
+                                            },
+                                            "metric_results": [],
+                                            "children": [],
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ),
+                ],
+            }
+        )
+
+    return traces
+
+
 def create_duckdb_test_data(traces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Convert trace data to DuckDB-compatible format."""
     # Convert traces to the format expected by the aggregations

@@ -10,7 +10,11 @@ from arthur_common.models.metrics import DatasetReference
 from arthur_common.tools.duckdb_data_loader import DuckDBOperator
 from arthur_common.tools.schema_inferer import SchemaInferer
 
-from .test_agentic_data_helper import create_duckdb_test_data, make_agentic_test_data
+from .test_agentic_data_helper import (
+    create_duckdb_test_data,
+    get_traces_for_latency_tests,
+    make_agentic_test_data,
+)
 
 
 def _get_dataset(name: str) -> pd.DataFrame | list[dict]:
@@ -341,6 +345,57 @@ def get_agentic_dataset_conn_no_metrics() -> (
         num_traces=2,
         include_metrics=False,  # Hardcoded traces without metrics
     )
+
+    # Convert to DuckDB format
+    test_data = create_duckdb_test_data(traces)
+
+    # Insert the test data
+    for trace in test_data:
+        conn.sql(
+            f"""
+            INSERT INTO {dataset_ref.dataset_table_name}
+            VALUES (
+                '{trace['trace_id']}',
+                '{trace['start_time']}',
+                '{trace['end_time']}',
+                '{trace['root_spans']}'
+            )
+            """,
+        )
+
+    return conn, dataset_ref
+
+
+@pytest.fixture
+def get_agentic_dataset_conn_for_latency_tests() -> (
+    tuple[DuckDBPyConnection, DatasetReference]
+):
+    """Create a test database with agentic trace data for latency tests.
+
+    Returns:
+        tuple: (DuckDB connection, DatasetReference)
+    """
+    conn = duckdb.connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="agentic_dataset_for_latency_tests",
+        dataset_table_name="agentic_test_data_for_latency_tests",
+        dataset_id="test-agentic-dataset-for-latency-tests",
+    )
+
+    # Create table for agentic trace data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """,
+    )
+
+    # Generate test traces for latency tests
+    traces = get_traces_for_latency_tests()
 
     # Convert to DuckDB format
     test_data = create_duckdb_test_data(traces)

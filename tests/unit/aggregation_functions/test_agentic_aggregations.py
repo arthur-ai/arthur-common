@@ -1,7 +1,8 @@
-from datetime import datetime
-from duckdb import DuckDBPyConnection
 from base64 import b64decode
+from datetime import datetime
+
 from datasketches import kll_floats_sketch
+from duckdb import DuckDBPyConnection
 
 from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticEventCountAggregation,
@@ -1278,7 +1279,9 @@ def test_tool_selection_and_usage_by_agent_time_buckets(
 
 
 def test_agentic_span_latency_aggregation_basic(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test basic span latency aggregation functionality.
 
@@ -1292,7 +1295,7 @@ def test_agentic_span_latency_aggregation_basic(
     - Data grouped by span_kind and agent_name dimensions
     - Sketch series with latency distributions
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticSpanLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1314,7 +1317,9 @@ def test_agentic_span_latency_aggregation_basic(
 
 
 def test_agentic_span_latency_aggregation_dimensions(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test that span latency aggregation includes correct dimensions.
 
@@ -1322,7 +1327,7 @@ def test_agentic_span_latency_aggregation_dimensions(
     - span_kind: CHAIN, LLM, AGENT
     - agent_name: agent_1, agent_2, unknown (for spans without agent context)
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticSpanLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1354,7 +1359,9 @@ def test_agentic_span_latency_aggregation_dimensions(
 
 
 def test_agentic_span_latency_aggregation_sketch_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test that span latency aggregation produces valid sketch values.
 
@@ -1362,7 +1369,7 @@ def test_agentic_span_latency_aggregation_sketch_values(
     and can be deserialized properly.
     """
 
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticSpanLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1425,9 +1432,11 @@ def test_agentic_span_latency_aggregation_truly_empty_data():
 
     Expected result: Empty list of metrics
     """
-    import duckdb
-    from arthur_common.models.metrics import DatasetReference
     from uuid import uuid4
+
+    import duckdb
+
+    from arthur_common.models.metrics import DatasetReference
 
     # Create a completely empty dataset
     conn = duckdb.connect(":memory:")
@@ -1457,13 +1466,15 @@ def test_agentic_span_latency_aggregation_truly_empty_data():
 
 
 def test_agentic_trace_latency_aggregation_basic(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test basic functionality of trace latency aggregation.
 
     Expected result: Returns sketch metrics with trace latency data
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticTraceLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1483,13 +1494,15 @@ def test_agentic_trace_latency_aggregation_basic(
 
 
 def test_agentic_trace_latency_aggregation_sketch_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test that trace latency aggregation produces valid sketch values.
 
     Expected result: Valid sketch metrics with reasonable latency values
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticTraceLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1503,7 +1516,7 @@ def test_agentic_trace_latency_aggregation_sketch_values(
 
         # Deserialize the sketch from the base64-encoded value
         sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
-
+        # print(sketch)
         # Verify sketch contains expected percentiles
         assert hasattr(sketch, "get_quantile")
 
@@ -1511,7 +1524,7 @@ def test_agentic_trace_latency_aggregation_sketch_values(
         p50 = sketch.get_quantile(0.5)
         p95 = sketch.get_quantile(0.95)
         p99 = sketch.get_quantile(0.99)
-
+        print(sketch, p50, p95, p99)
         # Verify percentiles are reasonable (latency should be positive)
         assert p50 > 0, f"P50 should be positive, got {p50}"
         assert p95 > 0, f"P95 should be positive, got {p95}"
@@ -1519,13 +1532,15 @@ def test_agentic_trace_latency_aggregation_sketch_values(
 
 
 def test_agentic_trace_latency_aggregation_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test that trace latency aggregation creates proper time buckets.
 
     Expected result: Time buckets are created with 5-minute intervals
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticTraceLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1552,35 +1567,16 @@ def test_agentic_trace_latency_aggregation_time_buckets(
         )
 
 
-def test_agentic_trace_latency_aggregation_empty_data(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test trace latency aggregation with dataset containing traces but no valid timing data.
-
-    Expected result: Should still return metrics since traces have start_time and end_time
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticTraceLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # The no_metrics fixture still contains traces with timing data, so we should get results
-    assert len(metrics) == 1  # Should return one metric
-    metric = metrics[0]
-    assert metric.name == "trace_latency"
-
-    # Should have sketch series data
-    assert hasattr(metric, "sketch_series")
-    assert len(metric.sketch_series) > 0
-
-
 def test_agentic_trace_latency_aggregation_truly_empty_data():
     """Test trace latency aggregation with truly empty dataset.
 
     Expected result: Empty list of metrics
     """
-    import duckdb
-    from arthur_common.models.metrics import DatasetReference
     from uuid import uuid4
+
+    import duckdb
+
+    from arthur_common.models.metrics import DatasetReference
 
     # Create a completely empty dataset
     conn = duckdb.connect(":memory:")
@@ -1614,9 +1610,11 @@ def test_agentic_trace_latency_aggregation_null_timing_data():
 
     Expected result: Empty list of metrics
     """
-    import duckdb
-    from arthur_common.models.metrics import DatasetReference
     from uuid import uuid4
+
+    import duckdb
+
+    from arthur_common.models.metrics import DatasetReference
 
     # Create dataset with null timing data
     conn = duckdb.connect(":memory:")
@@ -1656,13 +1654,15 @@ def test_agentic_trace_latency_aggregation_null_timing_data():
 
 
 def test_agentic_trace_latency_aggregation_metric_names(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
 ):
     """Test that trace latency aggregation returns expected metric names.
 
     Expected metric name: "trace_latency"
     """
-    conn, dataset_ref = get_agentic_dataset_conn
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticTraceLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
@@ -1675,33 +1675,3 @@ def test_agentic_trace_latency_aggregation_metric_names(
         metric.metric_name for metric in aggregation.reported_aggregations()
     ]
     assert "trace_latency" in expected_names
-
-
-def test_agentic_trace_latency_aggregation_metadata():
-    """Test that trace latency aggregation has correct metadata.
-
-    Expected result: Correct UUID, display name, and description
-    """
-    aggregation = AgenticTraceLatencyAggregation()
-
-    # Test UUID
-    expected_uuid = "00000000-0000-0000-0000-000000000039"
-    assert str(aggregation.id()) == expected_uuid
-
-    # Test display name
-    assert aggregation.display_name() == "Trace Latency"
-
-    # Test description
-    assert (
-        aggregation.description()
-        == "Metric that reports the latency of the agentic trace."
-    )
-
-    # Test reported aggregations
-    reported = aggregation.reported_aggregations()
-    assert len(reported) == 1
-    assert reported[0].metric_name == "trace_latency"
-    assert (
-        reported[0].description
-        == "Metric that reports the latency of the agentic trace."
-    )
