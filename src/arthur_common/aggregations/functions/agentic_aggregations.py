@@ -45,7 +45,7 @@ def root_span_in_time_buckets(
 
 def span_parser(span_to_parse: str | dict[str, Any]) -> dict[str, Any]:
     if isinstance(span_to_parse, str):
-        return json.loads(span_to_parse)
+        return json.loads(span_to_parse)  # type: ignore[no-any-return]
 
     return span_to_parse
 
@@ -59,7 +59,7 @@ def extract_agent_name_from_span(span: dict[str, Any]) -> str | None:
         # Try to get agent name from the span's name field
         agent_name = raw_data.get("name", "unknown")
         if agent_name != "unknown":
-            return agent_name
+            return str(agent_name)
     except (json.JSONDecodeError, KeyError, TypeError):
         logger.error(
             f"Error parsing attributes from span (span_id: {span.get('span_id')}) in trace {span.get('trace_id')}",
