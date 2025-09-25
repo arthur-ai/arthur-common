@@ -20,8 +20,10 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-
-from arthur_common.tools.duckdb_data_loader import unescape_identifier, escape_str_literal
+from arthur_common.tools.duckdb_data_loader import (
+    escape_str_literal,
+    unescape_identifier,
+)
 
 
 class ConfusionMatrixAggregationFunction(NumericAggregationFunction):
@@ -97,7 +99,9 @@ class ConfusionMatrixAggregationFunction(NumericAggregationFunction):
                 ORDER BY ts
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        unescaped_prediction_col_name = escape_str_literal(unescape_identifier(prediction_col))
+        unescaped_prediction_col_name = escape_str_literal(
+            unescape_identifier(prediction_col)
+        )
 
         # build query components with segmentation columns
         first_subquery_select_cols = [
@@ -131,7 +135,9 @@ class ConfusionMatrixAggregationFunction(NumericAggregationFunction):
 
         results = ddb_conn.sql(confusion_matrix_query).df()
 
-        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
+        unescaped_segmentation_cols = [
+            unescape_identifier(seg_col) for seg_col in segmentation_cols
+        ]
         tp = self.group_query_results_to_numeric_metrics(
             results,
             "true_positive_count",

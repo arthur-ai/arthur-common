@@ -18,8 +18,10 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-
-from arthur_common.tools.duckdb_data_loader import unescape_identifier, escape_str_literal
+from arthur_common.tools.duckdb_data_loader import (
+    escape_str_literal,
+    unescape_identifier,
+)
 
 
 class NumericSketchAggregationFunction(SketchAggregationFunction):
@@ -121,7 +123,9 @@ class NumericSketchAggregationFunction(SketchAggregationFunction):
                 """
 
         results = ddb_conn.sql(data_query).df()
-        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
+        unescaped_segmentation_cols = [
+            unescape_identifier(seg_col) for seg_col in segmentation_cols
+        ]
 
         series = self.group_query_results_to_sketch_metrics(
             results,

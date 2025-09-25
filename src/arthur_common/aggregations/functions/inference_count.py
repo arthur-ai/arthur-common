@@ -102,7 +102,9 @@ class InferenceCountAggregationFunction(NumericAggregationFunction):
         """
 
         results = ddb_conn.sql(count_query).df()
-        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
+        unescaped_segmentation_cols = [
+            unescape_identifier(seg_col) for seg_col in segmentation_cols
+        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
