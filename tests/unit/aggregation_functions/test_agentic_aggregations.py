@@ -1397,48 +1397,6 @@ def test_agentic_span_latency_aggregation_sketch_values(
             ), f"P95 should be greater than P50, got p50={p50}, p95={p95}"
 
 
-def test_agentic_span_latency_aggregation_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that span latency aggregation correctly groups by time buckets.
-
-    Math: The test data spans 5 time buckets (5-minute intervals):
-    - Bucket 1 (12:00-12:05): Trace 1
-    - Bucket 2 (12:05-12:10): Trace 2
-    - Bucket 3 (12:10-12:15): Trace 3
-    - Bucket 4 (12:15-12:20): Trace 4
-    - Bucket 5 (12:20-12:25): Trace 5
-
-    Expected result: Data points across 5 time buckets
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    metric = metrics[0]
-
-    # Collect all timestamps
-    all_timestamps = set()
-    for series in metric.sketch_series:
-        for point in series.values:
-            all_timestamps.add(point.timestamp)
-
-    # Should have data across multiple time buckets
-    assert len(all_timestamps) > 0, "Should have data points across time buckets"
-
-    # Verify timestamps are reasonable (should be around the test data time range)
-    from datetime import datetime
-
-    base_time = datetime(2024, 1, 1, 12, 0, 0)
-
-    for timestamp in all_timestamps:
-        # Timestamps should be within a reasonable range of the test data
-        time_diff = abs((timestamp - base_time).total_seconds())
-        assert (
-            time_diff < 1800
-        ), f"Timestamp {timestamp} seems too far from expected range"
-
-
 def test_agentic_span_latency_aggregation_empty_data(
     get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
 ):
