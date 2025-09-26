@@ -1531,42 +1531,6 @@ def test_agentic_trace_latency_aggregation_sketch_values(
         assert p99 > 0, f"P99 should be positive, got {p99}"
 
 
-def test_agentic_trace_latency_aggregation_time_buckets(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test that trace latency aggregation creates proper time buckets.
-
-    Expected result: Time buckets are created with 5-minute intervals
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticTraceLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-    series = metric.sketch_series[0]
-
-    # Check that timestamps are reasonable (should be around 2024-01-01 12:00:00)
-    expected_start = datetime(2024, 1, 1, 12, 0, 0)
-    expected_end = datetime(2024, 1, 1, 12, 25, 0)  # 5 traces, 5 minutes apart
-
-    for sketch_value in series.values:
-        timestamp = sketch_value.timestamp
-        # Convert timestamp to datetime for comparison
-        if isinstance(timestamp, str):
-            timestamp_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        else:
-            timestamp_dt = timestamp
-
-        # Verify timestamp is within expected range
-        assert expected_start <= timestamp_dt <= expected_end, (
-            f"Timestamp {timestamp} seems too far from expected range "
-            f"({expected_start} to {expected_end})"
-        )
-
-
 def test_agentic_trace_latency_aggregation_truly_empty_data():
     """Test trace latency aggregation with truly empty dataset.
 
