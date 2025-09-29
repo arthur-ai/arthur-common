@@ -892,7 +892,7 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that reports the latency of the agentic trace."
+        return "Aggregation that reports the latency of the agentic trace in ms."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
@@ -953,7 +953,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that reports the latency of the agentic span."
+        return "Aggregation that reports the latency of the agentic span in ms."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
