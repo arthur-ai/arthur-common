@@ -185,6 +185,10 @@ class ValidationResult(BaseModel):
         description="The user ID this prompt belongs to",
         default=None,
     )
+    model_name: Optional[str] = Field(
+        description="The model name and version used for this validation (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
+    )
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -215,6 +219,10 @@ class ExternalInferencePrompt(BaseModel):
     message: str
     prompt_rule_results: List[ExternalRuleResult]
     tokens: int | None = None
+    model_name: Optional[str] = Field(
+        description="The model name and version used for this prompt (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
+    )
 
 
 class ExternalInferenceResponse(BaseModel):
@@ -227,6 +235,10 @@ class ExternalInferenceResponse(BaseModel):
     context: Optional[str] = None
     response_rule_results: List[ExternalRuleResult]
     tokens: int | None = None
+    model_name: Optional[str] = Field(
+        description="The model name and version used for this response (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
+    )
 
 
 class InferenceFeedbackResponse(BaseModel):
@@ -297,6 +309,10 @@ class ExternalInference(BaseModel):
     inference_response: Optional[ExternalInferenceResponse] = None
     inference_feedback: List[InferenceFeedbackResponse]
     user_id: str | None = None
+    model_name: Optional[str] = Field(
+        description="The model name and version used for this inference (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
+    )
 
 
 class QueryInferencesResponse(BaseModel):
@@ -498,6 +514,10 @@ class ChatResponse(BaseModel):
     )
     response_results: List[ExternalRuleResult] = Field(
         description="list of rule results for the llm response",
+    )
+    model_name: Optional[str] = Field(
+        description="The model name and version used for this chat response (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
     )
 
 

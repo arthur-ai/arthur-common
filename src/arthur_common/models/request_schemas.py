@@ -346,12 +346,20 @@ class PromptValidationRequest(BaseModel):
         description="The user ID this prompt belongs to",
         default=None,
     )
+    model_name: Optional[str] = Field(
+        description="The model name and version being used for this prompt (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
+        default=None,
+    )
 
 
 class ResponseValidationRequest(BaseModel):
     response: str = Field(description="LLM Response to be validated by GenAI Engine")
     context: Optional[str] = Field(
         description="Optional data provided as context for the validation.",
+        default=None,
+    )
+    model_name: Optional[str] = Field(
+        description="The model name and version being used for this response (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
         default=None,
     )
     # tokens: Optional[List[str]] = Field(description="optional, not used currently")
