@@ -1324,7 +1324,7 @@ def test_agentic_span_latency_aggregation_dimensions(
     """Test that span latency aggregation includes correct dimensions.
 
     Expected dimensions:
-    - span_kind: CHAIN, LLM, AGENT
+    - span_kind: TOOL, CHAIN, LLM, RETRIEVER, EMBEDDING, RERANKER, UNKNOWN, GUARDRAIL, EVALUATOR, AGENT
     - agent_name: agent_1, agent_2, unknown (for spans without agent context)
     """
     conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
@@ -1347,9 +1347,20 @@ def test_agentic_span_latency_aggregation_dimensions(
         agent_names.add(dims["agent_name"])
 
     # Verify we have the expected span kinds
-    expected_span_kinds = {"CHAIN", "LLM", "AGENT"}
-    assert span_kinds.issuperset(
-        expected_span_kinds
+    expected_span_kinds = {
+        "TOOL",
+        "CHAIN",
+        "LLM",
+        "RETRIEVER",
+        "EMBEDDING",
+        "RERANKER",
+        "UNKNOWN",
+        "GUARDRAIL",
+        "EVALUATOR",
+        "AGENT",
+    }
+    assert (
+        span_kinds == expected_span_kinds
     ), f"Expected span kinds {expected_span_kinds}, got {span_kinds}"
 
     # Verify we have agent names (should include at least agent_1, agent_2, and unknown)
@@ -1363,11 +1374,7 @@ def test_agentic_span_latency_aggregation_sketch_values(
         DuckDBPyConnection, DatasetReference
     ],
 ):
-    """Test that span latency aggregation produces valid sketch values.
-
-    This test verifies that the sketches contain reasonable latency values
-    and can be deserialized properly.
-    """
+    """Test that span latency aggregation produces valid sketch values."""
 
     conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
     aggregation = AgenticSpanLatencyAggregation()
@@ -1375,33 +1382,85 @@ def test_agentic_span_latency_aggregation_sketch_values(
 
     metric = metrics[0]
 
-    # Test that sketches can be deserialized and contain reasonable values
+    # Group sketches by span_kind for specific testing
+    sketches_by_span_kind = {}
+
     for series in metric.sketch_series:
+        dims = {d.name: d.value for d in series.dimensions}
+        span_kind = dims["span_kind"]
 
         for point in series.values:
-            # Deserialize the sketch
             sketch = kll_floats_sketch.deserialize(b64decode(point.value))
+            if span_kind not in sketches_by_span_kind:
+                sketches_by_span_kind[span_kind] = []
+            sketches_by_span_kind[span_kind].append(sketch)
 
-            # Verify sketch has data
-            assert sketch.n > 0, "Sketch should contain data points"
+    # Test exact latency values for each span kind
+    expected_values = {
+        "CHAIN": [255000, 45000, 195000, 240000, 55000],  # 5 different values
+        "TOOL": [195000],  # 1 value
+        "LLM": [
+            120000,
+            30000,
+            135000,
+            180000,
+            105000,
+            20000,
+            140000,
+            50000,
+            25000,
+            110000,
+        ],  # 10 different values
+        "RETRIEVER": [215000, 15000],  # 2 different values
+        "UNKNOWN": [270000],  # 1 value
+        "EMBEDDING": [245000],  # 1 value
+        "RERANKER": [140000],  # 1 value
+        "GUARDRAIL": [50000],  # 1 value
+        "AGENT": [195000, 205000, 212000, 155000],  # 4 different values
+        "EVALUATOR": [135000],  # 1 value
+    }
 
-            # Verify latency values are reasonable (positive and not too large)
-            min_val = sketch.get_min_value()
-            max_val = sketch.get_max_value()
+    for span_kind, expected_latencies in expected_values.items():
+        if span_kind in sketches_by_span_kind:
+            for sketch in sketches_by_span_kind[span_kind]:
+                # Verify sketch has data
+                assert sketch.n > 0, f"{span_kind} sketch should contain data points"
 
-            assert min_val > 0, f"Minimum latency should be positive, got {min_val}"
-            assert (
-                max_val < 300000
-            ), f"Maximum latency should be reasonable (< 5 minutes), got {max_val}"
+                # Test exact latency values
+                min_val = sketch.get_min_value()
+                max_val = sketch.get_max_value()
 
-            # Test percentile calculations
-            p50 = sketch.get_quantile(0.5)
-            p95 = sketch.get_quantile(0.95)
+                assert (
+                    min_val in expected_latencies
+                ), f"{span_kind} min latency {min_val}ms not in expected {expected_latencies}ms"
+                assert (
+                    max_val in expected_latencies
+                ), f"{span_kind} max latency {max_val}ms not in expected {expected_latencies}ms"
 
-            assert p50 > 0, f"P50 latency should be positive, got {p50}"
-            assert (
-                p95 >= p50
-            ), f"P95 should be greater than P50, got p50={p50}, p95={p95}"
+                # For single-value spans, min and max should be the same
+                if len(expected_latencies) == 1:
+                    assert (
+                        min_val == max_val
+                    ), f"{span_kind} should have single latency value, got min={min_val}ms, max={max_val}ms"
+                    assert (
+                        min_val == expected_latencies[0]
+                    ), f"{span_kind} latency should be exactly {expected_latencies[0]}ms, got {min_val}ms"
+
+    # Test overall distribution properties
+    all_sketches = []
+    for sketches in sketches_by_span_kind.values():
+        all_sketches.extend(sketches)
+
+    if all_sketches:
+        # Test that we have reasonable overall latency distribution
+        all_min = min(sketch.get_min_value() for sketch in all_sketches)
+        all_max = max(sketch.get_max_value() for sketch in all_sketches)
+        assert (
+            all_min == 15000
+        ), f"Overall minimum latency should be 15000ms, got {all_min}"
+        assert (
+            all_max == 270000
+        ), f"Overall maximum latency should be 270000ms, got {all_max}"
 
 
 def test_agentic_span_latency_aggregation_empty_data(
@@ -1526,7 +1585,9 @@ def test_agentic_trace_latency_aggregation_sketch_values(
         p99 = sketch.get_quantile(0.99)
 
         # Verify percentiles are generally correct
-        assert p50 <= p95 and p95 <= p99 , f"P50 should be less than or equal to 95 and P95 should be less than or equal to P99, got {p50}, {p95}, {p99}"
+        assert (
+            p50 <= p95 and p95 <= p99
+        ), f"P50 should be less than or equal to 95 and P95 should be less than or equal to P99, got {p50}, {p95}, {p99}"
 
 
 def test_agentic_trace_latency_aggregation_truly_empty_data():

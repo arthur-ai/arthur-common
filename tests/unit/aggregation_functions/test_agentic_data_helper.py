@@ -632,7 +632,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                         "children": [
                             {
                                 "id": "agent-latency-001",
-                                "span_kind": "AGENT",
+                                "span_kind": "RETRIEVER",
                                 "start_time": (
                                     trace1_start + timedelta(seconds=10)
                                 ).isoformat(),
@@ -715,7 +715,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                     json.dumps(
                         {
                             "id": f"chain-latency-{i:03d}",
-                            "span_kind": "CHAIN",
+                            "span_kind": "TOOL",
                             "start_time": trace_start.isoformat(),
                             "end_time": (
                                 trace_start + timedelta(minutes=3, seconds=15)
@@ -773,7 +773,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                 json.dumps(
                     {
                         "id": "chain-latency-006",
-                        "span_kind": "CHAIN",
+                        "span_kind": "UNKNOWN",
                         "start_time": trace6_start.isoformat(),
                         "end_time": (
                             trace6_start + timedelta(minutes=4, seconds=30)
@@ -829,7 +829,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                                 "children": [
                                     {
                                         "id": "llm-latency-017",
-                                        "span_kind": "LLM",
+                                        "span_kind": "RETRIEVER",
                                         "start_time": (
                                             trace6_start
                                             + timedelta(minutes=3, seconds=45)
@@ -930,7 +930,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                 json.dumps(
                     {
                         "id": "agent-latency-011",
-                        "span_kind": "AGENT",
+                        "span_kind": "EMBEDDING",
                         "start_time": trace11_start.isoformat(),
                         "end_time": (
                             trace11_start + timedelta(minutes=4, seconds=5)
@@ -947,7 +947,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                         "children": [
                             {
                                 "id": "llm-latency-021",
-                                "span_kind": "LLM",
+                                "span_kind": "RERANKER",
                                 "start_time": (
                                     trace11_start + timedelta(seconds=20)
                                 ).isoformat(),
@@ -967,7 +967,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                             },
                             {
                                 "id": "llm-latency-022",
-                                "span_kind": "LLM",
+                                "span_kind": "GUARDRAIL",
                                 "start_time": (
                                     trace11_start + timedelta(minutes=3)
                                 ).isoformat(),
@@ -1024,7 +1024,7 @@ def get_traces_for_latency_tests() -> List[Dict[str, Any]]:
                             "children": [
                                 {
                                     "id": f"llm-latency-{i+20:03d}",
-                                    "span_kind": "LLM",
+                                    "span_kind": "EVALUATOR",
                                     "start_time": (
                                         trace_start + timedelta(seconds=15)
                                     ).isoformat(),
