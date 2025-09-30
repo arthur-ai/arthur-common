@@ -1466,10 +1466,11 @@ def test_agentic_span_latency_aggregation_sketch_values(
 def test_agentic_span_latency_aggregation_empty_data(
     get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
 ):
-    """Test span latency aggregation with dataset containing spans but no other metrics.
+    """Test span latency aggregation with dataset containing spans but no evaluation metrics.
 
-    Note: The 'no_metrics' fixture still contains spans with timing data, so this test
-    verifies that the aggregation works with spans that have timing information.
+    Note: The 'no_metrics' fixture contains spans with timing data but no metric_results,
+    so this test verifies that the aggregation works with spans that have timing information
+    but no evaluation metrics.
     """
     conn, dataset_ref = get_agentic_dataset_conn_no_metrics
     aggregation = AgenticSpanLatencyAggregation()
@@ -1635,7 +1636,7 @@ def test_agentic_trace_latency_aggregation_sketch_values(
         all_max = max(sketch.get_max_value() for sketch in all_sketches)
         assert (
             all_min == 220000
-        ), f"Overall minimum latency should be 210000ms, got {all_min}"
+        ), f"Overall minimum latency should be 220000ms, got {all_min}"
         assert (
             all_max == 285000
         ), f"Overall maximum latency should be 285000ms, got {all_max}"
