@@ -1466,7 +1466,7 @@ def test_agentic_span_latency_aggregation_sketch_values(
 def test_agentic_span_latency_aggregation_empty_data(
     get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
 ):
-    """Test span latency aggregation with dataset containing spans but no valid timing data.
+    """Test span latency aggregation with dataset containing spans but no other metrics.
 
     Note: The 'no_metrics' fixture still contains spans with timing data, so this test
     verifies that the aggregation works with spans that have timing information.
