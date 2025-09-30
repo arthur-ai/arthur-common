@@ -1,12 +1,18 @@
-from duckdb import DuckDBPyConnection
+from base64 import b64decode
+from uuid import uuid4
+
+from datasketches import kll_floats_sketch
+from duckdb import DuckDBPyConnection, connect
 
 from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticEventCountAggregation,
     AgenticLLMCallCountAggregation,
     AgenticMetricsOverTimeAggregation,
     AgenticRelevancePassFailCountAggregation,
+    AgenticSpanLatencyAggregation,
     AgenticToolPassFailCountAggregation,
     AgenticToolSelectionAndUsageByAgentAggregation,
+    AgenticTraceLatencyAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
 
@@ -1270,3 +1276,466 @@ def test_tool_selection_and_usage_by_agent_time_buckets(
         assert actual_usage_categories.issubset(
             valid_usage_categories,
         ), f"Bucket {bucket}: Invalid usage categories {actual_usage_categories - valid_usage_categories}"
+
+
+def test_agentic_span_latency_aggregation_basic(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test basic span latency aggregation functionality.
+
+    Math: Based on the test data, we expect:
+    - CHAIN spans: ~25 seconds (25,000ms) latency
+    - LLM spans: ~15 seconds (15,000ms) latency
+    - AGENT spans: ~15 seconds (15,000ms) latency
+
+    Expected results:
+    - One sketch metric named "span_latency"
+    - Data grouped by span_kind and agent_name dimensions
+    - Sketch series with latency distributions
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Validate metric names
+    validate_expected_metric_names(aggregation, metrics)
+
+    # Should return exactly one sketch metric
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.name == "span_latency"
+
+    # Should have sketch series data
+    assert hasattr(metric, "sketch_series")
+    assert len(metric.sketch_series) > 0
+
+    # Each sketch series should have data points
+    for series in metric.sketch_series:
+        assert len(series.values) > 0, "Sketch series should have data points"
+
+
+def test_agentic_span_latency_aggregation_dimensions(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test that span latency aggregation includes correct dimensions.
+
+    Expected dimensions:
+    - span_kind: TOOL, CHAIN, LLM, RETRIEVER, EMBEDDING, RERANKER, UNKNOWN, GUARDRAIL, EVALUATOR, AGENT
+    - agent_name: agent_1, agent_2, unknown (for spans without agent context)
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    metric = metrics[0]
+
+    # Check that we have the expected dimensions
+    assert_dimension_in_metric(metric, "span_kind")
+    assert_dimension_in_metric(metric, "agent_name")
+
+    # Collect all dimension values
+    span_kinds = set()
+    agent_names = set()
+
+    for series in metric.sketch_series:
+        dims = {d.name: d.value for d in series.dimensions}
+        span_kinds.add(dims["span_kind"])
+        agent_names.add(dims["agent_name"])
+
+    # Verify we have the expected span kinds
+    expected_span_kinds = {
+        "TOOL",
+        "CHAIN",
+        "LLM",
+        "RETRIEVER",
+        "EMBEDDING",
+        "RERANKER",
+        "UNKNOWN",
+        "GUARDRAIL",
+        "EVALUATOR",
+        "AGENT",
+    }
+    assert (
+        span_kinds == expected_span_kinds
+    ), f"Expected span kinds {expected_span_kinds}, got {span_kinds}"
+
+    # Verify we have agent names (should include at least agent_1, agent_2, and unknown)
+    assert (
+        "agent_1" in agent_names or "agent_2" in agent_names
+    ), f"Expected agent names, got {agent_names}"
+
+
+def test_agentic_span_latency_aggregation_sketch_values(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test that span latency aggregation produces valid sketch values."""
+
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    metric = metrics[0]
+
+    # Group sketches by span_kind for specific testing
+    sketches_by_span_kind = {}
+
+    for series in metric.sketch_series:
+        dims = {d.name: d.value for d in series.dimensions}
+        span_kind = dims["span_kind"]
+
+        for point in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(point.value))
+            if span_kind not in sketches_by_span_kind:
+                sketches_by_span_kind[span_kind] = []
+            sketches_by_span_kind[span_kind].append(sketch)
+
+    # Test exact latency values for each span kind
+    expected_values = {
+        "CHAIN": [255000, 45000, 195000, 240000, 55000],  # 5 different values
+        "TOOL": [195000],  # 1 value
+        "LLM": [
+            120000,
+            30000,
+            135000,
+            180000,
+            105000,
+            20000,
+            140000,
+            50000,
+            25000,
+            110000,
+        ],  # 10 different values
+        "RETRIEVER": [215000, 15000],  # 2 different values
+        "UNKNOWN": [270000],  # 1 value
+        "EMBEDDING": [245000],  # 1 value
+        "RERANKER": [140000],  # 1 value
+        "GUARDRAIL": [50000],  # 1 value
+        "AGENT": [195000, 205000, 212000, 155000],  # 4 different values
+        "EVALUATOR": [135000],  # 1 value
+    }
+
+    for span_kind, expected_latencies in expected_values.items():
+        if span_kind in sketches_by_span_kind:
+            for sketch in sketches_by_span_kind[span_kind]:
+                # Verify sketch has data
+                assert sketch.n > 0, f"{span_kind} sketch should contain data points"
+
+                # Test exact latency values
+                min_val = sketch.get_min_value()
+                max_val = sketch.get_max_value()
+
+                assert (
+                    min_val in expected_latencies
+                ), f"{span_kind} min latency {min_val}ms not in expected {expected_latencies}ms"
+                assert (
+                    max_val in expected_latencies
+                ), f"{span_kind} max latency {max_val}ms not in expected {expected_latencies}ms"
+
+                # For single-value spans, min and max should be the same
+                if len(expected_latencies) == 1:
+                    assert (
+                        min_val == max_val
+                    ), f"{span_kind} should have single latency value, got min={min_val}ms, max={max_val}ms"
+                    assert (
+                        min_val == expected_latencies[0]
+                    ), f"{span_kind} latency should be exactly {expected_latencies[0]}ms, got {min_val}ms"
+
+    # Test overall distribution properties
+    all_sketches = []
+    for sketches in sketches_by_span_kind.values():
+        all_sketches.extend(sketches)
+
+    if all_sketches:
+        # Test that we have reasonable overall latency distribution
+        all_min = min(sketch.get_min_value() for sketch in all_sketches)
+        all_max = max(sketch.get_max_value() for sketch in all_sketches)
+        assert (
+            all_min == 15000
+        ), f"Overall minimum latency should be 15000ms, got {all_min}"
+        assert (
+            all_max == 270000
+        ), f"Overall maximum latency should be 270000ms, got {all_max}"
+
+
+def test_agentic_span_latency_aggregation_empty_data(
+    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Test span latency aggregation with dataset containing spans but no evaluation metrics.
+
+    Note: The 'no_metrics' fixture contains spans with timing data but no metric_results,
+    so this test verifies that the aggregation works with spans that have timing information
+    but no evaluation metrics.
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # The no_metrics fixture still contains spans with timing data, so we should get results
+    # This test verifies the aggregation works with spans that have timing but no metrics
+    assert len(metrics) == 1  # Should return one metric
+    metric = metrics[0]
+    assert metric.name == "span_latency"
+
+    # Should have sketch series data
+    assert hasattr(metric, "sketch_series")
+    assert len(metric.sketch_series) > 0
+
+
+def test_agentic_span_latency_aggregation_truly_empty_data():
+    """Test span latency aggregation with truly empty dataset.
+
+    Expected result: Empty list of metrics
+    """
+
+    # Create a completely empty dataset
+    conn = connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="empty_dataset",
+        dataset_table_name="empty_test_data",
+        dataset_id=uuid4(),
+    )
+
+    # Create empty table
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """
+    )
+
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return empty list for truly empty dataset
+    assert len(metrics) == 0
+
+
+def test_agentic_trace_latency_aggregation_basic(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test basic functionality of trace latency aggregation.
+
+    Expected result: Returns sketch metrics with trace latency data
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return exactly one metric
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.name == "trace_latency"
+
+    # Should have sketch series data
+    assert hasattr(metric, "sketch_series")
+    assert len(metric.sketch_series) > 0
+
+    # Verify sketch series structure
+    series = metric.sketch_series[0]
+    assert hasattr(series, "values")
+    assert len(series.values) > 0, "Sketch series should have data points"
+
+
+def test_agentic_trace_latency_aggregation_sketch_values(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test that trace latency aggregation produces valid sketch values.
+
+    Expected result: Valid sketch metrics with exact latency values
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+    series = metric.sketch_series[0]
+
+    # Collect all sketches for testing
+    all_sketches = []
+    for sketch_value in series.values:
+        assert hasattr(sketch_value, "timestamp")
+
+        # Deserialize the sketch from the base64-encoded value
+        sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+        all_sketches.append(sketch)
+
+    # Test exact latency values based on test data
+    expected_values = [
+        # Main traces (one per bucket)
+        270000,  # Trace 1: 4.5 minutes
+        285000,  # Trace 6: 4.75 minutes
+        260000,  # Trace 11: 4.33 minutes
+        270000,  # Trace 16: 4.5 minutes
+        255000,  # Trace 21: 4.25 minutes
+        # Additional traces per bucket (4 per bucket × 5 buckets = 20 traces)
+        # Bucket 1 (traces 2-5): 3.5, 3.67, 3.83, 4.0 minutes
+        210000,
+        220000,
+        230000,
+        240000,
+        # Bucket 2 (traces 7-10): 3.5, 3.67, 3.83, 4.0 minutes
+        210000,
+        220000,
+        230000,
+        240000,
+        # Bucket 3 (traces 12-15): 3.5, 3.67, 3.83, 4.0 minutes
+        210000,
+        220000,
+        230000,
+        240000,
+        # Bucket 4 (traces 17-20): 3.5, 3.67, 3.83, 4.0 minutes
+        210000,
+        220000,
+        230000,
+        240000,
+        # Bucket 5 (traces 22-25): 3.5, 3.67, 3.83, 4.0 minutes
+        210000,
+        220000,
+        230000,
+        240000,
+    ]
+
+    # Test that we have the expected number of sketches
+    assert len(all_sketches) == 5, "Should have 5 sketches"
+
+    # Test exact latency values for each sketch
+    for sketch in all_sketches:
+        # Verify sketch has data
+        assert sketch.n > 0, "Sketch should contain data points"
+
+        # Test exact latency values
+        min_val = sketch.get_min_value()
+        max_val = sketch.get_max_value()
+
+        assert (
+            min_val in expected_values
+        ), f"Min latency {min_val}ms not in expected {expected_values}ms"
+        assert (
+            max_val in expected_values
+        ), f"Max latency {max_val}ms not in expected {expected_values}ms"
+
+    # Test overall distribution properties
+    if all_sketches:
+        # Test that we have reasonable overall latency distribution
+        all_min = min(sketch.get_min_value() for sketch in all_sketches)
+        all_max = max(sketch.get_max_value() for sketch in all_sketches)
+        assert (
+            all_min == 220000
+        ), f"Overall minimum latency should be 220000ms, got {all_min}"
+        assert (
+            all_max == 285000
+        ), f"Overall maximum latency should be 285000ms, got {all_max}"
+
+
+def test_agentic_trace_latency_aggregation_truly_empty_data():
+    """Test trace latency aggregation with truly empty dataset.
+
+    Expected result: Empty list of metrics
+    """
+
+    # Create a completely empty dataset
+    conn = connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="empty_dataset",
+        dataset_table_name="empty_test_data",
+        dataset_id=uuid4(),
+    )
+
+    # Create empty table
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """
+    )
+
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return empty list for empty dataset
+    assert len(metrics) == 0
+
+
+def test_agentic_trace_latency_aggregation_null_timing_data():
+    """Test trace latency aggregation with null timing data.
+    Expected result: Empty list of metrics
+    """
+
+    # Create dataset with null timing data
+    conn = connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="null_timing_dataset",
+        dataset_table_name="null_timing_test_data",
+        dataset_id=uuid4(),
+    )
+
+    # Create table with null timing data
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            trace_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            root_spans JSON
+        )
+        """
+    )
+
+    # Insert data with null timing
+    conn.sql(
+        f"""
+        INSERT INTO {dataset_ref.dataset_table_name} VALUES
+        ('trace-001', NULL, NULL, '[]'),
+        ('trace-002', NULL, '2024-01-01 12:00:00', '[]'),
+        ('trace-003', '2024-01-01 12:00:00', NULL, '[]')
+        """
+    )
+
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return empty list for null timing data
+    assert len(metrics) == 0
+
+
+def test_agentic_trace_latency_aggregation_metric_names(
+    get_agentic_dataset_conn_for_latency_tests: tuple[
+        DuckDBPyConnection, DatasetReference
+    ],
+):
+    """Test that trace latency aggregation returns expected metric names.
+
+    Expected metric name: "trace_latency"
+    """
+    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should have exactly one metric with the expected name
+    assert len(metrics) == 1
+    assert metrics[0].name == "trace_latency"
+
+    # Verify the metric name matches what's reported
+    expected_names = [
+        metric.metric_name for metric in aggregation.reported_aggregations()
+    ]
+    assert "trace_latency" in expected_names

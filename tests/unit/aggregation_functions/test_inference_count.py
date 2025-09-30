@@ -16,7 +16,9 @@ def test_inference_count(
     # run test on balloons dataset
     conn, dataset_ref = get_balloons_dataset_conn
     inference_counter = InferenceCountAggregationFunction()
-    metrics = inference_counter.aggregate(conn, dataset_ref, escape_identifier("flight start"))
+    metrics = inference_counter.aggregate(
+        conn, dataset_ref, escape_identifier("flight start")
+    )
     validate_expected_metric_names(inference_counter, metrics)
     assert len(metrics) == 1
     assert metrics[0].name == "inference_count"

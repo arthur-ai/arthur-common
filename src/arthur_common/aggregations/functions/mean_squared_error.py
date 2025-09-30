@@ -139,7 +139,9 @@ class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
         """
 
         results = ddb_conn.sql(mse_query).df()
-        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
+        unescaped_segmentation_cols = [
+            unescape_identifier(seg_col) for seg_col in segmentation_cols
+        ]
         count_series = self.group_query_results_to_numeric_metrics(
             results,
             "count",

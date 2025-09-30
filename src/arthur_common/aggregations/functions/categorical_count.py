@@ -18,8 +18,10 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-
-from arthur_common.tools.duckdb_data_loader import unescape_identifier, escape_str_literal
+from arthur_common.tools.duckdb_data_loader import (
+    escape_str_literal,
+    unescape_identifier,
+)
 
 
 class CategoricalCountAggregationFunction(NumericAggregationFunction):
@@ -103,7 +105,9 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
                 group by ts, category
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
-        categorical_col_name_unescaped = escape_str_literal(unescape_identifier(categorical_col))
+        categorical_col_name_unescaped = escape_str_literal(
+            unescape_identifier(categorical_col)
+        )
 
         # build query components with segmentation columns
         all_select_clause_cols = [
@@ -125,7 +129,9 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
 
         results = ddb_conn.sql(count_query).df()
 
-        unescaped_segmentation_cols = [unescape_identifier(seg_col) for seg_col in segmentation_cols]
+        unescaped_segmentation_cols = [
+            unescape_identifier(seg_col) for seg_col in segmentation_cols
+        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",

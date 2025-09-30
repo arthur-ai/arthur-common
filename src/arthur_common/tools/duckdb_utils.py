@@ -2,7 +2,6 @@ import duckdb
 
 from arthur_common.config.config import Config
 from arthur_common.models.schema_definitions import SEGMENTATION_ALLOWED_DTYPES, DType
-from arthur_common.tools.duckdb_data_loader import escape_identifier
 
 
 def is_column_possible_segmentation(
