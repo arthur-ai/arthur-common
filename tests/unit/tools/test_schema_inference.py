@@ -106,7 +106,7 @@ def test_col_names_with_spaces_schema_inference():
         assert col.definition.tag_hints == []
         if isinstance(col.definition, DatasetObjectType):
             for obj in col.definition.object.values():
-                assert obj.tag_hints == []
+                assert obj.tag_hints == [ScopeSchemaTag.POSSIBLE_SEGMENTATION]
 
 
 def test_nested_schema_inference():
