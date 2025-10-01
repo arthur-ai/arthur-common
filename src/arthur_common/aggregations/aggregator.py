@@ -38,13 +38,19 @@ class AggregationFunction(ABC):
     @staticmethod
     def get_innermost_segmentation_columns(segmentation_cols: list[str]) -> list[str]:
         """
-        Extracts the innermost column name for nested segmentation columns or 
+        Extracts the innermost column name for nested segmentation columns or
         returns the top-level column name for non-nested segmentation columns.
         """
         for i, col in enumerate(segmentation_cols):
-            nested_cols = col.split('.')
-            segmentation_cols[i] = nested_cols[-1]
-        
+            nested_cols = col.split('"')
+
+            # extract the innermost column for escaped column names (e.g. '"nested.col"."name"')
+            # otherwise return the name since it's a top-level column
+            if len(nested_cols) >= 3:
+                segmentation_cols[i] = nested_cols[-2]
+            else:
+                segmentation_cols[i] = col
+
         return segmentation_cols
 
     @abstractmethod
@@ -102,7 +108,9 @@ class NumericAggregationFunction(AggregationFunction, ABC):
             ]
 
         # get innermost column name for nested segmentation columns
-        dim_columns = AggregationFunction.get_innermost_segmentation_columns(dim_columns)
+        dim_columns = AggregationFunction.get_innermost_segmentation_columns(
+            dim_columns,
+        )
 
         calculated_metrics: list[NumericTimeSeries] = []
         # make sure dropna is False or rows with "null" as a dimension value will be dropped
@@ -185,14 +193,19 @@ class SketchAggregationFunction(AggregationFunction, ABC):
         calculated_metrics: list[SketchTimeSeries] = []
 
         # get innermost column name for nested segmentation columns
-        dim_columns = AggregationFunction.get_innermost_segmentation_columns(dim_columns)
+        dim_columns = AggregationFunction.get_innermost_segmentation_columns(
+            dim_columns,
+        )
 
         # make sure dropna is False or rows with "null" as a dimension value will be dropped
         groups = data.groupby(dim_columns, dropna=False)
         for _, group in groups:
             calculated_metrics.append(
                 SketchAggregationFunction._group_to_series(
-                    group, timestamp_col, dim_columns, value_col
+                    group,
+                    timestamp_col,
+                    dim_columns,
+                    value_col,
                 ),
             )
 

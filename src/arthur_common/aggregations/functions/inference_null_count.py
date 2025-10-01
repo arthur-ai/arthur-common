@@ -114,19 +114,16 @@ class InferenceNullCountAggregationFunction(NumericAggregationFunction):
 
         results = ddb_conn.sql(count_query).df()
 
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            unescaped_segmentation_cols,
+            segmentation_cols,
             "ts",
         )
         # preserve dimension that identifies the name of the nullable column used for the aggregation
         for point in series:
             point.dimensions.append(
-                Dimension(name="column_name", value=unescape_identifier(nullable_col))
+                Dimension(name="column_name", value=unescape_identifier(nullable_col)),
             )
 
         metric = self.series_to_metric(self.METRIC_NAME, series)

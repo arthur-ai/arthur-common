@@ -123,14 +123,11 @@ class NumericSketchAggregationFunction(SketchAggregationFunction):
                 """
 
         results = ddb_conn.sql(data_query).df()
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             unescape_identifier(numeric_col),
-            unescaped_segmentation_cols + extra_dims,
+            segmentation_cols + extra_dims,
             "ts",
         )
 

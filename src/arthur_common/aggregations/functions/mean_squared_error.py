@@ -19,7 +19,6 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import unescape_identifier
 
 
 class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
@@ -139,19 +138,17 @@ class MeanSquaredErrorAggregationFunction(NumericAggregationFunction):
         """
 
         results = ddb_conn.sql(mse_query).df()
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
+
         count_series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            unescaped_segmentation_cols,
+            segmentation_cols,
             "ts",
         )
         squared_error_series = self.group_query_results_to_numeric_metrics(
             results,
             "squared_error",
-            unescaped_segmentation_cols,
+            segmentation_cols,
             "ts",
         )
 
