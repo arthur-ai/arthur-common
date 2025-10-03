@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from base64 import b64encode
 from typing import Any, Type, Union
@@ -47,7 +48,7 @@ class AggregationFunction(ABC):
             if col.startswith('"') and col.endswith('"'):
                 identifier = col[1:-1]
                 identifier_split_in_struct_fields = re.split(r'"\."', identifier)
-                
+
                 if len(identifier_split_in_struct_fields) > 1:
                     innermost_field = identifier_split_in_struct_fields[-1]
                     segmentation_cols[i] = innermost_field.replace('""', '"')
@@ -55,7 +56,7 @@ class AggregationFunction(ABC):
                     segmentation_cols[i] = identifier.replace('""', '"')
             else:
                 segmentation_cols[i] = col
-            
+
         return segmentation_cols
 
     @abstractmethod
