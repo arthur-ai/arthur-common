@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from base64 import b64encode
 from typing import Any, Type, Union
@@ -34,6 +35,31 @@ class AggregationFunction(ABC):
     def reported_aggregations() -> list[BaseReportedAggregation]:
         """Returns the list of aggregations reported by the aggregate function."""
         raise NotImplementedError
+
+    @staticmethod
+    def get_innermost_segmentation_columns(segmentation_cols: list[str]) -> list[str]:
+        """
+        Extracts the innermost column name for nested segmentation columns or
+        returns the top-level column name for non-nested segmentation columns.
+        """
+        for i, col in enumerate(segmentation_cols):
+            # extract the innermost column for escaped column names (e.g. '"nested.col"."name"')
+            # otherwise return the name since it's a top-level column
+            if col.startswith('"') and col.endswith('"'):
+                identifier = col[1:-1]
+                identifier_split_in_struct_fields = re.split(r'"\."', identifier)
+
+                # For nested columns, take just the innermost field name
+                # Otherwise for top-level columns, take the whole name
+                if len(identifier_split_in_struct_fields) > 1:
+                    innermost_field = identifier_split_in_struct_fields[-1]
+                    segmentation_cols[i] = innermost_field.replace('""', '"')
+                else:
+                    segmentation_cols[i] = identifier.replace('""', '"')
+            else:
+                segmentation_cols[i] = col
+
+        return segmentation_cols
 
     @abstractmethod
     def aggregate(
@@ -88,6 +114,11 @@ class NumericAggregationFunction(AggregationFunction, ABC):
                     timestamp_col,
                 ),
             ]
+
+        # get innermost column name for nested segmentation columns
+        dim_columns = AggregationFunction.get_innermost_segmentation_columns(
+            dim_columns,
+        )
 
         calculated_metrics: list[NumericTimeSeries] = []
         # make sure dropna is False or rows with "null" as a dimension value will be dropped
@@ -168,12 +199,21 @@ class SketchAggregationFunction(AggregationFunction, ABC):
         """
 
         calculated_metrics: list[SketchTimeSeries] = []
+
+        # get innermost column name for nested segmentation columns
+        dim_columns = AggregationFunction.get_innermost_segmentation_columns(
+            dim_columns,
+        )
+
         # make sure dropna is False or rows with "null" as a dimension value will be dropped
         groups = data.groupby(dim_columns, dropna=False)
         for _, group in groups:
             calculated_metrics.append(
                 SketchAggregationFunction._group_to_series(
-                    group, timestamp_col, dim_columns, value_col
+                    group,
+                    timestamp_col,
+                    dim_columns,
+                    value_col,
                 ),
             )
 

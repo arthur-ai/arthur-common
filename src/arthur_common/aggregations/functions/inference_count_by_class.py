@@ -20,7 +20,6 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import unescape_identifier
 
 
 class BinaryClassifierCountByClassAggregationFunction(NumericAggregationFunction):
@@ -132,13 +131,10 @@ class BinaryClassifierCountByClassAggregationFunction(NumericAggregationFunction
 
         result = ddb_conn.sql(query).df()
 
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
         series = self.group_query_results_to_numeric_metrics(
             result,
             "count",
-            unescaped_segmentation_cols + extra_dims,
+            segmentation_cols + extra_dims,
             "ts",
         )
         metric = self.series_to_metric(self._metric_name(), series)
@@ -280,13 +276,10 @@ class BinaryClassifierCountThresholdClassAggregationFunction(
 
         result = ddb_conn.sql(query).df()
 
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
         series = self.group_query_results_to_numeric_metrics(
             result,
             "count",
-            unescaped_segmentation_cols + extra_dims,
+            segmentation_cols + extra_dims,
             "ts",
         )
         metric = self.series_to_metric(self._metric_name(), series)

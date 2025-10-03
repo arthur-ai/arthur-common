@@ -106,7 +106,7 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
         """
         segmentation_cols = [] if not segmentation_cols else segmentation_cols
         categorical_col_name_unescaped = escape_str_literal(
-            unescape_identifier(categorical_col)
+            unescape_identifier(categorical_col),
         )
 
         # build query components with segmentation columns
@@ -129,13 +129,10 @@ class CategoricalCountAggregationFunction(NumericAggregationFunction):
 
         results = ddb_conn.sql(count_query).df()
 
-        unescaped_segmentation_cols = [
-            unescape_identifier(seg_col) for seg_col in segmentation_cols
-        ]
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            unescaped_segmentation_cols + extra_dims,
+            segmentation_cols + extra_dims,
             timestamp_col="ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
