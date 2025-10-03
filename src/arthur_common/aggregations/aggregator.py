@@ -42,15 +42,20 @@ class AggregationFunction(ABC):
         returns the top-level column name for non-nested segmentation columns.
         """
         for i, col in enumerate(segmentation_cols):
-            nested_cols = col.split('"')
-
             # extract the innermost column for escaped column names (e.g. '"nested.col"."name"')
             # otherwise return the name since it's a top-level column
-            if len(nested_cols) >= 3:
-                segmentation_cols[i] = nested_cols[-2]
+            if col.startswith('"') and col.endswith('"'):
+                identifier = col[1:-1]
+                identifier_split_in_struct_fields = re.split(r'"\."', identifier)
+                
+                if len(identifier_split_in_struct_fields) > 1:
+                    innermost_field = identifier_split_in_struct_fields[-1]
+                    segmentation_cols[i] = innermost_field.replace('""', '"')
+                else:
+                    segmentation_cols[i] = identifier.replace('""', '"')
             else:
                 segmentation_cols[i] = col
-
+            
         return segmentation_cols
 
     @abstractmethod
