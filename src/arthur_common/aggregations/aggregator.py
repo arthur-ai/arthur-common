@@ -49,6 +49,8 @@ class AggregationFunction(ABC):
                 identifier = col[1:-1]
                 identifier_split_in_struct_fields = re.split(r'"\."', identifier)
 
+                # For nested columns, take just the innermost field name
+                # Otherwise for top-level columns, take the whole name
                 if len(identifier_split_in_struct_fields) > 1:
                     innermost_field = identifier_split_in_struct_fields[-1]
                     segmentation_cols[i] = innermost_field.replace('""', '"')
