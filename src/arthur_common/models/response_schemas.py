@@ -624,6 +624,8 @@ class SpanWithMetricsResponse(BaseModel):
     start_time: datetime
     end_time: datetime
     task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    status_code: str = Field(description="Status code for the span (Unset, Error, Ok)")
     created_at: datetime
     updated_at: datetime
     raw_data: dict[str, Any]
@@ -650,6 +652,8 @@ class NestedSpanWithMetricsResponse(BaseModel):
     start_time: datetime
     end_time: datetime
     task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    status_code: str = Field(description="Status code for the span (Unset, Error, Ok)")
     created_at: datetime
     updated_at: datetime
     raw_data: dict[str, Any]
