@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -98,7 +99,7 @@ class PaginationParameters(BaseModel):
     page: int = 0
 
     def calculate_total_pages(self, total_items_count: int) -> int:
-        return total_items_count // self.page_size + 1
+        return math.ceil(total_items_count / self.page_size)
 
 
 class PIIConfig(BaseModel):
