@@ -44,6 +44,16 @@ poetry run pytest
 4. Watch in [GitHub Actions](https://github.com/arthur-ai/arthur-common/actions) for Arthur Common Release to run
 5. Update package version in your project (arthur-engine)
 
+## Dev Release Process
+If you want to create a dev version of your release to test your changes in another project, you can follow the proceeding steps:
+1. Commit your changes to a feature branch
+2. Go to **Actions** -> **Arthur Common Version Bump**
+3. Click **Run workflow**. You'll see a form where you'll need to specify the **Branch** you want to build the dev release from.
+   Enter the name of the branch (eg. `feature/my-new-feature`) and click **Run workflow**.
+4. A release will be pushed to PyPI with a tag like `2.0.0.dev1`. The first part will be the current version of arthur-common,
+   and the second part will be the dev version tag.
+5. Check the **Summary** tab of the workflow run to find out the version of your dev package. It will be the value indicated after `dev_version=`. You can install that version in your packages for testing.
+
 ## License
 
 This project is licensed under the MIT License.

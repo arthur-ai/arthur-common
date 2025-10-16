@@ -4,37 +4,101 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build dev release from (only used for dev releases)'
+        required: false
+        type: string
 
 jobs:
   pypi-build:
     # Should be separate from publish job: https://docs.pypi.org/trusted-publishers/security-model/#:~:text=Retrieve%20the%20publishable%20distribution%20files%20from%20a%20separate%20build%20job%3B
     # written from guide: https://johnfraney.ca/blog/how-to-publish-a-python-package-with-poetry-and-github-actions/
     name: Build release for PyPI
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: startsWith(github.event.head_commit.message, 'Bump version') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      dev_version: ${{ steps.get-dev-version.outputs.dev_version }}
+      is_dev_release: ${{ steps.determine-release-type.outputs.is_dev_release }}
     env:
       GIT_DEPTH: 100
     permissions:
       contents: read
     steps:
+      - name: Determine release type
+        id: determine-release-type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "is_dev_release=true" >> "$GITHUB_OUTPUT"
+            echo "Release type: Dev release"
+          else
+            echo "is_dev_release=false" >> "$GITHUB_OUTPUT"
+            echo "Release type: Official release"
+          fi
+      
       - uses: actions/checkout@v4
         with:
           fetch-depth: ${{ env.GIT_DEPTH }}
-          ref: main
+          ref: ${{ steps.determine-release-type.outputs.is_dev_release == 'true' && github.event.inputs.branch || 'main' }}
+      
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
+      
       - uses: actions/setup-python@v5
         # can't use container with python instead: https://github.com/pypa/gh-action-pypi-publish/tree/unstable/v1#:~:text=Running%20the%20action,that%20publishes%20them.
         with:
           python-version: 3.12
+      
       - uses: ./.github/workflows/composite-actions/setup-poetry
         with:
           poetry-version: 2.1.3
-      - name: Package project
+      
+      - name: Get current version and calculate dev version (dev releases only)
+        id: get-dev-version
+        if: steps.determine-release-type.outputs.is_dev_release == 'true'
+        run: |
+          # Get current version from pyproject.toml
+          CURRENT_VERSION=$(poetry version --short)
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Fetch all tags to get existing dev versions
+          echo "Fetching git tags to find existing dev versions..."
+          git fetch --tags origin
+          
+          # Find existing dev versions for the current base version
+          BASE_VERSION="$CURRENT_VERSION"
+          EXISTING_DEV_TAGS=$(git tag -l "${BASE_VERSION}.dev*" | sort -V)
+          
+          if [ -z "$EXISTING_DEV_TAGS" ]; then
+              # No existing dev tags, start with .dev1
+              NEXT_DEV_NUMBER=1
+          else
+              # Extract the highest dev number
+              HIGHEST_DEV_NUMBER=$(echo "$EXISTING_DEV_TAGS" | sed "s/${BASE_VERSION}\.dev//" | sort -n | tail -1)
+              NEXT_DEV_NUMBER=$((HIGHEST_DEV_NUMBER + 1))
+          fi
+          
+          DEV_VERSION="${BASE_VERSION}.dev${NEXT_DEV_NUMBER}"
+          echo "Calculated dev version: $DEV_VERSION"
+          echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+      
+      - name: Package project (official release)
+        if: steps.determine-release-type.outputs.is_dev_release == 'false'
         run: poetry build
+      
+      - name: Package project with dev version (dev release)
+        if: steps.determine-release-type.outputs.is_dev_release == 'true'
+        run: |
+          DEV_VERSION="${{ steps.get-dev-version.outputs.dev_version }}"
+          echo "Building package with dev version: $DEV_VERSION"
+          poetry build --config-settings local-version=$DEV_VERSION
+      
       - name: List build artifacts
         run: ls -la dist/
+      
       - name: Archive package
         uses: actions/upload-artifact@v4
         with:
@@ -49,7 +113,7 @@ jobs:
     needs: pypi-build
     # does not run on dev—https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers:~:text=Local%20version%20identifiers%20SHOULD%20NOT%20be%20used%20when%20publishing%20upstream%20projects%20to%20a%20public%20index%20server%2C%20but%20MAY%20be%20used%20to%20identify%20private%20builds%20created%20directly%20from%20the%20project%20source.
     name: Upload release to PyPI
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: startsWith(github.event.head_commit.message, 'Bump version') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
@@ -69,11 +133,20 @@ jobs:
           uses: pypa/gh-action-pypi-publish@release/v1
           with:
             packages-dir: dist
+        - name: Output release info
+          run: |
+            if [ "${{ needs.pypi-build.outputs.is_dev_release }}" = "true" ]; then
+              echo "✅ Dev release published successfully!"
+              echo "📦 Version: ${{ needs.pypi-build.outputs.dev_version }}"
+            else
+              echo "✅ Official release published successfully!"
+            fi
+            echo "🔗 PyPI URL: https://pypi.org/project/arthur-common/"
 
   create-git-tag:
     needs: pypi-publish
     name: Create git tag for the release
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: startsWith(github.event.head_commit.message, 'Bump version') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
@@ -87,25 +160,44 @@ jobs:
         with:
           app-id: ${{ secrets.ARTHUR_GH_AUTOMATOR_APP_ID }}
           private-key: ${{ secrets.ARTHUR_GH_AUTOMATOR_APP_PRIVATE_KEY }}
+      
       - uses: actions/checkout@v4
         with:
           token: ${{ steps.generate-token.outputs.token }}
+          ref: ${{ needs.pypi-build.outputs.is_dev_release == 'true' && github.event.inputs.branch || 'main' }}
+      
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
+      
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
+      
       - uses: ./.github/workflows/composite-actions/setup-poetry
         with:
           poetry-version: 2.1.3
-      - name: Get current version
+      
+      - name: Get current version (official releases only)
         id: get-version
+        if: needs.pypi-build.outputs.is_dev_release == 'false'
         run: |
           VERSION=$(poetry version --short)
           echo "Current version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Create and push git tag
+      
+      - name: Create and push git tag (official release)
+        if: needs.pypi-build.outputs.is_dev_release == 'false'
         run: |
           git tag ${{ steps.get-version.outputs.version }}
           git push origin ${{ steps.get-version.outputs.version }}
+          echo "✅ Official release tag ${{ steps.get-version.outputs.version }} created and pushed"
+      
+      - name: Create and push git tag (dev release)
+        if: needs.pypi-build.outputs.is_dev_release == 'true'
+        run: |
+          DEV_VERSION="${{ needs.pypi-build.outputs.dev_version }}"
+          echo "Creating dev release tag: $DEV_VERSION"
+          git tag "$DEV_VERSION"
+          git push origin "$DEV_VERSION"
+          echo "✅ Dev release tag $DEV_VERSION created and pushed"
