@@ -219,10 +219,6 @@ class ExternalInferencePrompt(BaseModel):
     message: str
     prompt_rule_results: List[ExternalRuleResult]
     tokens: int | None = None
-    model_name: Optional[str] = Field(
-        description="The model name and version used for this prompt (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
-        default=None,
-    )
 
 
 class ExternalInferenceResponse(BaseModel):
