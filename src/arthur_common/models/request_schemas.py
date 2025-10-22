@@ -346,10 +346,6 @@ class PromptValidationRequest(BaseModel):
         description="The user ID this prompt belongs to",
         default=None,
     )
-    model_name: Optional[str] = Field(
-        description="The model name and version being used for this prompt (e.g., 'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'gemini-pro').",
-        default=None,
-    )
 
 
 class ResponseValidationRequest(BaseModel):
