@@ -610,7 +610,40 @@ class MetricResultResponse(BaseModel):
     updated_at: datetime = Field(description="Time the result was last updated")
 
 
-class SpanWithMetricsResponse(BaseModel):
+class TokenCountCostSchema(BaseModel):
+    """Base schema for responses that include token count and cost information.
+
+    These fields represent LLM token usage and associated costs.
+    None values indicate data is not available.
+    """
+
+    prompt_token_count: Optional[int] = Field(
+        default=None,
+        description="Number of prompt tokens",
+    )
+    completion_token_count: Optional[int] = Field(
+        default=None,
+        description="Number of completion tokens",
+    )
+    total_token_count: Optional[int] = Field(
+        default=None,
+        description="Total number of tokens",
+    )
+    prompt_token_cost: Optional[float] = Field(
+        default=None,
+        description="Cost of prompt tokens in USD",
+    )
+    completion_token_cost: Optional[float] = Field(
+        default=None,
+        description="Cost of completion tokens in USD",
+    )
+    total_token_cost: Optional[float] = Field(
+        default=None,
+        description="Total cost in USD",
+    )
+
+
+class SpanWithMetricsResponse(TokenCountCostSchema):
     id: str
     trace_id: str
     span_id: str
@@ -636,7 +669,7 @@ class SpanWithMetricsResponse(BaseModel):
     )
 
 
-class NestedSpanWithMetricsResponse(BaseModel):
+class NestedSpanWithMetricsResponse(TokenCountCostSchema):
     """Nested span response with children for building span trees"""
 
     id: str
@@ -668,7 +701,7 @@ class NestedSpanWithMetricsResponse(BaseModel):
     )
 
 
-class TraceResponse(BaseModel):
+class TraceResponse(TokenCountCostSchema):
     """Response model for a single trace containing nested spans"""
 
     trace_id: str = Field(description="ID of the trace")
