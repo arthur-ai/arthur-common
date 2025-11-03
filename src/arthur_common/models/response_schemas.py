@@ -610,7 +610,40 @@ class MetricResultResponse(BaseModel):
     updated_at: datetime = Field(description="Time the result was last updated")
 
 
-class SpanWithMetricsResponse(BaseModel):
+class TokenCountCostSchema(BaseModel):
+    """Base schema for responses that include token count and cost information.
+
+    These fields represent LLM token usage and associated costs.
+    None values indicate data is not available.
+    """
+
+    prompt_token_count: Optional[int] = Field(
+        default=None,
+        description="Number of prompt tokens",
+    )
+    completion_token_count: Optional[int] = Field(
+        default=None,
+        description="Number of completion tokens",
+    )
+    total_token_count: Optional[int] = Field(
+        default=None,
+        description="Total number of tokens",
+    )
+    prompt_token_cost: Optional[float] = Field(
+        default=None,
+        description="Cost of prompt tokens in USD",
+    )
+    completion_token_cost: Optional[float] = Field(
+        default=None,
+        description="Cost of completion tokens in USD",
+    )
+    total_token_cost: Optional[float] = Field(
+        default=None,
+        description="Total cost in USD",
+    )
+
+
+class SpanWithMetricsResponse(TokenCountCostSchema):
     id: str
     trace_id: str
     span_id: str
@@ -625,18 +658,22 @@ class SpanWithMetricsResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     raw_data: dict[str, Any]
-    # Span features for LLM spans (computed on-demand)
-    system_prompt: Optional[str] = None
-    user_query: Optional[str] = None
-    response: Optional[str] = None
-    context: Optional[List[dict[str, Any]]] = None
+    # OpenInference standard input/output fields (computed on-demand from raw_data)
+    input_content: Optional[str] = Field(
+        None,
+        description="Span input value from raw_data.attributes.input.value",
+    )
+    output_content: Optional[str] = Field(
+        None,
+        description="Span output value from raw_data.attributes.output.value",
+    )
     metric_results: list[MetricResultResponse] = Field(
         description="List of metric results for this span",
         default=[],
     )
 
 
-class NestedSpanWithMetricsResponse(BaseModel):
+class NestedSpanWithMetricsResponse(TokenCountCostSchema):
     """Nested span response with children for building span trees"""
 
     id: str
@@ -653,11 +690,15 @@ class NestedSpanWithMetricsResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     raw_data: dict[str, Any]
-    # Span features for LLM spans (computed on-demand)
-    system_prompt: Optional[str] = None
-    user_query: Optional[str] = None
-    response: Optional[str] = None
-    context: Optional[List[dict[str, Any]]] = None
+    # OpenInference standard input/output fields (computed on-demand from raw_data)
+    input_content: Optional[str] = Field(
+        None,
+        description="Span input value from raw_data.attributes.input.value",
+    )
+    output_content: Optional[str] = Field(
+        None,
+        description="Span output value from raw_data.attributes.output.value",
+    )
     metric_results: list[MetricResultResponse] = Field(
         description="List of metric results for this span",
         default=[],
@@ -668,7 +709,7 @@ class NestedSpanWithMetricsResponse(BaseModel):
     )
 
 
-class TraceResponse(BaseModel):
+class TraceResponse(TokenCountCostSchema):
     """Response model for a single trace containing nested spans"""
 
     trace_id: str = Field(description="ID of the trace")
@@ -676,6 +717,14 @@ class TraceResponse(BaseModel):
         description="Start time of the earliest span in this trace",
     )
     end_time: datetime = Field(description="End time of the latest span in this trace")
+    input_content: Optional[str] = Field(
+        None,
+        description="Root span input value from trace metadata",
+    )
+    output_content: Optional[str] = Field(
+        None,
+        description="Root span output value from trace metadata",
+    )
     root_spans: list[NestedSpanWithMetricsResponse] = Field(
         description="Root spans (spans with no parent) in this trace, with children nested",
         default=[],
