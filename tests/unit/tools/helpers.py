@@ -15,14 +15,23 @@ def compare_pydantic_models(model_1: BaseModel, model_2: BaseModel) -> None:
 
 
 def compare_aggregate_arguments(
-    spec_1: MetricsParameterSchemaUnion,
-    spec_2: MetricsParameterSchemaUnion,
+    spec_1: list[MetricsParameterSchemaUnion],
+    spec_2: list[MetricsParameterSchemaUnion],
 ) -> None:
-    compare_pydantic_models(spec_1, spec_2)
+    assert len(spec_1) == len(spec_2), "Length of the arguments must be the same"
+    for spec_1, spec_2 in zip(spec_1, spec_2):
+        compare_pydantic_models(spec_1, spec_2)
 
 
 def compare_reported_aggregations(
-    reported_aggregations_1: ReportedAggregationsSchemaUnion,
-    reported_aggregations_2: ReportedAggregationsSchemaUnion,
+    reported_aggregations_1: list[ReportedAggregationsSchemaUnion],
+    reported_aggregations_2: list[ReportedAggregationsSchemaUnion],
 ) -> None:
-    compare_pydantic_models(reported_aggregations_1, reported_aggregations_2)
+    assert len(reported_aggregations_1) == len(
+        reported_aggregations_2,
+    ), "Length of the reported aggregations must be the same"
+    for reported_aggregation_1, reported_aggregation_2 in zip(
+        reported_aggregations_1,
+        reported_aggregations_2,
+    ):
+        compare_pydantic_models(reported_aggregation_1, reported_aggregation_2)

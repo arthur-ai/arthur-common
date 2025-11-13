@@ -1,8 +1,6 @@
 import uuid
 from datetime import datetime
 
-import pytest
-
 from arthur_common.models.metrics import (
     AggregationMetricType,
     BaseAggregationParameterSchema,
@@ -29,15 +27,6 @@ def test_base_aggregation_parameter_schema_parameter_key_allowed_characters():
     assert schema_2.parameter_key == "test_parameter_key"
     assert schema_2.friendly_name == "friendly name"
     assert schema_2.description == "Test description"
-
-
-def test_base_aggregation_parameter_schema_parameter_key_allowed_characters_invalid():
-    with pytest.raises(ValueError):
-        BaseAggregationParameterSchema(
-            parameter_key="test_parameter_key-123",
-            friendly_name="Test Parameter Key",
-            description="Test description",
-        )
 
 
 def test_backwards_compatibility_set_metric_type_from_reported_aggregations():

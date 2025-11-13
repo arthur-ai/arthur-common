@@ -8,6 +8,7 @@ from arthur_common.models.metrics import (
     CustomAggregationSchema,
     CustomAggregationVersionSpecSchema,
     MetricsColumnParameterSchema,
+    MetricsDatasetParameterSchema,
     ReportedCustomAggregation,
 )
 
@@ -32,6 +33,12 @@ def custom_aggregations() -> list[CustomAggregationSchema]:
                             parameter_key="column",
                             friendly_name="Column",
                             description="Column to aggregate",
+                            source_dataset_parameter_key="dataset_column_key",
+                        ),
+                        MetricsDatasetParameterSchema(
+                            parameter_key="dataset_column_key",
+                            friendly_name="Dataset Column Key",
+                            description="Dataset column key",
                         ),
                     ],
                     reported_aggregations=[
