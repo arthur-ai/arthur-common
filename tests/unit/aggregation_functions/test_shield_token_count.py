@@ -35,6 +35,7 @@ def test_shield_token_count(
     expected_response_tokens: int,
     expected_prompt_cost: float,
     expected_response_cost: float,
+    monkeypatch,
 ):
     """Test the Shield token count aggregation function.
 
@@ -45,7 +46,15 @@ def test_shield_token_count(
         expected_response_tokens: Expected number of tokens in responses
         expected_prompt_cost: Expected cost for prompt tokens
         expected_response_cost: Expected cost for response tokens
+        monkeypatch: Pytest fixture for patching
     """
+    # Enable segmentation for this test
+    monkeypatch.setenv("SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION", "true")
+    # Update the class attribute since it's evaluated at import time
+    ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION = (
+        True
+    )
+
     conn, dataset_ref = get_shield_dataset_conn
     token_count_aggregator = ShieldInferenceTokenCountAggregation()
 
@@ -132,6 +141,7 @@ def test_shield_empty_token_count(
     expected_response_tokens: int,
     expected_prompt_cost: float,
     expected_response_cost: float,
+    monkeypatch,
 ):
     """Test the Shield token count aggregation function.
 
@@ -142,7 +152,15 @@ def test_shield_empty_token_count(
         expected_response_tokens: Expected number of tokens in responses
         expected_prompt_cost: Expected cost for prompt tokens
         expected_response_cost: Expected cost for response tokens
+        monkeypatch: Pytest fixture for patching
     """
+    # Enable segmentation for this test
+    monkeypatch.setenv("SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION", "true")
+    # Update the class attribute since it's evaluated at import time
+    ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION = (
+        True
+    )
+
     conn, dataset_ref = get_shield_dataset_conn_no_tokens
     token_count_aggregator = ShieldInferenceTokenCountAggregation()
 

@@ -1,3 +1,4 @@
+import os
 from typing import Annotated
 from uuid import UUID
 
@@ -25,6 +26,10 @@ from arthur_common.models.schema_definitions import (
 
 class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "inference_count"
+    SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -71,25 +76,45 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        results = ddb_conn.sql(
-            f"select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, count(*) as count, \
-                    result, \
-                    inference_prompt.result AS prompt_result, \
-                    inference_response.result AS response_result, \
-                    conversation_id, \
-                    user_id as user_id \
-                    from {dataset.dataset_table_name} \
-                    group by ts, result, prompt_result, response_result, conversation_id, user_id \
-                    order by ts desc; \
-        ",
-        ).df()
+        # Build SELECT clause
+        select_cols = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "count(*) as count",
+            "result",
+            "inference_prompt.result AS prompt_result",
+            "inference_response.result AS response_result",
+        ]
+
+        # Build GROUP BY clause
+        group_by_cols = ["ts", "result", "prompt_result", "response_result"]
+
+        # Conditionally add conversation_id and user_id based on segmentation flag
+        if (
+            ShieldInferencePassFailCountAggregation.SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            select_cols.extend(["conversation_id", "user_id as user_id"])
+            group_by_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            select {", ".join(select_cols)}
+            from {dataset.dataset_table_name}
+            group by {", ".join(group_by_cols)}
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        # Build group_by_dims list
         group_by_dims = [
             "result",
             "prompt_result",
             "response_result",
-            "conversation_id",
-            "user_id",
         ]
+        if (
+            ShieldInferencePassFailCountAggregation.SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
+
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
@@ -102,6 +127,10 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "rule_count"
+    SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -148,46 +177,64 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        results = ddb_conn.sql(
-            f" \
-            with unnessted_prompt_rules as (select unnest(inference_prompt.prompt_rule_results) as rule, \
-                'prompt' as location, \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name}), \
-            unnessted_result_rules as (select unnest(inference_response.response_rule_results) as rule,\
-                'response' as location, \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name}) \
-            select ts, \
-                count(*) as count, \
-                location, \
-                rule.rule_type, \
-                rule.result, \
-                rule.name, \
-                rule.id, \
-                conversation_id, \
-                user_id \
-            from unnessted_prompt_rules \
-            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id, conversation_id, user_id \
-            UNION ALL \
-            select ts, \
-                count(*) as count, \
-                location, \
-                rule.rule_type, \
-                rule.result, \
-                rule.name, \
-                rule.id, \
-                conversation_id, \
-                user_id \
-            from unnessted_result_rules \
-            group by ts, location, rule.rule_type, rule.result, rule.name, rule.id, conversation_id, user_id \
-            order by ts desc, location, rule.rule_type, rule.result; \
-            ",
-        ).df()
+        # Build CTE select columns
+        prompt_cte_select = [
+            "unnest(inference_prompt.prompt_rule_results) as rule",
+            "'prompt' as location",
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+        ]
+        response_cte_select = [
+            "unnest(inference_response.response_rule_results) as rule",
+            "'response' as location",
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts",
+            "count(*) as count",
+            "location",
+            "rule.rule_type",
+            "rule.result",
+            "rule.name",
+            "rule.id",
+        ]
+
+        # Build group by columns
+        group_by_cols = [
+            "ts",
+            "location",
+            "rule.rule_type",
+            "rule.result",
+            "rule.name",
+            "rule.id",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleCountAggregation.SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            prompt_cte_select.extend(["conversation_id", "user_id"])
+            response_cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+            group_by_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnessted_prompt_rules as (select {", ".join(prompt_cte_select)}
+            from {dataset.dataset_table_name}),
+            unnessted_result_rules as (select {", ".join(response_cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnessted_prompt_rules
+            group by {", ".join(group_by_cols)}
+            UNION ALL
+            select {", ".join(main_select_cols)}
+            from unnessted_result_rules
+            group by {", ".join(group_by_cols)}
+            order by ts desc, location, rule.rule_type, rule.result;
+        """
+
+        results = ddb_conn.sql(query).df()
 
         group_by_dims = [
             "location",
@@ -195,9 +242,11 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
             "result",
             "name",
             "id",
-            "conversation_id",
-            "user_id",
         ]
+        if (
+            ShieldInferenceRuleCountAggregation.SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
@@ -210,6 +259,10 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "hallucination_count"
+    SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -256,20 +309,37 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        results = ddb_conn.sql(
-            f" \
-            select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-            count(*) as count, \
-            conversation_id, \
-            user_id \
-            from {dataset.dataset_table_name} \
-            where length(list_filter(inference_response.response_rule_results, x -> (x.rule_type = 'ModelHallucinationRuleV2' or x.rule_type = 'ModelHallucinationRule') and x.result = 'Fail')) > 0 \
-            group by ts, conversation_id, user_id \
-            order by ts desc; \
-        ",
-        ).df()
+        # Build SELECT clause
+        select_cols = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "count(*) as count",
+        ]
 
-        group_by_dims = ["conversation_id", "user_id"]
+        # Build GROUP BY clause
+        group_by_cols = ["ts"]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceHallucinationCountAggregation.SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            select_cols.extend(["conversation_id", "user_id"])
+            group_by_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            select {", ".join(select_cols)}
+            from {dataset.dataset_table_name}
+            where length(list_filter(inference_response.response_rule_results, x -> (x.rule_type = 'ModelHallucinationRuleV2' or x.rule_type = 'ModelHallucinationRule') and x.result = 'Fail')) > 0
+            group by {", ".join(group_by_cols)}
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = []
+        if (
+            ShieldInferenceHallucinationCountAggregation.SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
@@ -282,6 +352,10 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
     METRIC_NAME = "toxicity_score"
+    SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -328,45 +402,61 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f"\
-                with unnested_prompt_results as (select to_timestamp(created_at / 1000) as ts, \
-                    unnest(inference_prompt.prompt_rule_results) as rule_results, \
-                    'prompt' as location, \
-                    conversation_id, \
-                    user_id \
-                from {dataset.dataset_table_name}), \
-                unnested_response_results as (select to_timestamp(created_at / 1000) as ts, \
-                        unnest(inference_response.response_rule_results) as rule_results, \
-                        'response' as location, \
-                        conversation_id, \
-                        user_id \
-                from {dataset.dataset_table_name}) \
-                select ts as timestamp, \
-                    rule_results.details.toxicity_score::DOUBLE as toxicity_score, \
-                    rule_results.result as result, \
-                    location, \
-                    conversation_id, \
-                    user_id \
-                from unnested_prompt_results \
-                where rule_results.details.toxicity_score IS NOT NULL \
-                UNION ALL \
-                select ts as timestamp, \
-                    rule_results.details.toxicity_score::DOUBLE as toxicity_score, \
-                    rule_results.result as result, \
-                    location, \
-                    conversation_id, \
-                    user_id \
-                from unnested_response_results \
-                where rule_results.details.toxicity_score IS NOT NULL \
-                order by ts desc;    \
-            ",
-        ).df()
+        # Build CTE select columns
+        prompt_cte_select = [
+            "to_timestamp(created_at / 1000) as ts",
+            "unnest(inference_prompt.prompt_rule_results) as rule_results",
+            "'prompt' as location",
+        ]
+        response_cte_select = [
+            "to_timestamp(created_at / 1000) as ts",
+            "unnest(inference_response.response_rule_results) as rule_results",
+            "'response' as location",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts as timestamp",
+            "rule_results.details.toxicity_score::DOUBLE as toxicity_score",
+            "rule_results.result as result",
+            "location",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleToxicityScoreAggregation.SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION
+        ):
+            prompt_cte_select.extend(["conversation_id", "user_id"])
+            response_cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_prompt_results as (select {", ".join(prompt_cte_select)}
+            from {dataset.dataset_table_name}),
+            unnested_response_results as (select {", ".join(response_cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnested_prompt_results
+            where rule_results.details.toxicity_score IS NOT NULL
+            UNION ALL
+            select {", ".join(main_select_cols)}
+            from unnested_response_results
+            where rule_results.details.toxicity_score IS NOT NULL
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result", "location"]
+        if (
+            ShieldInferenceRuleToxicityScoreAggregation.SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "toxicity_score",
-            ["result", "location", "conversation_id", "user_id"],
+            group_by_dims,
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -375,6 +465,10 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
     METRIC_NAME = "pii_score"
+    SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -421,51 +515,75 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f"\
-with unnested_prompt_results as (select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts,                    \
-                                        unnest(inference_prompt.prompt_rule_results)                       as rule_results,          \
-                                        'prompt'                                                           as location,              \
-                                        conversation_id,                                                    \
-                                        user_id                                                             \
-                                 from {dataset.dataset_table_name}),                                                                                         \
-     unnested_response_results as (select time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts,                  \
-                                          unnest(inference_response.response_rule_results)                   as rule_results,        \
-                                          'response'                                                         as location,            \
-                                          conversation_id,                                                    \
-                                          user_id                                                             \
-                                   from {dataset.dataset_table_name}),                                                                                       \
-     unnested_entites as (select ts,                                                                                                 \
-                                 rule_results.result,                                                                                \
-                                 rule_results.rule_type,                                                                             \
-                                 location,                                                                                           \
-                                 conversation_id,                                                                                    \
-                                 user_id,                                                                                            \
-                                 unnest(rule_results.details.pii_entities) as pii_entity                                             \
-                          from unnested_response_results                                                                             \
-                          where rule_results.rule_type = 'PIIDataRule'                                                               \
-                                                                                                                                     \
-                          UNION ALL                                                                                                  \
-                                                                                                                                     \
-                          select ts,                                                                                                 \
-                                 rule_results.result,                                                                                \
-                                 rule_results.rule_type,                                                                             \
-                                 location,                                                                                           \
-                                 conversation_id,                                                                                    \
-                                 user_id,                                                                                            \
-                                 unnest(rule_results.details.pii_entities) as pii_entity                                             \
-                          from unnested_prompt_results                                                                               \
-                          where rule_results.rule_type = 'PIIDataRule')                                                              \
-select ts as timestamp, result, rule_type, location, TRY_CAST(pii_entity.confidence AS FLOAT) as pii_score, pii_entity.entity as entity, conversation_id, user_id                 \
-from unnested_entites                                                                                                                \
-order by ts desc;                                                                                                                    \
-            ",
-        ).df()
+        # Build CTE select columns
+        prompt_cte_select = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "unnest(inference_prompt.prompt_rule_results) as rule_results",
+            "'prompt' as location",
+        ]
+        response_cte_select = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "unnest(inference_response.response_rule_results) as rule_results",
+            "'response' as location",
+        ]
+
+        # Build unnested_entities select columns
+        entities_select_cols = [
+            "ts",
+            "rule_results.result",
+            "rule_results.rule_type",
+            "location",
+            "unnest(rule_results.details.pii_entities) as pii_entity",
+        ]
+
+        # Build final select columns
+        final_select_cols = [
+            "ts as timestamp",
+            "result",
+            "rule_type",
+            "location",
+            "TRY_CAST(pii_entity.confidence AS FLOAT) as pii_score",
+            "pii_entity.entity as entity",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRulePIIDataScoreAggregation.SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION
+        ):
+            prompt_cte_select.extend(["conversation_id", "user_id"])
+            response_cte_select.extend(["conversation_id", "user_id"])
+            entities_select_cols.extend(["conversation_id", "user_id"])
+            final_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_prompt_results as (select {", ".join(prompt_cte_select)}
+            from {dataset.dataset_table_name}),
+            unnested_response_results as (select {", ".join(response_cte_select)}
+            from {dataset.dataset_table_name}),
+            unnested_entites as (select {", ".join(entities_select_cols)}
+            from unnested_response_results
+            where rule_results.rule_type = 'PIIDataRule'
+            UNION ALL
+            select {", ".join(entities_select_cols)}
+            from unnested_prompt_results
+            where rule_results.rule_type = 'PIIDataRule')
+            select {", ".join(final_select_cols)}
+            from unnested_entites
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result", "location", "entity"]
+        if (
+            ShieldInferenceRulePIIDataScoreAggregation.SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "pii_score",
-            ["result", "location", "entity", "conversation_id", "user_id"],
+            group_by_dims,
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -474,6 +592,10 @@ order by ts desc;                                                               
 
 class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_count"
+    SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -520,29 +642,48 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f"\
-                with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results, \
-                                        conversation_id, \
-                                        user_id \
-                                        from {dataset.dataset_table_name}) \
-                select ts as timestamp, \
-                    length(rule_results.details.claims) as num_claims, \
-                    rule_results.result as result, \
-                    conversation_id, \
-                    user_id \
-                from unnested_results \
-                where rule_results.rule_type = 'ModelHallucinationRuleV2' \
-                and rule_results.result != 'Skipped' \
-                order by ts desc; \
-            ",
-        ).df()
+        # Build CTE select columns
+        cte_select = [
+            "to_timestamp(created_at / 1000) as ts",
+            "unnest(inference_response.response_rule_results) as rule_results",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts as timestamp",
+            "length(rule_results.details.claims) as num_claims",
+            "rule_results.result as result",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleClaimCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_results as (select {", ".join(cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnested_results
+            where rule_results.rule_type = 'ModelHallucinationRuleV2'
+            and rule_results.result != 'Skipped'
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result"]
+        if (
+            ShieldInferenceRuleClaimCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_claims",
-            ["result", "conversation_id", "user_id"],
+            group_by_dims,
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -551,6 +692,10 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_valid_count"
+    SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -597,29 +742,48 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f"\
-                with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results, \
-                                        conversation_id, \
-                                        user_id \
-                                        from {dataset.dataset_table_name}) \
-                select ts as timestamp, \
-                    length(list_filter(rule_results.details.claims, x -> x.valid)) as num_valid_claims, \
-                    rule_results.result as result, \
-                    conversation_id, \
-                    user_id \
-                from unnested_results \
-                where rule_results.rule_type = 'ModelHallucinationRuleV2' \
-                and rule_results.result != 'Skipped' \
-                order by ts desc; \
-            ",
-        ).df()
+        # Build CTE select columns
+        cte_select = [
+            "to_timestamp(created_at / 1000) as ts",
+            "unnest(inference_response.response_rule_results) as rule_results",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts as timestamp",
+            "length(list_filter(rule_results.details.claims, x -> x.valid)) as num_valid_claims",
+            "rule_results.result as result",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleClaimPassCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_results as (select {", ".join(cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnested_results
+            where rule_results.rule_type = 'ModelHallucinationRuleV2'
+            and rule_results.result != 'Skipped'
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result"]
+        if (
+            ShieldInferenceRuleClaimPassCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_valid_claims",
-            ["result", "conversation_id", "user_id"],
+            group_by_dims,
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -628,6 +792,10 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_invalid_count"
+    SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -674,29 +842,48 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f"\
-                with unnested_results as (select to_timestamp(created_at / 1000) as ts, \
-                                        unnest(inference_response.response_rule_results) as rule_results, \
-                                        conversation_id, \
-                                        user_id \
-                                        from {dataset.dataset_table_name}) \
-                select ts as timestamp, \
-                    length(list_filter(rule_results.details.claims, x -> not x.valid)) as num_failed_claims, \
-                    rule_results.result as result, \
-                    conversation_id, \
-                    user_id \
-                from unnested_results \
-                where rule_results.rule_type = 'ModelHallucinationRuleV2' \
-                and rule_results.result != 'Skipped' \
-                order by ts desc; \
-            ",
-        ).df()
+        # Build CTE select columns
+        cte_select = [
+            "to_timestamp(created_at / 1000) as ts",
+            "unnest(inference_response.response_rule_results) as rule_results",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts as timestamp",
+            "length(list_filter(rule_results.details.claims, x -> not x.valid)) as num_failed_claims",
+            "rule_results.result as result",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleClaimFailCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_results as (select {", ".join(cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnested_results
+            where rule_results.rule_type = 'ModelHallucinationRuleV2'
+            and rule_results.result != 'Skipped'
+            order by ts desc;
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result"]
+        if (
+            ShieldInferenceRuleClaimFailCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "num_failed_claims",
-            ["result", "conversation_id", "user_id"],
+            group_by_dims,
             "timestamp",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -705,6 +892,10 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
     METRIC_NAME = "rule_latency"
+    SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     @staticmethod
     def id() -> UUID:
@@ -751,44 +942,59 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
             ),
         ],
     ) -> list[SketchMetric]:
-        results = ddb_conn.sql(
-            f" \
-            with unnested_prompt_rules as (select unnest(inference_prompt.prompt_rule_results) as rule, \
-                'prompt' as location, \
-                to_timestamp(created_at / 1000) as ts, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name}), \
-            unnested_response_rules as (select unnest(inference_response.response_rule_results) as rule,\
-                'response' as location, \
-                to_timestamp(created_at / 1000) as ts, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name}) \
-            select ts, \
-                location, \
-                rule.rule_type, \
-                rule.result, \
-                rule.latency_ms, \
-                conversation_id, \
-                user_id \
-            from unnested_prompt_rules \
-            UNION ALL \
-            select ts, \
-                location, \
-                rule.rule_type, \
-                rule.result, \
-                rule.latency_ms, \
-                conversation_id, \
-                user_id \
-            from unnested_response_rules \
-            ",
-        ).df()
+        # Build CTE select columns
+        prompt_cte_select = [
+            "unnest(inference_prompt.prompt_rule_results) as rule",
+            "'prompt' as location",
+            "to_timestamp(created_at / 1000) as ts",
+        ]
+        response_cte_select = [
+            "unnest(inference_response.response_rule_results) as rule",
+            "'response' as location",
+            "to_timestamp(created_at / 1000) as ts",
+        ]
+
+        # Build main select columns
+        main_select_cols = [
+            "ts",
+            "location",
+            "rule.rule_type",
+            "rule.result",
+            "rule.latency_ms",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceRuleLatencyAggregation.SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION
+        ):
+            prompt_cte_select.extend(["conversation_id", "user_id"])
+            response_cte_select.extend(["conversation_id", "user_id"])
+            main_select_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            with unnested_prompt_rules as (select {", ".join(prompt_cte_select)}
+            from {dataset.dataset_table_name}),
+            unnested_response_rules as (select {", ".join(response_cte_select)}
+            from {dataset.dataset_table_name})
+            select {", ".join(main_select_cols)}
+            from unnested_prompt_rules
+            UNION ALL
+            select {", ".join(main_select_cols)}
+            from unnested_response_rules
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["result", "rule_type", "location"]
+        if (
+            ShieldInferenceRuleLatencyAggregation.SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
             results,
             "latency_ms",
-            ["result", "rule_type", "location", "conversation_id", "user_id"],
+            group_by_dims,
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -797,6 +1003,10 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
 
 class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "token_count"
+    SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
+        "SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION",
+        "false",
+    ).lower() in ("true", "1", "yes")
     SUPPORTED_MODELS = [
         "gpt-4o",
         "gpt-4o-mini",
@@ -867,32 +1077,56 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
             ),
         ],
     ) -> list[NumericMetric]:
-        results = ddb_conn.sql(
-            f" \
-            select \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-                COALESCE(sum(inference_prompt.tokens), 0) as tokens, \
-                'prompt' as location, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name} \
-            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location, conversation_id, user_id \
-            UNION ALL \
-            select \
-                time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts, \
-                COALESCE(sum(inference_response.tokens), 0) as tokens, \
-                'response' as location, \
-                conversation_id, \
-                user_id \
-            from {dataset.dataset_table_name}  \
-            group by time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)), location, conversation_id, user_id; \
-            ",
-        ).df()
+        # Build SELECT clause for prompt
+        prompt_select_cols = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "COALESCE(sum(inference_prompt.tokens), 0) as tokens",
+            "'prompt' as location",
+        ]
+
+        # Build SELECT clause for response
+        response_select_cols = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000)) as ts",
+            "COALESCE(sum(inference_response.tokens), 0) as tokens",
+            "'response' as location",
+        ]
+
+        # Build GROUP BY clause
+        group_by_cols = [
+            "time_bucket(INTERVAL '5 minutes', to_timestamp(created_at / 1000))",
+            "location",
+        ]
+
+        # Conditionally add conversation_id and user_id
+        if (
+            ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            prompt_select_cols.extend(["conversation_id", "user_id"])
+            response_select_cols.extend(["conversation_id", "user_id"])
+            group_by_cols.extend(["conversation_id", "user_id"])
+
+        query = f"""
+            select {", ".join(prompt_select_cols)}
+            from {dataset.dataset_table_name}
+            group by {", ".join(group_by_cols)}
+            UNION ALL
+            select {", ".join(response_select_cols)}
+            from {dataset.dataset_table_name}
+            group by {", ".join(group_by_cols)};
+        """
+
+        results = ddb_conn.sql(query).df()
+
+        group_by_dims = ["location"]
+        if (
+            ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
+        ):
+            group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_numeric_metrics(
             results,
             "tokens",
-            ["location", "conversation_id", "user_id"],
+            group_by_dims,
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -911,20 +1145,23 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
                 for tokens, loc_type in zip(results["tokens"], location_type)
             ]
 
-            model_df = pd.DataFrame(
-                {
-                    "ts": results["ts"],
-                    "cost": cost_values,
-                    "location": results["location"],
-                    "conversation_id": results["conversation_id"],
-                    "user_id": results["user_id"],
-                },
-            )
+            model_df_dict = {
+                "ts": results["ts"],
+                "cost": cost_values,
+                "location": results["location"],
+            }
+            if (
+                ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
+            ):
+                model_df_dict["conversation_id"] = results["conversation_id"]
+                model_df_dict["user_id"] = results["user_id"]
+
+            model_df = pd.DataFrame(model_df_dict)
 
             model_series = self.group_query_results_to_numeric_metrics(
                 model_df,
                 "cost",
-                ["location", "conversation_id", "user_id"],
+                group_by_dims,
                 "ts",
             )
             resp.append(

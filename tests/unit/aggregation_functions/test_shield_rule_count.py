@@ -10,7 +10,14 @@ from .helpers import *
 
 def test_shield_inference_rule_count(
     get_shield_dataset_rule_based: tuple[DuckDBPyConnection, DatasetReference],
+    monkeypatch,
 ):
+    # Enable segmentation for this test
+    monkeypatch.setenv("SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION", "true")
+    # Update the class attribute since it's evaluated at import time
+    ShieldInferenceRuleCountAggregation.SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION = (
+        True
+    )
     conn, dataset_ref = get_shield_dataset_rule_based
 
     rule_count_aggregator = ShieldInferenceRuleCountAggregation()

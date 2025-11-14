@@ -10,7 +10,17 @@ from .helpers import *
 
 def test_shield_inference_toxicity_score(
     get_shield_dataset_rule_based: tuple[DuckDBPyConnection, DatasetReference],
+    monkeypatch,
 ):
+    # Enable segmentation for this test
+    monkeypatch.setenv(
+        "SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION",
+        "true",
+    )
+    # Update the class attribute since it's evaluated at import time
+    ShieldInferenceRuleToxicityScoreAggregation.SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION = (
+        True
+    )
     conn, dataset_ref = get_shield_dataset_rule_based
 
     toxicity_score_aggregator = ShieldInferenceRuleToxicityScoreAggregation()
