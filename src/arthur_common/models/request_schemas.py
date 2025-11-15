@@ -32,6 +32,7 @@ from arthur_common.models.enums import (
     PIIEntityTypes,
     RuleScope,
     RuleType,
+    StatusCodeEnum,
     ToolClassEnum,
 )
 from arthur_common.models.metric_schemas import RelevanceMetricConfig
@@ -600,6 +601,10 @@ class TraceQueryRequest(BaseModel):
     span_types: Optional[list[str]] = Field(
         None,
         description="Span types to filter on. Optional.",
+    )
+    status_code: Optional[StatusCodeEnum] = Field(
+        None,
+        description="Filter by span status code.",
     )
 
     # Query relevance filters
