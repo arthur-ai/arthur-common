@@ -364,12 +364,12 @@ class ResponseValidationRequest(BaseModel):
     # )
 
     @model_validator(mode="after")
-    def check_prompt_or_response(cls, values: Any) -> Any:
-        if isinstance(values, PromptValidationRequest) and values.prompt is None:
+    def check_prompt_or_response(self) -> "ResponseValidationRequest":
+        if isinstance(self, PromptValidationRequest) and self.prompt is None:
             raise ValueError("prompt is required when validating a prompt")
-        if isinstance(values, ResponseValidationRequest) and values.response is None:
+        if isinstance(self, ResponseValidationRequest) and self.response is None:
             raise ValueError("response is required when validating a response")
-        return values
+        return self
 
 
 class ChatRequest(BaseModel):
