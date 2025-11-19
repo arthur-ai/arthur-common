@@ -729,6 +729,8 @@ class TraceResponse(TokenCountCostSchema):
         description="Root spans (spans with no parent) in this trace, with children nested",
         default=[],
     )
+    annotation_score: Optional[int] = Field(default=None, description="Binary score for whether a traces has been liked or disliked (0 = disliked, 1 = liked)")
+    annotation_description: Optional[str] = Field(default=None, description="Description of the annotation")
 
 
 class QueryTracesWithMetricsResponse(BaseModel):
