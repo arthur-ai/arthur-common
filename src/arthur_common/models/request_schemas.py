@@ -32,6 +32,7 @@ from arthur_common.models.enums import (
     PIIEntityTypes,
     RuleScope,
     RuleType,
+    StatusCodeEnum,
     ToolClassEnum,
 )
 from arthur_common.models.metric_schemas import RelevanceMetricConfig
@@ -568,6 +569,10 @@ class SpanQueryRequest(BaseModel):
         None,
         description="Return only results where span name contains this substring.",
     )
+    status_code: Optional[list[StatusCodeEnum]] = Field(
+        None,
+        description="Status codes to filter on. Optional. Valid values: Ok, Error, Unset",
+    )
 
     @field_validator("span_types")
     @classmethod
@@ -640,6 +645,10 @@ class TraceQueryRequest(BaseModel):
     span_name_contains: Optional[str] = Field(
         None,
         description="Return only results where span name contains this substring.",
+    )
+    status_code: Optional[list[StatusCodeEnum]] = Field(
+        None,
+        description="Status codes to filter on. Optional. Valid values: Ok, Error, Unset",
     )
 
     # Query relevance filters
