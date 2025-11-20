@@ -155,3 +155,9 @@ class ComparisonOperatorEnum(BaseEnum):
     GREATER_THAN_OR_EQUAL = "gte"
     LESS_THAN = "lt"
     LESS_THAN_OR_EQUAL = "lte"
+
+
+class StatusCodeEnum(BaseEnum):
+    OK = "Ok"
+    ERROR = "Error"
+    UNSET = "Unset"
