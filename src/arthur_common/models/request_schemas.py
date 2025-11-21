@@ -650,6 +650,12 @@ class TraceQueryRequest(BaseModel):
         None,
         description="Status codes to filter on. Optional. Valid values: Ok, Error, Unset",
     )
+    annotation_score: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="Filter by trace annotation score (0 or 1).",
+    )
 
     # Query relevance filters
     query_relevance_eq: Optional[float] = Field(
