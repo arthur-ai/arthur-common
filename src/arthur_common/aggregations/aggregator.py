@@ -1,3 +1,4 @@
+import os
 import re
 from abc import ABC, abstractmethod
 from base64 import b64encode
@@ -11,6 +12,8 @@ from arthur_common.models.metrics import *
 
 
 class AggregationFunction(ABC):
+    FEATURE_FLAG_NAME: str | None = None
+
     @staticmethod
     @abstractmethod
     def id() -> UUID:
@@ -75,6 +78,13 @@ class AggregationFunction(ABC):
         if value is None:
             value = "null"
         return Dimension(name=name, value=str(value))
+
+    def is_feature_flag_enabled(self, feature_flag_name: str) -> bool:
+        if feature_flag_name is None:
+            value = os.getenv(self.FEATURE_FLAG_NAME, "false")
+        else:
+            value = os.getenv(feature_flag_name, "false")
+        return value.lower() in ("true", "1", "yes")
 
 
 class NumericAggregationFunction(AggregationFunction, ABC):

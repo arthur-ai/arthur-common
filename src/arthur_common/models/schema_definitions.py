@@ -436,7 +436,7 @@ def SHIELD_SCHEMA() -> DatasetSchema:
             DatasetColumn(
                 id=uuid4(),
                 source_name="user_id",
-                definition=create_dataset_scalar_type(DType.UUID),
+                definition=create_dataset_scalar_type(DType.STRING),
             ),
             DatasetColumn(
                 id=uuid4(),

@@ -1,4 +1,3 @@
-import os
 from typing import Annotated
 from uuid import UUID
 
@@ -26,10 +25,7 @@ from arthur_common.models.schema_definitions import (
 
 class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "inference_count"
-    SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -89,9 +85,7 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
         group_by_cols = ["ts", "result", "prompt_result", "response_result"]
 
         # Conditionally add conversation_id and user_id based on segmentation flag
-        if (
-            ShieldInferencePassFailCountAggregation.SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             select_cols.extend(["conversation_id", "user_id as user_id"])
             group_by_cols.extend(["conversation_id", "user_id"])
 
@@ -110,9 +104,7 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
             "prompt_result",
             "response_result",
         ]
-        if (
-            ShieldInferencePassFailCountAggregation.SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_numeric_metrics(
@@ -127,10 +119,7 @@ class ShieldInferencePassFailCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "rule_count"
-    SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -211,9 +200,7 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleCountAggregation.SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             prompt_cte_select.extend(["conversation_id", "user_id"])
             response_cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
@@ -243,9 +230,7 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
             "name",
             "id",
         ]
-        if (
-            ShieldInferenceRuleCountAggregation.SHIELD_INFERENCE_RULE_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
         series = self.group_query_results_to_numeric_metrics(
             results,
@@ -259,10 +244,7 @@ class ShieldInferenceRuleCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "hallucination_count"
-    SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -319,9 +301,7 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
         group_by_cols = ["ts"]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceHallucinationCountAggregation.SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             select_cols.extend(["conversation_id", "user_id"])
             group_by_cols.extend(["conversation_id", "user_id"])
 
@@ -336,9 +316,7 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = []
-        if (
-            ShieldInferenceHallucinationCountAggregation.SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
         series = self.group_query_results_to_numeric_metrics(
             results,
@@ -352,10 +330,7 @@ class ShieldInferenceHallucinationCountAggregation(NumericAggregationFunction):
 
 class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
     METRIC_NAME = "toxicity_score"
-    SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -423,9 +398,7 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleToxicityScoreAggregation.SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             prompt_cte_select.extend(["conversation_id", "user_id"])
             response_cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
@@ -448,9 +421,7 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result", "location"]
-        if (
-            ShieldInferenceRuleToxicityScoreAggregation.SHIELD_INFERENCE_RULE_TOXICITY_SCORE_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -465,10 +436,7 @@ class ShieldInferenceRuleToxicityScoreAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
     METRIC_NAME = "pii_score"
-    SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -547,9 +515,7 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRulePIIDataScoreAggregation.SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             prompt_cte_select.extend(["conversation_id", "user_id"])
             response_cte_select.extend(["conversation_id", "user_id"])
             entities_select_cols.extend(["conversation_id", "user_id"])
@@ -575,9 +541,7 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result", "location", "entity"]
-        if (
-            ShieldInferenceRulePIIDataScoreAggregation.SHIELD_INFERENCE_RULE_PII_DATA_SCORE_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -592,10 +556,7 @@ class ShieldInferenceRulePIIDataScoreAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_count"
-    SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -656,9 +617,7 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleClaimCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
 
@@ -675,9 +634,7 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result"]
-        if (
-            ShieldInferenceRuleClaimCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -692,10 +649,9 @@ class ShieldInferenceRuleClaimCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_valid_count"
-    SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = (
+        "SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION"
+    )
 
     @staticmethod
     def id() -> UUID:
@@ -756,9 +712,7 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleClaimPassCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
 
@@ -775,9 +729,7 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result"]
-        if (
-            ShieldInferenceRuleClaimPassCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_PASS_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -792,10 +744,9 @@ class ShieldInferenceRuleClaimPassCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
     METRIC_NAME = "claim_invalid_count"
-    SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = (
+        "SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION"
+    )
 
     @staticmethod
     def id() -> UUID:
@@ -856,9 +807,7 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleClaimFailCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
 
@@ -875,9 +824,7 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result"]
-        if (
-            ShieldInferenceRuleClaimFailCountAggregation.SHIELD_INFERENCE_RULE_CLAIM_FAIL_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -892,10 +839,7 @@ class ShieldInferenceRuleClaimFailCountAggregation(SketchAggregationFunction):
 
 class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
     METRIC_NAME = "rule_latency"
-    SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION"
 
     @staticmethod
     def id() -> UUID:
@@ -964,9 +908,7 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceRuleLatencyAggregation.SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             prompt_cte_select.extend(["conversation_id", "user_id"])
             response_cte_select.extend(["conversation_id", "user_id"])
             main_select_cols.extend(["conversation_id", "user_id"])
@@ -986,9 +928,7 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["result", "rule_type", "location"]
-        if (
-            ShieldInferenceRuleLatencyAggregation.SHIELD_INFERENCE_RULE_LATENCY_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_sketch_metrics(
@@ -1003,10 +943,7 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
 
 class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "token_count"
-    SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION = os.getenv(
-        "SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    FEATURE_FLAG_NAME = "SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION"
     SUPPORTED_MODELS = [
         "gpt-4o",
         "gpt-4o-mini",
@@ -1098,9 +1035,7 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         ]
 
         # Conditionally add conversation_id and user_id
-        if (
-            ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             prompt_select_cols.extend(["conversation_id", "user_id"])
             response_select_cols.extend(["conversation_id", "user_id"])
             group_by_cols.extend(["conversation_id", "user_id"])
@@ -1118,9 +1053,7 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         results = ddb_conn.sql(query).df()
 
         group_by_dims = ["location"]
-        if (
-            ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
-        ):
+        if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
             group_by_dims.extend(["conversation_id", "user_id"])
 
         series = self.group_query_results_to_numeric_metrics(
@@ -1150,9 +1083,7 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
                 "cost": cost_values,
                 "location": results["location"],
             }
-            if (
-                ShieldInferenceTokenCountAggregation.SHIELD_INFERENCE_TOKEN_COUNT_AGGREGATION_SEGMENTATION
-            ):
+            if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
                 model_df_dict["conversation_id"] = results["conversation_id"]
                 model_df_dict["user_id"] = results["user_id"]
 
