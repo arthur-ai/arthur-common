@@ -207,3 +207,8 @@ class UserPermission(BaseModel):
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, UserPermission) and self.__hash__() == other.__hash__()
+
+
+class VariableTemplateValue(BaseModel):
+    name: str = Field(..., description="Name of the variable")
+    value: str = Field(..., description="Value of the variable")

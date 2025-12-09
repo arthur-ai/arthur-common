@@ -161,3 +161,17 @@ class StatusCodeEnum(BaseEnum):
     OK = "Ok"
     ERROR = "Error"
     UNSET = "Unset"
+
+
+class ContinuousEvalRunStatus(BaseEnum):
+    PENDING = "pending"
+    PASSED = "passed"
+    RUNNING = "running"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    ERROR = "error"
+
+
+class AgenticAnnotationType(BaseEnum):
+    HUMAN = "human"
+    CONTINUOUS_EVAL = "continuous_eval"
