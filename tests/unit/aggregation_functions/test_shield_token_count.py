@@ -16,15 +16,15 @@ from .helpers import *
             "gpt-4o",
             100,  # prompt tokens
             150,  # response tokens
-            0.00025,  # prompt cost
-            0.0015,  # response cost
+            0.00025,  # prompt cost (litellm pricing)
+            0.0015,  # response cost (litellm pricing)
         ),
         (
             "gpt-3.5-turbo",
             100,
             150,
-            0.00015,
-            0.0003,
+            0.00005,  # prompt cost (litellm pricing)
+            0.000225,  # response cost (litellm pricing: 0.000225 = 150 * 0.0015 / 1000)
         ),
     ],
 )
@@ -108,11 +108,11 @@ def test_shield_token_count(
 
     cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
 
-    # Check costs
+    # Check costs (using 6 decimal places for better precision with litellm)
     total_prompt_cost = sum(v.value for v in cost_series["prompt"])
     total_response_cost = sum(v.value for v in cost_series["response"])
-    assert round(total_prompt_cost, 5) == expected_prompt_cost
-    assert round(total_response_cost, 5) == expected_response_cost
+    assert round(total_prompt_cost, 6) == round(expected_prompt_cost, 6)
+    assert round(total_response_cost, 6) == round(expected_response_cost, 6)
 
 
 @pytest.mark.parametrize(
@@ -122,15 +122,15 @@ def test_shield_token_count(
             "gpt-4o",
             30,  # prompt tokens
             50,  # response tokens
-            0.00007,  # prompt cost
-            0.0005,  # response cost
+            0.000075,  # prompt cost (litellm pricing: 7.5e-05)
+            0.0005,  # response cost (litellm pricing)
         ),
         (
             "gpt-3.5-turbo",
             30,
             50,
-            0.00005,
-            0.0001,
+            0.000015,  # prompt cost (litellm pricing: 1.5e-05)
+            0.000075,  # response cost (litellm pricing: 7.5e-05)
         ),
     ],
 )
@@ -214,8 +214,8 @@ def test_shield_empty_token_count(
 
     cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
 
-    # Check costs
+    # Check costs (using 6 decimal places for better precision with litellm)
     total_prompt_cost = sum(v.value for v in cost_series["prompt"])
     total_response_cost = sum(v.value for v in cost_series["response"])
-    assert round(total_prompt_cost, 5) == expected_prompt_cost
-    assert round(total_response_cost, 5) == expected_response_cost
+    assert round(total_prompt_cost, 6) == round(expected_prompt_cost, 6)
+    assert round(total_response_cost, 6) == round(expected_response_cost, 6)
