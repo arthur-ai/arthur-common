@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pandas as pd
 from duckdb import DuckDBPyConnection
-from tokencost import calculate_cost_by_tokens
+from litellm import cost_per_token
 
 from arthur_common.aggregations.aggregator import (
     NumericAggregationFunction,
@@ -949,7 +949,7 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         "gpt-4o-mini",
         "gpt-3.5-turbo",
         "o1-mini",
-        "deepseek-chat",
+        "deepseek/deepseek-chat",
         "claude-3-5-sonnet-20241022",
         "gemini/gemini-1.5-pro",
         "meta.llama3-1-8b-instruct-v1:0",
@@ -1066,17 +1066,29 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
         resp = [metric]
 
         # Compute Cost for each model
-        # Precompute input/output classification to avoid recalculating in loop
-        location_type = results["location"].apply(
-            lambda x: "input" if x == "prompt" else "output",
-        )
-
         for model in self.SUPPORTED_MODELS:
-            # Efficient list comprehension instead of apply
-            cost_values = [
-                calculate_cost_by_tokens(int(tokens), model, loc_type)
-                for tokens, loc_type in zip(results["tokens"], location_type)
-            ]
+            try:
+                # Use litellm's cost_per_token for cost calculation
+                # For each row, set prompt_tokens or completion_tokens based on location
+                cost_values = []
+                for tokens, location in zip(results["tokens"], results["location"]):
+                    if location == "prompt":
+                        prompt_cost, _ = cost_per_token(
+                            model=model,
+                            prompt_tokens=int(tokens),
+                            completion_tokens=0,
+                        )
+                        cost_values.append(prompt_cost)
+                    else:  # response
+                        _, completion_cost = cost_per_token(
+                            model=model,
+                            prompt_tokens=0,
+                            completion_tokens=int(tokens),
+                        )
+                        cost_values.append(completion_cost)
+            except Exception:
+                # Skip models not supported by litellm
+                continue
 
             model_df_dict = {
                 "ts": results["ts"],
