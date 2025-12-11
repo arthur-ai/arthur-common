@@ -260,7 +260,9 @@ class SketchAggregationFunction(AggregationFunction, ABC):
             # Get the first row of the group to determine the group level dimensions
             dims_row = group.iloc[0]
             for dim in dim_columns:
-                d = AggregationFunction.string_to_dimension(name=dim, value=dims_row[dim])
+                d = AggregationFunction.string_to_dimension(
+                    name=dim, value=dims_row[dim]
+                )
                 dimensions.append(d)
 
         values: list[SketchPoint] = []

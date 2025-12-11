@@ -1,5 +1,5 @@
-from enum import Enum
 import warnings
+from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Union
 
 from litellm.types.llms.anthropic import AnthropicThinkingParam
@@ -103,7 +103,6 @@ class JsonPropertySchema(BaseModel):
 class JsonSchema(BaseModel):
     type: str = Field(default="object")
     properties: Dict[str, JsonPropertySchema] = Field(
-        ...,
         description="The name of the property and the property schema (e.g. {'topic': {'type': 'string', 'description': 'the topic to generate a joke for'})",
     )
     required: List[str] = Field(
@@ -124,9 +123,8 @@ class StreamOptions(BaseModel):
 
 
 class LogitBiasItem(BaseModel):
-    token_id: int = Field(..., description="Token ID to bias")
+    token_id: int = Field(description="Token ID to bias")
     bias: float = Field(
-        ...,
         ge=-100,
         le=100,
         description="Bias value between -100 and 100",
@@ -134,8 +132,8 @@ class LogitBiasItem(BaseModel):
 
 
 class ToolCallFunction(BaseModel):
-    name: str = Field(..., description="Name of the function to call")
-    arguments: str = Field(..., description="JSON string of function arguments")
+    name: str = Field(description="Name of the function to call")
+    arguments: str = Field(description="JSON string of function arguments")
 
 
 class ToolCall(BaseModel):
@@ -143,30 +141,28 @@ class ToolCall(BaseModel):
         default="function",
         description="The type of tool call. Currently the only type supported is 'function'.",
     )
-    id: str = Field(..., description="Unique identifier for the tool call")
-    function: ToolCallFunction = Field(..., description="Function details")
+    id: str = Field(description="Unique identifier for the tool call")
+    function: ToolCallFunction = Field(description="Function details")
 
     @field_validator("type", mode="before")
     @classmethod
-    def force_type(cls, v):
+    def force_type(cls, v: str) -> str:
         return "function"
 
 
 class ImageURL(BaseModel):
-    url: str = Field(..., description="URL of the image")
+    url: str = Field(description="URL of the image")
 
 
 class InputAudio(BaseModel):
-    data: str = Field(..., description="Base64 encoded audio data")
+    data: str = Field(description="Base64 encoded audio data")
     format: str = Field(
-        ...,
         description="audio format (e.g. 'mp3', 'wav', 'flac', etc.)",
     )
 
 
 class OpenAIMessageItem(BaseModel):
     type: OpenAIMessageType = Field(
-        ...,
         description="Type of the message (either 'text', 'image_url', or 'input_audio')",
     )
     text: Optional[str] = Field(
@@ -215,7 +211,7 @@ class OpenAIMessage(BaseModel):
 
 
 class ToolFunction(BaseModel):
-    name: str = Field(..., description="The name of the tool/function")
+    name: str = Field(description="The name of the tool/function")
     description: Optional[str] = Field(
         default=None,
         description="Description of what the tool does",
@@ -231,7 +227,7 @@ class LLMTool(BaseModel):
         default="function",
         description="The type of tool. Should always be 'function'",
     )
-    function: ToolFunction = Field(..., description="The function definition")
+    function: ToolFunction = Field(description="The function definition")
     strict: Optional[bool] = Field(
         default=None,
         description="Whether the function definition should use OpenAI's strict mode",
@@ -239,14 +235,14 @@ class LLMTool(BaseModel):
 
     @field_validator("type", mode="before")
     @classmethod
-    def force_type(cls, v):
+    def force_type(cls, v: str) -> str:
         return "function"
 
 
 class LLMResponseSchema(BaseModel):
-    name: str = Field(..., description="Name of the schema")
+    name: str = Field(description="Name of the schema")
     description: Optional[str] = Field(None, description="Description of the schema")
-    schema: JsonSchema = Field(..., description="The JSON schema object")
+    schema: JsonSchema = Field(description="The JSON schema object")  # type: ignore[assignment]
     strict: Optional[bool] = Field(
         None,
         description="Whether to enforce strict schema adherence",
@@ -255,9 +251,8 @@ class LLMResponseSchema(BaseModel):
 
 class LLMResponseFormat(BaseModel):
     type: LLMResponseFormatEnum = Field(
-        ...,
         description="Response format type: 'text', 'json_object', or 'json_schema'",
-        example="json_schema",
+        examples=["json_schema"],
     )
     json_schema: Optional[LLMResponseSchema] = Field(
         None,
@@ -265,14 +260,14 @@ class LLMResponseFormat(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_schema_requirement(self):
+    def validate_schema_requirement(self) -> "LLMResponseFormat":
         if self.type == LLMResponseFormatEnum.JSON_SCHEMA and not self.json_schema:
             raise ValueError(
                 "json_schema object is required when using type='json_schema'",
             )
         if (
-                self.type != LLMResponseFormatEnum.JSON_SCHEMA
-                and self.json_schema is not None
+            self.type != LLMResponseFormatEnum.JSON_SCHEMA
+            and self.json_schema is not None
         ):
             raise ValueError(
                 f'response format must only be {{"type": "{self.type}"}} when using type="{self.type}"',
@@ -285,7 +280,7 @@ class LLMResponseFormat(BaseModel):
 
 
 class ToolChoiceFunction(BaseModel):
-    name: str = Field(..., description="The name of the function")
+    name: str = Field(description="The name of the function")
 
 
 class ToolChoice(BaseModel):
@@ -300,7 +295,7 @@ class ToolChoice(BaseModel):
 
     @field_validator("type", mode="before")
     @classmethod
-    def force_type(cls, v):
+    def force_type(cls, v: str) -> str:
         return "function"
 
 
