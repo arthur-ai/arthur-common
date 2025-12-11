@@ -666,6 +666,10 @@ class TraceQueryRequest(BaseModel):
         None,
         description="Filter by trace annotation run status (e.g. 'passed', 'failed', etc.).",
     )
+    continuous_eval_name: Optional[str] = Field(
+        None,
+        description="Filter by continuous eval name.",
+    )
 
     # Query relevance filters
     query_relevance_eq: Optional[float] = Field(
