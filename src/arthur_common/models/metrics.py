@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
 from arthur_common.models.enums import ModelProblemType
