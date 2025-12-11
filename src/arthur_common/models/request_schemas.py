@@ -34,6 +34,8 @@ from arthur_common.models.enums import (
     RuleType,
     StatusCodeEnum,
     ToolClassEnum,
+    ContinuousEvalRunStatus,
+    AgenticAnnotationType,
 )
 from arthur_common.models.metric_schemas import RelevanceMetricConfig
 
@@ -655,6 +657,18 @@ class TraceQueryRequest(BaseModel):
         ge=0,
         le=1,
         description="Filter by trace annotation score (0 or 1).",
+    )
+    annotation_type: Optional[AgenticAnnotationType] = Field(
+        None,
+        description="Filter by trace annotation type (i.e. 'human' or 'continuous_eval').",
+    )
+    continuous_eval_run_status: Optional[ContinuousEvalRunStatus] = Field(
+        None,
+        description="Filter by trace annotation run status (e.g. 'passed', 'failed', etc.).",
+    )
+    continuous_eval_name: Optional[str] = Field(
+        None,
+        description="Filter by continuous eval name.",
     )
 
     # Query relevance filters
