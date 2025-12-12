@@ -751,8 +751,14 @@ class AgenticAnnotationMetadataResponse(BaseModel):
     continuous_eval_id: Optional[str] = Field(
         default=None, description="ID of the continuous eval this annotation belongs to"
     )
+    continuous_eval_name: Optional[str] = Field(
+        default=None, description="Name of the continuous eval this annotation belongs to"
+    )
     annotation_score: Optional[int] = Field(
         default=None, description="Binary score for a positive or negative annotation."
+    )
+    annotation_description: Optional[str] = Field(
+        default=None, description="Description of the annotation."
     )
     run_status: Optional[str] = Field(
         default=None, description="Status of the continuous eval run"
