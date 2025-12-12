@@ -10,8 +10,11 @@ from arthur_common.models.common_schemas import (
     PIIConfig,
     RegexConfig,
     ToxicityConfig,
+    VariableTemplateValue,
 )
 from arthur_common.models.enums import (
+    AgenticAnnotationType,
+    ContinuousEvalRunStatus,
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
@@ -709,6 +712,65 @@ class NestedSpanWithMetricsResponse(TokenCountCostSchema):
     )
 
 
+class AgenticAnnotationResponse(BaseModel):
+    id: str = Field(description="ID of the annotation")
+    annotation_type: AgenticAnnotationType = Field(description="Type of annotation")
+    trace_id: str = Field(description="ID of the trace this annotation belongs to")
+    continuous_eval_id: Optional[str] = Field(
+        default=None, description="ID of the continuous eval this annotation belongs to"
+    )
+    annotation_score: Optional[int] = Field(
+        default=None, description="Binary score for a positive or negative annotation."
+    )
+    annotation_description: Optional[str] = Field(
+        default=None, description="Description of the annotation."
+    )
+    input_variables: Optional[List[VariableTemplateValue]] = Field(
+        default=None, description="Input variables for the continuous eval"
+    )
+    run_status: Optional[ContinuousEvalRunStatus] = Field(
+        default=None, description="Status of the continuous eval run"
+    )
+    cost: Optional[float] = Field(
+        default=None, description="Cost of the continuous eval run"
+    )
+    created_at: datetime = Field(description="Time the annotation was created")
+    updated_at: datetime = Field(description="Time the annotation was last updated")
+
+
+class ListAgenticAnnotationsResponse(BaseModel):
+    annotations: list[AgenticAnnotationResponse] = Field(
+        description="List of annotations"
+    )
+
+
+class AgenticAnnotationMetadataResponse(BaseModel):
+    id: str = Field(description="ID of the annotation")
+    annotation_type: AgenticAnnotationType = Field(description="Type of annotation")
+    trace_id: str = Field(description="ID of the trace this annotation belongs to")
+    continuous_eval_id: Optional[str] = Field(
+        default=None, description="ID of the continuous eval this annotation belongs to"
+    )
+    annotation_score: Optional[int] = Field(
+        default=None, description="Binary score for a positive or negative annotation."
+    )
+    run_status: Optional[str] = Field(
+        default=None, description="Status of the continuous eval run"
+    )
+    cost: Optional[float] = Field(
+        default=None, description="Cost of the continuous eval run"
+    )
+    created_at: datetime = Field(description="Time the annotation was created")
+    updated_at: datetime = Field(description="Time the annotation was last updated")
+
+
+class ListAgenticAnnotationsMetadataResponse(BaseModel):
+    annotations: list[AgenticAnnotationMetadataResponse] = Field(
+        description="List of annotations"
+    )
+    count: int = Field(description="Total number of annotations")
+
+
 class TraceResponse(TokenCountCostSchema):
     """Response model for a single trace containing nested spans"""
 
@@ -728,6 +790,9 @@ class TraceResponse(TokenCountCostSchema):
     root_spans: list[NestedSpanWithMetricsResponse] = Field(
         description="Root spans (spans with no parent) in this trace, with children nested",
         default=[],
+    )
+    annotations: Optional[List[AgenticAnnotationMetadataResponse]] = Field(
+        default=None, description="Annotations for this trace."
     )
 
 

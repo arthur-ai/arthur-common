@@ -32,7 +32,10 @@ from arthur_common.models.enums import (
     PIIEntityTypes,
     RuleScope,
     RuleType,
+    StatusCodeEnum,
     ToolClassEnum,
+    ContinuousEvalRunStatus,
+    AgenticAnnotationType,
 )
 from arthur_common.models.metric_schemas import RelevanceMetricConfig
 
@@ -548,6 +551,30 @@ class SpanQueryRequest(BaseModel):
         None,
         description="Exclusive end date in ISO8601 string format.",
     )
+    session_ids: Optional[list[str]] = Field(
+        None,
+        description="Session IDs to filter on. Optional.",
+    )
+    span_ids: Optional[list[str]] = Field(
+        None,
+        description="Span IDs to filter on. Optional.",
+    )
+    user_ids: Optional[list[str]] = Field(
+        None,
+        description="User IDs to filter on. Optional.",
+    )
+    span_name: Optional[str] = Field(
+        None,
+        description="Return only results with this span name.",
+    )
+    span_name_contains: Optional[str] = Field(
+        None,
+        description="Return only results where span name contains this substring.",
+    )
+    status_code: Optional[list[StatusCodeEnum]] = Field(
+        None,
+        description="Status codes to filter on. Optional. Valid values: Ok, Error, Unset",
+    )
 
     @field_validator("span_types")
     @classmethod
@@ -600,6 +627,48 @@ class TraceQueryRequest(BaseModel):
     span_types: Optional[list[str]] = Field(
         None,
         description="Span types to filter on. Optional.",
+    )
+    span_ids: Optional[list[str]] = Field(
+        None,
+        description="Span IDs to filter on. Optional.",
+    )
+    session_ids: Optional[list[str]] = Field(
+        None,
+        description="Session IDs to filter on. Optional.",
+    )
+    user_ids: Optional[list[str]] = Field(
+        None,
+        description="User IDs to filter on. Optional.",
+    )
+    span_name: Optional[str] = Field(
+        None,
+        description="Return only results with this span name.",
+    )
+    span_name_contains: Optional[str] = Field(
+        None,
+        description="Return only results where span name contains this substring.",
+    )
+    status_code: Optional[list[StatusCodeEnum]] = Field(
+        None,
+        description="Status codes to filter on. Optional. Valid values: Ok, Error, Unset",
+    )
+    annotation_score: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="Filter by trace annotation score (0 or 1).",
+    )
+    annotation_type: Optional[AgenticAnnotationType] = Field(
+        None,
+        description="Filter by trace annotation type (i.e. 'human' or 'continuous_eval').",
+    )
+    continuous_eval_run_status: Optional[ContinuousEvalRunStatus] = Field(
+        None,
+        description="Filter by trace annotation run status (e.g. 'passed', 'failed', etc.).",
+    )
+    continuous_eval_name: Optional[str] = Field(
+        None,
+        description="Filter by continuous eval name.",
     )
 
     # Query relevance filters

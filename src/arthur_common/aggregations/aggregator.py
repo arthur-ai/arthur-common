@@ -1,3 +1,4 @@
+import os
 import re
 from abc import ABC, abstractmethod
 from base64 import b64encode
@@ -11,6 +12,8 @@ from arthur_common.models.metrics import *
 
 
 class AggregationFunction(ABC):
+    FEATURE_FLAG_NAME: str | None = None
+
     @staticmethod
     @abstractmethod
     def id() -> UUID:
@@ -75,6 +78,13 @@ class AggregationFunction(ABC):
         if value is None:
             value = "null"
         return Dimension(name=name, value=str(value))
+
+    def is_feature_flag_enabled(self, feature_flag_name: str) -> bool:
+        if feature_flag_name is None:
+            value = os.getenv(self.FEATURE_FLAG_NAME, "false")
+        else:
+            value = os.getenv(feature_flag_name, "false")
+        return value.lower() in ("true", "1", "yes")
 
 
 class NumericAggregationFunction(AggregationFunction, ABC):
@@ -205,12 +215,23 @@ class SketchAggregationFunction(AggregationFunction, ABC):
             dim_columns,
         )
 
-        # make sure dropna is False or rows with "null" as a dimension value will be dropped
-        groups = data.groupby(dim_columns, dropna=False)
-        for _, group in groups:
+        if dim_columns:
+            # make sure dropna is False or rows with "null" as a dimension value will be dropped
+            # call _group_to_series for each grouped DF
+            groups = data.groupby(dim_columns, dropna=False)
+            for _, group in groups:
+                calculated_metrics.append(
+                    SketchAggregationFunction._group_to_series(
+                        group,
+                        timestamp_col,
+                        dim_columns,
+                        value_col,
+                    ),
+                )
+        else:
             calculated_metrics.append(
                 SketchAggregationFunction._group_to_series(
-                    group,
+                    data,
                     timestamp_col,
                     dim_columns,
                     value_col,
@@ -235,11 +256,14 @@ class SketchAggregationFunction(AggregationFunction, ABC):
             return s
 
         dimensions: list[Dimension] = []
-        # Get the first row of the group to determine the group level dimensions
-        dims_row = group.iloc[0]
-        for dim in dim_columns:
-            d = AggregationFunction.string_to_dimension(name=dim, value=dims_row[dim])
-            dimensions.append(d)
+        if dim_columns:
+            # Get the first row of the group to determine the group level dimensions
+            dims_row = group.iloc[0]
+            for dim in dim_columns:
+                d = AggregationFunction.string_to_dimension(
+                    name=dim, value=dims_row[dim]
+                )
+                dimensions.append(d)
 
         values: list[SketchPoint] = []
 
