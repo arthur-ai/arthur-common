@@ -337,8 +337,18 @@ def test_annotation_cost_sum(agentic_metadata_conn):
     assert metrics[0].name == "annotation_cost_sum"
     assert hasattr(metrics[0], "numeric_series")
 
-    # Verify all values are non-negative
-    for series in metrics[0].numeric_series:
+    # Check dimensions
+    metric = metrics[0]
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {
+            "continuous_eval_name",
+            "eval_name",
+            "eval_version",
+        }
+        assert expected_dims.issubset(dim_names)
+
+        # Verify all values are non-negative
         for point in series.values:
             # Costs should be non-negative
             assert point.value >= 0
@@ -360,6 +370,15 @@ def test_annotation_cost_distribution(agentic_metadata_conn):
     from base64 import b64decode
 
     for series in metrics[0].sketch_series:
+        # Check dimensions
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {
+            "continuous_eval_name",
+            "eval_name",
+            "eval_version",
+        }
+        assert expected_dims.issubset(dim_names)
+
         assert len(series.values) > 0
         for sketch_value in series.values:
             sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))

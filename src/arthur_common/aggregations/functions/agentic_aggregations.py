@@ -686,12 +686,15 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.continuous_eval_name,
+                unnest.eval_name,
+                unnest.eval_version,
                 SUM(unnest."cost") as total_cost
             FROM {dataset.dataset_table_name},
                 UNNEST(annotations)
             WHERE annotations IS NOT NULL
                 AND unnest."cost" IS NOT NULL
-            GROUP BY ts
+            GROUP BY ts, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version
             ORDER BY ts DESC;
             """,
         ).df()
@@ -702,7 +705,7 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "total_cost",
-            [],
+            ["continuous_eval_name", "eval_name", "eval_version"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -753,6 +756,9 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.continuous_eval_name,
+                unnest.eval_name,
+                unnest.eval_version,
                 unnest."cost" as cost
             FROM {dataset.dataset_table_name},
                 UNNEST(annotations)
@@ -765,7 +771,14 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
         if results.empty:
             return []
 
-        # Create a single time series without grouping dimensions
-        series = [self._group_to_series(results, "ts", [], "cost")]
+        # Create time series grouped by eval dimensions
+        series = [
+            self._group_to_series(
+                results,
+                "ts",
+                ["continuous_eval_name", "eval_name", "eval_version"],
+                "cost",
+            )
+        ]
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
