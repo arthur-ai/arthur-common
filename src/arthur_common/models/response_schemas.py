@@ -719,6 +719,14 @@ class AgenticAnnotationResponse(BaseModel):
     continuous_eval_id: Optional[str] = Field(
         default=None, description="ID of the continuous eval this annotation belongs to"
     )
+    continuous_eval_name: Optional[str] = Field(
+        default=None,
+        description="Name of the continuous eval this annotation belongs to",
+    )
+    eval_name: Optional[str] = Field(
+        default=None,
+        description="Name of the eval the continuous eval used when scoring",
+    )
     annotation_score: Optional[int] = Field(
         default=None, description="Binary score for a positive or negative annotation."
     )
@@ -740,32 +748,6 @@ class AgenticAnnotationResponse(BaseModel):
 
 class ListAgenticAnnotationsResponse(BaseModel):
     annotations: list[AgenticAnnotationResponse] = Field(
-        description="List of annotations"
-    )
-
-
-class AgenticAnnotationMetadataResponse(BaseModel):
-    id: str = Field(description="ID of the annotation")
-    annotation_type: AgenticAnnotationType = Field(description="Type of annotation")
-    trace_id: str = Field(description="ID of the trace this annotation belongs to")
-    continuous_eval_id: Optional[str] = Field(
-        default=None, description="ID of the continuous eval this annotation belongs to"
-    )
-    annotation_score: Optional[int] = Field(
-        default=None, description="Binary score for a positive or negative annotation."
-    )
-    run_status: Optional[str] = Field(
-        default=None, description="Status of the continuous eval run"
-    )
-    cost: Optional[float] = Field(
-        default=None, description="Cost of the continuous eval run"
-    )
-    created_at: datetime = Field(description="Time the annotation was created")
-    updated_at: datetime = Field(description="Time the annotation was last updated")
-
-
-class ListAgenticAnnotationsMetadataResponse(BaseModel):
-    annotations: list[AgenticAnnotationMetadataResponse] = Field(
         description="List of annotations"
     )
     count: int = Field(description="Total number of annotations")
@@ -791,7 +773,7 @@ class TraceResponse(TokenCountCostSchema):
         description="Root spans (spans with no parent) in this trace, with children nested",
         default=[],
     )
-    annotations: Optional[List[AgenticAnnotationMetadataResponse]] = Field(
+    annotations: Optional[List[AgenticAnnotationResponse]] = Field(
         default=None, description="Annotations for this trace."
     )
 
