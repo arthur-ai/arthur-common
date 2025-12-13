@@ -373,7 +373,52 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
         columns=[
             DatasetColumn(
                 id=uuid4(),
+                source_name="prompt_token_count",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="completion_token_count",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="total_token_count",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="prompt_token_cost",
+                definition=create_dataset_scalar_type(DType.FLOAT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="completion_token_cost",
+                definition=create_dataset_scalar_type(DType.FLOAT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="total_token_cost",
+                definition=create_dataset_scalar_type(DType.FLOAT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
                 source_name="trace_id",
+                definition=create_dataset_scalar_type(DType.STRING),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="task_id",
+                definition=create_dataset_scalar_type(DType.UUID),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="user_id",
+                definition=create_dataset_scalar_type(DType.STRING),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="session_id",
                 definition=create_dataset_scalar_type(DType.STRING),
             ),
             DatasetColumn(
@@ -388,11 +433,73 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             ),
             DatasetColumn(
                 id=uuid4(),
-                source_name="root_spans",
+                source_name="span_count",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="duration_ms",
+                definition=create_dataset_scalar_type(DType.FLOAT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="created_at",
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="updated_at",
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="input_content",
+                definition=create_dataset_scalar_type(DType.STRING),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="output_content",
+                definition=create_dataset_scalar_type(DType.STRING),
+            ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="annotations",
                 definition=create_dataset_list_type(
-                    create_dataset_scalar_type(
-                        DType.JSON,
-                    ),  # JSON blob to preserve hierarchy
+                    create_dataset_object_type(
+                        {
+                            "id": create_dataset_scalar_type(DType.UUID),
+                            "annotation_type": create_dataset_scalar_type(DType.STRING),
+                            "trace_id": create_dataset_scalar_type(DType.STRING),
+                            "continuous_eval_id": create_dataset_scalar_type(
+                                DType.UUID
+                            ),
+                            "continuous_eval_name": create_dataset_scalar_type(
+                                DType.STRING
+                            ),
+                            "eval_name": create_dataset_scalar_type(DType.STRING),
+                            "eval_version": create_dataset_scalar_type(DType.INT),
+                            "annotation_score": create_dataset_scalar_type(DType.INT),
+                            "annotation_description": create_dataset_scalar_type(
+                                DType.STRING
+                            ),
+                            "input_variables": create_dataset_list_type(
+                                create_dataset_object_type(
+                                    {
+                                        "name": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
+                                        "value": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
+                                    },
+                                ),
+                            ),
+                            "run_status": create_dataset_scalar_type(DType.STRING),
+                            "cost": create_dataset_scalar_type(DType.FLOAT),
+                            "created_at": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "updated_at": create_dataset_scalar_type(DType.TIMESTAMP),
+                        },
+                    ),
                 ),
             ),
         ],
@@ -459,32 +566,6 @@ def SHIELD_SCHEMA() -> DatasetSchema:
 
 SHIELD_RESPONSE_SCHEMA = create_shield_response_schema().to_base_type()
 SHIELD_PROMPT_SCHEMA = create_shield_prompt_schema().to_base_type()
-
-
-# Agentic trace schema base type for API responses
-def create_agentic_trace_response_schema() -> DatasetObjectType:
-    return create_dataset_object_type(
-        {
-            "count": create_dataset_scalar_type(DType.INT),
-            "traces": create_dataset_list_type(
-                create_dataset_object_type(
-                    {
-                        "trace_id": create_dataset_scalar_type(DType.STRING),
-                        "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
-                        "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
-                        "root_spans": create_dataset_list_type(
-                            create_dataset_scalar_type(
-                                DType.JSON,
-                            ),  # JSON blob for infinite depth
-                        ),
-                    },
-                ),
-            ),
-        },
-    )
-
-
-AGENTIC_TRACE_RESPONSE_SCHEMA = create_agentic_trace_response_schema().to_base_type()
 
 SEGMENTATION_ALLOWED_DTYPES = [DType.INT, DType.BOOL, DType.STRING, DType.UUID]
 SEGMENTATION_ALLOWED_COLUMN_TYPES = [
