@@ -727,7 +727,7 @@ class AgenticAnnotationResponse(BaseModel):
         default=None,
         description="Name of the eval the continuous eval used when scoring",
     )
-    eval_version: Optional[str] = Field(
+    eval_version: Optional[int] = Field(
         default=None,
         description="Version of the eval the continuous eval used when scoring",
     )
