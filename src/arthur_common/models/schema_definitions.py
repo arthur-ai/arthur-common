@@ -424,12 +424,12 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             DatasetColumn(
                 id=uuid4(),
                 source_name="start_time",
-                definition=create_dataset_scalar_type(DType.STRING),
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
                 source_name="end_time",
-                definition=create_dataset_scalar_type(DType.STRING),
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
@@ -444,12 +444,12 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             DatasetColumn(
                 id=uuid4(),
                 source_name="created_at",
-                definition=create_dataset_scalar_type(DType.STRING),
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
                 source_name="updated_at",
-                definition=create_dataset_scalar_type(DType.STRING),
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
@@ -486,8 +486,8 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                             ),
                             "run_status": create_dataset_scalar_type(DType.STRING),
                             "cost": create_dataset_scalar_type(DType.FLOAT),
-                            "created_at": create_dataset_scalar_type(DType.STRING),
-                            "updated_at": create_dataset_scalar_type(DType.STRING),
+                            "created_at": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "updated_at": create_dataset_scalar_type(DType.TIMESTAMP),
                         },
                     ),
                 ),
