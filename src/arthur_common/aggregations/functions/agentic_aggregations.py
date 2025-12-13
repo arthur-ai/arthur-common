@@ -206,8 +206,13 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
         if results.empty:
             return []
 
-        # Create a single time series without grouping dimensions
-        series = [self._group_to_series(results, "ts", [], "duration_ms")]
+        # Use the proper grouping function for sketch metrics
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "duration_ms",
+            [],
+            "ts",
+        )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
 
@@ -387,9 +392,12 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
                 ["ts", "total_token_cost"]
             ]
             if not total_data.empty:
-                series = [
-                    self._group_to_series(total_data, "ts", [], "total_token_cost"),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    total_data,
+                    "total_token_cost",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series),
                 )
@@ -400,9 +408,12 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
                 ["ts", "prompt_token_cost"]
             ]
             if not prompt_data.empty:
-                series = [
-                    self._group_to_series(prompt_data, "ts", [], "prompt_token_cost"),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    prompt_data,
+                    "prompt_token_cost",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series),
                 )
@@ -413,14 +424,12 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
                 ["ts", "completion_token_cost"]
             ]
             if not completion_data.empty:
-                series = [
-                    self._group_to_series(
-                        completion_data,
-                        "ts",
-                        [],
-                        "completion_token_cost",
-                    ),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    completion_data,
+                    "completion_token_cost",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.COMPLETION_COST_METRIC_NAME, series),
                 )
@@ -603,9 +612,12 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
                 ["ts", "total_token_count"]
             ]
             if not total_data.empty:
-                series = [
-                    self._group_to_series(total_data, "ts", [], "total_token_count"),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    total_data,
+                    "total_token_count",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series),
                 )
@@ -616,9 +628,12 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
                 ["ts", "prompt_token_count"]
             ]
             if not prompt_data.empty:
-                series = [
-                    self._group_to_series(prompt_data, "ts", [], "prompt_token_count"),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    prompt_data,
+                    "prompt_token_count",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series),
                 )
@@ -629,14 +644,12 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
                 ["ts", "completion_token_count"]
             ]
             if not completion_data.empty:
-                series = [
-                    self._group_to_series(
-                        completion_data,
-                        "ts",
-                        [],
-                        "completion_token_count",
-                    ),
-                ]
+                series = self.group_query_results_to_sketch_metrics(
+                    completion_data,
+                    "completion_token_count",
+                    [],
+                    "ts",
+                )
                 metrics.append(
                     self.series_to_metric(self.COMPLETION_COUNT_METRIC_NAME, series),
                 )
@@ -771,14 +784,13 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
         if results.empty:
             return []
 
-        # Create time series grouped by eval dimensions
-        series = [
-            self._group_to_series(
-                results,
-                "ts",
-                ["continuous_eval_name", "eval_name", "eval_version"],
-                "cost",
-            )
-        ]
+        # Use the proper grouping function for sketch metrics with dimensions
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "cost",
+            ["continuous_eval_name", "eval_name", "eval_version"],
+            "ts",
+        )
+
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]

@@ -155,8 +155,8 @@ def test_trace_count(agentic_metadata_conn):
         for point in series.values:
             total_count += point.value
 
-    # Should equal the number of traces in the test data (22)
-    assert total_count == 22
+    # Should equal the number of traces in the test data (18)
+    assert total_count == 18
 
 
 # Annotation Count Tests
@@ -195,7 +195,8 @@ def test_trace_latency(agentic_metadata_conn):
     assert len(metrics) == 1
     assert metrics[0].name == "trace_latency"
     assert hasattr(metrics[0], "sketch_series")
-    assert len(metrics[0].sketch_series) > 0
+    # No dimensions, so should have exactly 1 series
+    assert len(metrics[0].sketch_series) == 1
 
     # Verify sketch data is valid
     from base64 import b64decode
@@ -256,7 +257,8 @@ def test_token_cost_distribution(agentic_metadata_conn):
     from base64 import b64decode
 
     for metric in metrics:
-        assert len(metric.sketch_series) > 0
+        # No dimensions, so each metric should have exactly 1 series
+        assert len(metric.sketch_series) == 1
         for series in metric.sketch_series:
             assert len(series.values) > 0
             for sketch_value in series.values:
@@ -313,7 +315,8 @@ def test_token_count_distribution(agentic_metadata_conn):
     from base64 import b64decode
 
     for metric in metrics:
-        assert len(metric.sketch_series) > 0
+        # No dimensions, so each metric should have exactly 1 series
+        assert len(metric.sketch_series) == 1
         for series in metric.sketch_series:
             assert len(series.values) > 0
             for sketch_value in series.values:
@@ -336,6 +339,9 @@ def test_annotation_cost_sum(agentic_metadata_conn):
     assert len(metrics) == 1
     assert metrics[0].name == "annotation_cost_sum"
     assert hasattr(metrics[0], "numeric_series")
+    # Test data has 8 annotations with cost across 2 unique dimension combinations
+    # Each combination should have at least one time series
+    assert len(metrics[0].numeric_series) >= 2
 
     # Check dimensions
     metric = metrics[0]
@@ -364,7 +370,11 @@ def test_annotation_cost_distribution(agentic_metadata_conn):
     assert len(metrics) == 1
     assert metrics[0].name == "annotation_cost_distribution"
     assert hasattr(metrics[0], "sketch_series")
-    assert len(metrics[0].sketch_series) > 0
+    # Test data has 8 annotations with cost across 2 unique dimension combinations:
+    # 1. SQL Dialect Matcher / Postgres SQL Dialect Detector v1 (5 annotations)
+    # 2. Always fail / Always Fails v1 (3 annotations)
+    # So we expect exactly 2 series
+    assert len(metrics[0].sketch_series) == 2
 
     # Verify sketches are valid
     from base64 import b64decode
