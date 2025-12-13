@@ -727,6 +727,10 @@ class AgenticAnnotationResponse(BaseModel):
         default=None,
         description="Name of the eval the continuous eval used when scoring",
     )
+    eval_version: Optional[str] = Field(
+        default=None,
+        description="Version of the eval the continuous eval used when scoring",
+    )
     annotation_score: Optional[int] = Field(
         default=None, description="Binary score for a positive or negative annotation."
     )
