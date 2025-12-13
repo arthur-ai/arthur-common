@@ -470,17 +470,27 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                             "id": create_dataset_scalar_type(DType.UUID),
                             "annotation_type": create_dataset_scalar_type(DType.STRING),
                             "trace_id": create_dataset_scalar_type(DType.STRING),
-                            "continuous_eval_id": create_dataset_scalar_type(DType.UUID),
-                            "continuous_eval_name": create_dataset_scalar_type(DType.STRING),
+                            "continuous_eval_id": create_dataset_scalar_type(
+                                DType.UUID
+                            ),
+                            "continuous_eval_name": create_dataset_scalar_type(
+                                DType.STRING
+                            ),
                             "eval_name": create_dataset_scalar_type(DType.STRING),
                             "eval_version": create_dataset_scalar_type(DType.INT),
                             "annotation_score": create_dataset_scalar_type(DType.INT),
-                            "annotation_description": create_dataset_scalar_type(DType.STRING),
+                            "annotation_description": create_dataset_scalar_type(
+                                DType.STRING
+                            ),
                             "input_variables": create_dataset_list_type(
                                 create_dataset_object_type(
                                     {
-                                        "name": create_dataset_scalar_type(DType.STRING),
-                                        "value": create_dataset_scalar_type(DType.STRING),
+                                        "name": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
+                                        "value": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
                                     },
                                 ),
                             ),

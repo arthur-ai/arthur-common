@@ -26,7 +26,9 @@ from arthur_common.models.constants import (
     NEGATIVE_BLOOD_EXAMPLE,
 )
 from arthur_common.models.enums import (
+    AgenticAnnotationType,
     APIKeysRolesEnum,
+    ContinuousEvalRunStatus,
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
@@ -34,8 +36,6 @@ from arthur_common.models.enums import (
     RuleType,
     StatusCodeEnum,
     ToolClassEnum,
-    ContinuousEvalRunStatus,
-    AgenticAnnotationType,
 )
 from arthur_common.models.metric_schemas import RelevanceMetricConfig
 
