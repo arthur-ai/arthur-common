@@ -124,16 +124,16 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                annotation.run_status,
-                annotation.continuous_eval_name,
-                annotation.eval_name,
-                annotation.eval_version,
-                annotation.annotation_type,
+                unnest.run_status,
+                unnest.continuous_eval_name,
+                unnest.eval_name,
+                unnest.eval_version,
+                unnest.annotation_type,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
-                UNNEST(annotations) as annotation
+                UNNEST(annotations)
             WHERE annotations IS NOT NULL
-            GROUP BY ts, annotation.run_status, annotation.continuous_eval_name, annotation.eval_name, annotation.eval_version, annotation.annotation_type
+            GROUP BY ts, unnest.run_status, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version, unnest.annotation_type
             ORDER BY ts DESC;
             """,
         ).df()
@@ -683,11 +683,11 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                SUM(annotation.cost) as total_cost
+                SUM(unnest."cost") as total_cost
             FROM {dataset.dataset_table_name},
-                UNNEST(annotations) as annotation
+                UNNEST(annotations)
             WHERE annotations IS NOT NULL
-                AND annotation.cost IS NOT NULL
+                AND unnest."cost" IS NOT NULL
             GROUP BY ts
             ORDER BY ts DESC;
             """,
@@ -748,11 +748,11 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
-                annotation.cost
+                unnest."cost" as cost
             FROM {dataset.dataset_table_name},
-                UNNEST(annotations) as annotation
+                UNNEST(annotations)
             WHERE annotations IS NOT NULL
-                AND annotation.cost IS NOT NULL
+                AND unnest."cost" IS NOT NULL
             ORDER BY ts DESC;
             """,
         ).df()
