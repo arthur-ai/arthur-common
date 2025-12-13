@@ -429,11 +429,7 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             DatasetColumn(
                 id=uuid4(),
                 source_name="end_time",
-                definition=DatasetScalarType(
-                    id=uuid4(),
-                    dtype=DType.TIMESTAMP,
-                    tag_hints=[ScopeSchemaTag.PRIMARY_TIMESTAMP],
-                ),
+                definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
