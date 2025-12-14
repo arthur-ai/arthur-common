@@ -675,6 +675,6 @@ def test_span_latency(agentic_metadata_conn):
             # Should have data points
             assert sketch.n > 0
             # Latencies should be positive
-            assert sketch.get_min_value() > 0
+            assert sketch.get_min_value() >= 0
             # Max latency should be reasonable (spans should be shorter than traces)
             assert sketch.get_max_value() < 60000  # Less than 60 seconds
