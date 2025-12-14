@@ -514,7 +514,9 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                                 DType.INT
                             ),
                             "total_token_count": create_dataset_scalar_type(DType.INT),
-                            "prompt_token_cost": create_dataset_scalar_type(DType.FLOAT),
+                            "prompt_token_cost": create_dataset_scalar_type(
+                                DType.FLOAT
+                            ),
                             "completion_token_cost": create_dataset_scalar_type(
                                 DType.FLOAT
                             ),
@@ -556,7 +558,9 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                                         "latency_ms": create_dataset_scalar_type(
                                             DType.INT
                                         ),
-                                        "span_id": create_dataset_scalar_type(DType.UUID),
+                                        "span_id": create_dataset_scalar_type(
+                                            DType.UUID
+                                        ),
                                         "metric_id": create_dataset_scalar_type(
                                             DType.UUID
                                         ),

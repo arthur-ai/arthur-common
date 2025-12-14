@@ -813,7 +813,9 @@ class AgenticSpanCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that counts spans grouped by span_kind and status_code over time."
+        return (
+            "Metric that counts spans grouped by span_kind and status_code over time."
+        )
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:

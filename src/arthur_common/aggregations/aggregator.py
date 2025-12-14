@@ -149,7 +149,9 @@ class NumericAggregationFunction(AggregationFunction, ABC):
                 # Skip NaN values
                 if pd.notna(row[value_col]):
                     values.append(
-                        NumericPoint(timestamp=row[timestamp_col], value=row[value_col]),
+                        NumericPoint(
+                            timestamp=row[timestamp_col], value=row[value_col]
+                        ),
                     )
             # Only add the series if it has values
             if values:
