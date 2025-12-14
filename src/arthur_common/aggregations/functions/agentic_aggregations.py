@@ -80,7 +80,7 @@ class AgenticTraceCountAggregation(NumericAggregationFunction):
 
 
 class AgenticAnnotationCountAggregation(NumericAggregationFunction):
-    """Aggregation that counts annotations by run status, eval name, eval version, and type."""
+    """Aggregation that counts annotations by score, run status, eval name, eval version, and type."""
 
     METRIC_NAME = "annotation_count"
 
@@ -94,7 +94,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that counts annotations grouped by run_status, continuous_eval_name, eval_name, eval_version, and annotation_type over time."
+        return "Metric that counts annotations grouped by annotation_score, run_status, continuous_eval_name, eval_name, eval_version, and annotation_type over time."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
@@ -121,6 +121,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.annotation_score,
                 unnest.run_status,
                 unnest.continuous_eval_name,
                 unnest.eval_name,
@@ -130,7 +131,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             FROM {dataset.dataset_table_name},
                 UNNEST(annotations)
             WHERE annotations IS NOT NULL
-            GROUP BY ts, unnest.run_status, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version, unnest.annotation_type
+            GROUP BY ts, unnest.annotation_score, unnest.run_status, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version, unnest.annotation_type
             ORDER BY ts DESC;
             """,
         ).df()
@@ -142,6 +143,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             results,
             "count",
             [
+                "annotation_score",
                 "run_status",
                 "continuous_eval_name",
                 "eval_name",
@@ -792,5 +794,71 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
             "ts",
         )
 
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticSpanCountAggregation(NumericAggregationFunction):
+    """Aggregation that counts spans grouped by span_kind and status_code."""
+
+    METRIC_NAME = "span_count"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("d3e4f5a6-b7c8-4d9e-0f1a-2b3c4d5e6f7a")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Count by Kind and Status"
+
+    @staticmethod
+    def description() -> str:
+        return "Metric that counts spans grouped by span_kind and status_code over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanCountAggregation.METRIC_NAME,
+                description=AgenticSpanCountAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                unnest.status_code,
+                COUNT(*) as count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+            GROUP BY ts, unnest.span_kind, unnest.status_code
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_numeric_metrics(
+            results,
+            "count",
+            ["span_kind", "status_code"],
+            "ts",
+        )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
