@@ -11,6 +11,11 @@ from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticAnnotationCostSumAggregation,
     AgenticAnnotationCountAggregation,
     AgenticSpanCountAggregation,
+    AgenticSpanLatencyAggregation,
+    AgenticSpanTokenCostDistributionAggregation,
+    AgenticSpanTokenCostSumAggregation,
+    AgenticSpanTokenCountDistributionAggregation,
+    AgenticSpanTokenCountSumAggregation,
     AgenticTokenCostDistributionAggregation,
     AgenticTokenCostSumAggregation,
     AgenticTokenCountDistributionAggregation,
@@ -512,3 +517,164 @@ def test_span_count(agentic_metadata_conn):
         # Verify all counts are positive
         for point in series.values:
             assert point.value > 0
+
+
+# Span Token Cost Sum Tests
+def test_span_token_cost_sum(agentic_metadata_conn):
+    """Test span token cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_cost_sum",
+        "span_prompt_token_cost_sum",
+        "span_completion_token_cost_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            for point in series.values:
+                # Costs should be non-negative
+                assert point.value >= 0
+
+
+# Span Token Cost Distribution Tests
+def test_span_token_cost_distribution(agentic_metadata_conn):
+    """Test span token cost distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_cost_distribution",
+        "span_prompt_token_cost_distribution",
+        "span_completion_token_cost_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has span_kind dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points
+                assert sketch.n > 0
+                # Costs should be non-negative
+                assert sketch.get_min_value() >= 0
+
+
+# Span Token Count Sum Tests
+def test_span_token_count_sum(agentic_metadata_conn):
+    """Test span token count sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCountSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_count_sum",
+        "span_prompt_token_count_sum",
+        "span_completion_token_count_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            for point in series.values:
+                # Counts should be non-negative
+                assert point.value >= 0
+
+
+# Span Token Count Distribution Tests
+def test_span_token_count_distribution(agentic_metadata_conn):
+    """Test span token count distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCountDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_count_distribution",
+        "span_prompt_token_count_distribution",
+        "span_completion_token_count_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has span_kind dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points
+                assert sketch.n > 0
+                # Token counts should be positive
+                assert sketch.get_min_value() > 0
+
+
+# Span Latency Tests
+def test_span_latency(agentic_metadata_conn):
+    """Test span latency functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Check basic structure
+    assert len(metrics) == 1
+    assert metrics[0].name == "span_latency"
+    assert hasattr(metrics[0], "sketch_series")
+    # Has span_kind dimension, so may have multiple series
+    assert len(metrics[0].sketch_series) >= 1
+
+    # Verify sketch data is valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check that span_kind dimension is present
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "span_kind" in dim_names
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points
+            assert sketch.n > 0
+            # Latencies should be positive
+            assert sketch.get_min_value() > 0
+            # Max latency should be reasonable (spans should be shorter than traces)
+            assert sketch.get_max_value() < 60000  # Less than 60 seconds

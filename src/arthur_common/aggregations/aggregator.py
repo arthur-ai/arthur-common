@@ -146,12 +146,16 @@ class NumericAggregationFunction(AggregationFunction, ABC):
 
             values: list[NumericPoint] = []
             for _, row in group.iterrows():
-                values.append(
-                    NumericPoint(timestamp=row[timestamp_col], value=row[value_col]),
+                # Skip NaN values
+                if pd.notna(row[value_col]):
+                    values.append(
+                        NumericPoint(timestamp=row[timestamp_col], value=row[value_col]),
+                    )
+            # Only add the series if it has values
+            if values:
+                calculated_metrics.append(
+                    NumericTimeSeries(values=values, dimensions=dimensions),
                 )
-            calculated_metrics.append(
-                NumericTimeSeries(values=values, dimensions=dimensions),
-            )
 
         return calculated_metrics
 
@@ -166,9 +170,11 @@ class NumericAggregationFunction(AggregationFunction, ABC):
         """
         values: list[NumericPoint] = []
         for _, row in data.iterrows():
-            values.append(
-                NumericPoint(timestamp=row[timestamp_col], value=row[value_col]),
-            )
+            # Skip NaN values
+            if pd.notna(row[value_col]):
+                values.append(
+                    NumericPoint(timestamp=row[timestamp_col], value=row[value_col]),
+                )
         return NumericTimeSeries(values=values, dimensions=[])
 
     @staticmethod

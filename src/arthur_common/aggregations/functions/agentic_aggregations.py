@@ -862,3 +862,522 @@ class AgenticSpanCountAggregation(NumericAggregationFunction):
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
+
+
+class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
+    """Aggregation that sums span token costs (total, prompt, and completion) over time."""
+
+    TOTAL_COST_METRIC_NAME = "span_total_token_cost_sum"
+    PROMPT_COST_METRIC_NAME = "span_prompt_token_cost_sum"
+    COMPLETION_COST_METRIC_NAME = "span_completion_token_cost_sum"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("e4f5a6b7-c8d9-4e0f-1a2b-3c4d5e6f7a8b")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Token Cost Sums"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports the sum of total, prompt, and completion token costs for spans over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostSumAggregation.TOTAL_COST_METRIC_NAME,
+                description="Sum of total token costs for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostSumAggregation.PROMPT_COST_METRIC_NAME,
+                description="Sum of prompt token costs for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostSumAggregation.COMPLETION_COST_METRIC_NAME,
+                description="Sum of completion token costs for spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token cost information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                SUM(unnest.total_token_cost) as total_cost,
+                SUM(unnest.prompt_token_cost) as prompt_cost,
+                SUM(unnest.completion_token_cost) as completion_cost
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+            GROUP BY ts, unnest.span_kind
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total cost metric
+        if "total_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "total_cost",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series))
+
+        # Prompt cost metric
+        if "prompt_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "prompt_cost",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series))
+
+        # Completion cost metric
+        if "completion_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "completion_cost",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(
+                self.series_to_metric(self.COMPLETION_COST_METRIC_NAME, series),
+            )
+
+        return metrics
+
+
+class AgenticSpanTokenCostDistributionAggregation(SketchAggregationFunction):
+    """Aggregation that reports distributions of span token costs (total, prompt, and completion) over time."""
+
+    TOTAL_COST_METRIC_NAME = "span_total_token_cost_distribution"
+    PROMPT_COST_METRIC_NAME = "span_prompt_token_cost_distribution"
+    COMPLETION_COST_METRIC_NAME = "span_completion_token_cost_distribution"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("f5a6b7c8-d9e0-4f1a-2b3c-4d5e6f7a8b9c")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Token Cost Distributions"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports distributions of total, prompt, and completion token costs for spans over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostDistributionAggregation.TOTAL_COST_METRIC_NAME,
+                description="Distribution of total token costs for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostDistributionAggregation.PROMPT_COST_METRIC_NAME,
+                description="Distribution of prompt token costs for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCostDistributionAggregation.COMPLETION_COST_METRIC_NAME,
+                description="Distribution of completion token costs for spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token cost information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                unnest.total_token_cost,
+                unnest.prompt_token_cost,
+                unnest.completion_token_cost
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND (unnest.total_token_cost IS NOT NULL
+                    OR unnest.prompt_token_cost IS NOT NULL
+                    OR unnest.completion_token_cost IS NOT NULL)
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total cost distribution
+        if "total_token_cost" in results.columns:
+            total_data = results[results["total_token_cost"].notna()][
+                ["ts", "span_kind", "total_token_cost"]
+            ]
+            if not total_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    total_data,
+                    "total_token_cost",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series),
+                )
+
+        # Prompt cost distribution
+        if "prompt_token_cost" in results.columns:
+            prompt_data = results[results["prompt_token_cost"].notna()][
+                ["ts", "span_kind", "prompt_token_cost"]
+            ]
+            if not prompt_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    prompt_data,
+                    "prompt_token_cost",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series),
+                )
+
+        # Completion cost distribution
+        if "completion_token_cost" in results.columns:
+            completion_data = results[results["completion_token_cost"].notna()][
+                ["ts", "span_kind", "completion_token_cost"]
+            ]
+            if not completion_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    completion_data,
+                    "completion_token_cost",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.COMPLETION_COST_METRIC_NAME, series),
+                )
+
+        return metrics
+
+
+class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
+    """Aggregation that sums span token counts (total, prompt, and completion) over time."""
+
+    TOTAL_COUNT_METRIC_NAME = "span_total_token_count_sum"
+    PROMPT_COUNT_METRIC_NAME = "span_prompt_token_count_sum"
+    COMPLETION_COUNT_METRIC_NAME = "span_completion_token_count_sum"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("a6b7c8d9-e0f1-4a2b-3c4d-5e6f7a8b9c0d")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Token Count Sums"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports the sum of total, prompt, and completion token counts for spans over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountSumAggregation.TOTAL_COUNT_METRIC_NAME,
+                description="Sum of total token counts for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountSumAggregation.PROMPT_COUNT_METRIC_NAME,
+                description="Sum of prompt token counts for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountSumAggregation.COMPLETION_COUNT_METRIC_NAME,
+                description="Sum of completion token counts for spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token count information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                SUM(unnest.total_token_count) as total_count,
+                SUM(unnest.prompt_token_count) as prompt_count,
+                SUM(unnest.completion_token_count) as completion_count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+            GROUP BY ts, unnest.span_kind
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total count metric
+        if "total_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "total_count",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series))
+
+        # Prompt count metric
+        if "prompt_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "prompt_count",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series))
+
+        # Completion count metric
+        if "completion_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "completion_count",
+                ["span_kind"],
+                "ts",
+            )
+            metrics.append(
+                self.series_to_metric(self.COMPLETION_COUNT_METRIC_NAME, series),
+            )
+
+        return metrics
+
+
+class AgenticSpanTokenCountDistributionAggregation(SketchAggregationFunction):
+    """Aggregation that reports distributions of span token counts (total, prompt, and completion) over time."""
+
+    TOTAL_COUNT_METRIC_NAME = "span_total_token_count_distribution"
+    PROMPT_COUNT_METRIC_NAME = "span_prompt_token_count_distribution"
+    COMPLETION_COUNT_METRIC_NAME = "span_completion_token_count_distribution"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("b7c8d9e0-f1a2-4b3c-4d5e-6f7a8b9c0d1e")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Token Count Distributions"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports distributions of total, prompt, and completion token counts for spans over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountDistributionAggregation.TOTAL_COUNT_METRIC_NAME,
+                description="Distribution of total token counts for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountDistributionAggregation.PROMPT_COUNT_METRIC_NAME,
+                description="Distribution of prompt token counts for spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticSpanTokenCountDistributionAggregation.COMPLETION_COUNT_METRIC_NAME,
+                description="Distribution of completion token counts for spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token count information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                unnest.total_token_count,
+                unnest.prompt_token_count,
+                unnest.completion_token_count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND (unnest.total_token_count IS NOT NULL
+                    OR unnest.prompt_token_count IS NOT NULL
+                    OR unnest.completion_token_count IS NOT NULL)
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total count distribution
+        if "total_token_count" in results.columns:
+            total_data = results[results["total_token_count"].notna()][
+                ["ts", "span_kind", "total_token_count"]
+            ]
+            if not total_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    total_data,
+                    "total_token_count",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series),
+                )
+
+        # Prompt count distribution
+        if "prompt_token_count" in results.columns:
+            prompt_data = results[results["prompt_token_count"].notna()][
+                ["ts", "span_kind", "prompt_token_count"]
+            ]
+            if not prompt_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    prompt_data,
+                    "prompt_token_count",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series),
+                )
+
+        # Completion count distribution
+        if "completion_token_count" in results.columns:
+            completion_data = results[results["completion_token_count"].notna()][
+                ["ts", "span_kind", "completion_token_count"]
+            ]
+            if not completion_data.empty:
+                series = self.group_query_results_to_sketch_metrics(
+                    completion_data,
+                    "completion_token_count",
+                    ["span_kind"],
+                    "ts",
+                )
+                metrics.append(
+                    self.series_to_metric(self.COMPLETION_COUNT_METRIC_NAME, series),
+                )
+
+        return metrics
+
+
+class AgenticSpanLatencyAggregation(SketchAggregationFunction):
+    """Aggregation that reports the distribution of span latencies in milliseconds."""
+
+    METRIC_NAME = "span_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("c8d9e0f1-a2b3-4c4d-5e6f-7a8b9c0d1e2f")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Span Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Distribution of span latencies in milliseconds over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticSpanLatencyAggregation.METRIC_NAME,
+                description=AgenticSpanLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.span_kind,
+                EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND unnest.start_time IS NOT NULL
+                AND unnest.end_time IS NOT NULL
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        # Use the proper grouping function for sketch metrics
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "latency_ms",
+            ["span_kind"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
