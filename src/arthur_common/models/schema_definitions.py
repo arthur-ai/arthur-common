@@ -502,6 +502,77 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                     ),
                 ),
             ),
+            DatasetColumn(
+                id=uuid4(),
+                source_name="spans",
+                definition=create_dataset_list_type(
+                    create_dataset_object_type(
+                        {
+                            # Token count/cost fields from TokenCountCostSchema
+                            "prompt_token_count": create_dataset_scalar_type(DType.INT),
+                            "completion_token_count": create_dataset_scalar_type(
+                                DType.INT
+                            ),
+                            "total_token_count": create_dataset_scalar_type(DType.INT),
+                            "prompt_token_cost": create_dataset_scalar_type(DType.FLOAT),
+                            "completion_token_cost": create_dataset_scalar_type(
+                                DType.FLOAT
+                            ),
+                            "total_token_cost": create_dataset_scalar_type(DType.FLOAT),
+                            # SpanWithMetricsResponse fields
+                            "id": create_dataset_scalar_type(DType.UUID),
+                            "trace_id": create_dataset_scalar_type(DType.STRING),
+                            "span_id": create_dataset_scalar_type(DType.STRING),
+                            "parent_span_id": create_dataset_scalar_type(DType.STRING),
+                            "span_kind": create_dataset_scalar_type(DType.STRING),
+                            "span_name": create_dataset_scalar_type(DType.STRING),
+                            "start_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "end_time": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "task_id": create_dataset_scalar_type(DType.UUID),
+                            "session_id": create_dataset_scalar_type(DType.STRING),
+                            "status_code": create_dataset_scalar_type(DType.STRING),
+                            "created_at": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "updated_at": create_dataset_scalar_type(DType.TIMESTAMP),
+                            "raw_data": create_dataset_scalar_type(DType.JSON),
+                            "input_content": create_dataset_scalar_type(DType.STRING),
+                            "output_content": create_dataset_scalar_type(DType.STRING),
+                            # metric_results field
+                            "metric_results": create_dataset_list_type(
+                                create_dataset_object_type(
+                                    {
+                                        "id": create_dataset_scalar_type(DType.UUID),
+                                        "metric_type": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
+                                        "details": create_dataset_scalar_type(
+                                            DType.STRING
+                                        ),
+                                        "prompt_tokens": create_dataset_scalar_type(
+                                            DType.INT
+                                        ),
+                                        "completion_tokens": create_dataset_scalar_type(
+                                            DType.INT
+                                        ),
+                                        "latency_ms": create_dataset_scalar_type(
+                                            DType.INT
+                                        ),
+                                        "span_id": create_dataset_scalar_type(DType.UUID),
+                                        "metric_id": create_dataset_scalar_type(
+                                            DType.UUID
+                                        ),
+                                        "created_at": create_dataset_scalar_type(
+                                            DType.TIMESTAMP
+                                        ),
+                                        "updated_at": create_dataset_scalar_type(
+                                            DType.TIMESTAMP
+                                        ),
+                                    }
+                                )
+                            ),
+                        }
+                    )
+                ),
+            ),
         ],
     )
 
