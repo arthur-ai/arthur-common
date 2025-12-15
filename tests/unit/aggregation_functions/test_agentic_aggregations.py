@@ -20,6 +20,7 @@ from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticTokenCostSumAggregation,
     AgenticTokenCountDistributionAggregation,
     AgenticTokenCountSumAggregation,
+    AgenticToolSpanCountAggregation,
     AgenticTraceCountAggregation,
     AgenticTraceLatencyAggregation,
 )
@@ -678,3 +679,30 @@ def test_span_latency(agentic_metadata_conn):
             assert sketch.get_min_value() >= 0
             # Max latency should be reasonable (spans should be shorter than traces)
             assert sketch.get_max_value() < 60000  # Less than 60 seconds
+
+
+# Tool Span Count Tests
+def test_tool_span_count(agentic_metadata_conn):
+    """Test tool span counting functionality and dimensions"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticToolSpanCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no tool spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    assert metrics[0].name == "tool_span_count"
+    assert hasattr(metrics[0], "numeric_series")
+
+    # Check dimensions
+    metric = metrics[0]
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {"status_code", "span_name"}
+        assert expected_dims.issubset(dim_names)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0

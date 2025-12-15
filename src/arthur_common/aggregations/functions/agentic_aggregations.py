@@ -1383,3 +1383,70 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
+
+
+class AgenticToolSpanCountAggregation(NumericAggregationFunction):
+    """Aggregation that counts tool spans grouped by status_code and span_name."""
+
+    METRIC_NAME = "tool_span_count"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("d9e0f1a2-b3c4-4d5e-6f7a-8b9c0d1e2f3a")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Tool Span Count by Status and Name"
+
+    @staticmethod
+    def description() -> str:
+        return "Metric that counts tool spans grouped by status_code and span_name over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticToolSpanCountAggregation.METRIC_NAME,
+                description=AgenticToolSpanCountAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.status_code,
+                unnest.span_name,
+                COUNT(*) as count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'TOOL'
+            GROUP BY ts, unnest.status_code, unnest.span_name
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_numeric_metrics(
+            results,
+            "count",
+            ["status_code", "span_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
