@@ -1450,3 +1450,177 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
         return [metric]
+
+
+class AgenticLLMSpanLatencyAggregation(SketchAggregationFunction):
+    """Aggregation that reports the distribution of LLM span latencies in milliseconds."""
+
+    METRIC_NAME = "llm_span_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("e0f1a2b3-c4d5-4e6f-7a8b-9c0d1e2f3a4b")
+
+    @staticmethod
+    def display_name() -> str:
+        return "LLM Span Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Distribution of LLM span latencies in milliseconds over time, segmented by provider and model."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanLatencyAggregation.METRIC_NAME,
+                description=AgenticLLMSpanLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
+                unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
+                EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'LLM'
+                AND unnest.start_time IS NOT NULL
+                AND unnest.end_time IS NOT NULL
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "latency_ms",
+            ["provider", "model_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
+    """Aggregation that sums LLM span token costs (total, prompt, and completion) over time."""
+
+    TOTAL_COST_METRIC_NAME = "llm_span_total_token_cost_sum"
+    PROMPT_COST_METRIC_NAME = "llm_span_prompt_token_cost_sum"
+    COMPLETION_COST_METRIC_NAME = "llm_span_completion_token_cost_sum"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c")
+
+    @staticmethod
+    def display_name() -> str:
+        return "LLM Span Token Cost Sums"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports the sum of total, prompt, and completion token costs for LLM spans over time, segmented by provider and model."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCostSumAggregation.TOTAL_COST_METRIC_NAME,
+                description="Sum of total token costs for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCostSumAggregation.PROMPT_COST_METRIC_NAME,
+                description="Sum of prompt token costs for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCostSumAggregation.COMPLETION_COST_METRIC_NAME,
+                description="Sum of completion token costs for LLM spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token cost information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
+                unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
+                SUM(unnest.total_token_cost) as total_cost,
+                SUM(unnest.prompt_token_cost) as prompt_cost,
+                SUM(unnest.completion_token_cost) as completion_cost
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'LLM'
+            GROUP BY ts, provider, model_name
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total cost metric
+        if "total_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "total_cost",
+                ["provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series))
+
+        # Prompt cost metric
+        if "prompt_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "prompt_cost",
+                ["provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series))
+
+        # Completion cost metric
+        if "completion_cost" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "completion_cost",
+                ["provider", "model_name"],
+                "ts",
+            )
+            metrics.append(
+                self.series_to_metric(self.COMPLETION_COST_METRIC_NAME, series),
+            )
+
+        return metrics
