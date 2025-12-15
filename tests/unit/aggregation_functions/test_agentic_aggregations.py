@@ -10,6 +10,8 @@ from arthur_common.aggregations.functions.agentic_aggregations import (
     AgenticAnnotationCostDistributionAggregation,
     AgenticAnnotationCostSumAggregation,
     AgenticAnnotationCountAggregation,
+    AgenticLLMSpanLatencyAggregation,
+    AgenticLLMSpanTokenCostSumAggregation,
     AgenticSpanCountAggregation,
     AgenticSpanLatencyAggregation,
     AgenticSpanTokenCostDistributionAggregation,
@@ -706,3 +708,73 @@ def test_tool_span_count(agentic_metadata_conn):
         # Verify all counts are positive
         for point in series.values:
             assert point.value > 0
+
+
+# LLM Span Latency Tests
+def test_llm_span_latency(agentic_metadata_conn):
+    """Test LLM span latency functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticLLMSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no LLM spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    # Check basic structure
+    assert len(metrics) == 1
+    assert metrics[0].name == "llm_span_latency"
+    assert hasattr(metrics[0], "sketch_series")
+    assert len(metrics[0].sketch_series) >= 1
+
+    # Verify sketch data is valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check that provider and model_name dimensions are present
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {"provider", "model_name"}
+        assert expected_dims.issubset(dim_names)
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points
+            assert sketch.n > 0
+            # Latencies should be non-negative
+            assert sketch.get_min_value() >= 0
+            # Max latency should be reasonable
+            assert sketch.get_max_value() < 60000  # Less than 60 seconds
+
+
+# LLM Span Token Cost Sum Tests
+def test_llm_span_token_cost_sum(agentic_metadata_conn):
+    """Test LLM span token cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticLLMSpanTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no LLM spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "llm_span_total_token_cost_sum",
+        "llm_span_prompt_token_cost_sum",
+        "llm_span_completion_token_cost_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that provider and model_name dimensions are present
+            dim_names = {dim.name for dim in series.dimensions}
+            expected_dims = {"provider", "model_name"}
+            assert expected_dims.issubset(dim_names)
+
+            for point in series.values:
+                # Costs should be non-negative
+                assert point.value >= 0
