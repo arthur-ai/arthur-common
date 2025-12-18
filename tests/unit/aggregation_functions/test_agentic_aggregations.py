@@ -32,7 +32,12 @@ from arthur_common.models.metrics import DatasetReference
 @pytest.fixture
 def inferences_data():
     """Load test data from inferences.json"""
-    test_data_path = Path(__file__).parent.parent.parent / "test_data" / "agentic_trace_metadata" / "inferences.json"
+    test_data_path = (
+        Path(__file__).parent.parent.parent
+        / "test_data"
+        / "agentic_trace_metadata"
+        / "inferences.json"
+    )
     with open(test_data_path) as f:
         data = json.load(f)
     return data["traces"]
@@ -123,7 +128,7 @@ def agentic_metadata_conn(inferences_data):
                 )[]
             )[]
         )
-        """
+        """,
     )
 
     # Insert test data
@@ -227,7 +232,7 @@ def agentic_metadata_conn(inferences_data):
                 '{annotations_json}'::JSON,
                 '{spans_json}'::JSON
             )
-            """
+            """,
         )
 
     return conn, dataset_ref
@@ -293,13 +298,17 @@ def test_trace_latency(agentic_metadata_conn):
     assert len(metrics) == 1
     assert metrics[0].name == "trace_latency"
     assert hasattr(metrics[0], "sketch_series")
-    # No dimensions, so should have exactly 1 series
-    assert len(metrics[0].sketch_series) == 1
+    # Has user_id dimension, so may have multiple series
+    assert len(metrics[0].sketch_series) >= 1
 
     # Verify sketch data is valid
     from base64 import b64decode
 
     for series in metrics[0].sketch_series:
+        # Check that user_id dimension is present
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
         assert len(series.values) > 0
         for sketch_value in series.values:
             sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
@@ -355,9 +364,13 @@ def test_token_cost_distribution(agentic_metadata_conn):
     from base64 import b64decode
 
     for metric in metrics:
-        # No dimensions, so each metric should have exactly 1 series
-        assert len(metric.sketch_series) == 1
+        # Has user_id dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
         for series in metric.sketch_series:
+            # Check that user_id dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
             assert len(series.values) > 0
             for sketch_value in series.values:
                 sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
@@ -413,9 +426,13 @@ def test_token_count_distribution(agentic_metadata_conn):
     from base64 import b64decode
 
     for metric in metrics:
-        # No dimensions, so each metric should have exactly 1 series
-        assert len(metric.sketch_series) == 1
+        # Has user_id dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
         for series in metric.sketch_series:
+            # Check that user_id dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
             assert len(series.values) > 0
             for sketch_value in series.values:
                 sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
@@ -778,3 +795,190 @@ def test_llm_span_token_cost_sum(agentic_metadata_conn):
             for point in series.values:
                 # Costs should be non-negative
                 assert point.value >= 0
+
+
+# User ID Grouping Tests
+def test_trace_count_user_id_grouping(agentic_metadata_conn):
+    """Test that trace count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTraceCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.name == "trace_count"
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    total_count = 0
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Sum counts for this user_id
+        series_count = sum(point.value for point in series.values)
+        total_count += series_count
+
+    # Should have multiple user_ids (including None)
+    assert len(user_ids_found) >= 1
+    # Total count should equal number of traces (10)
+    assert total_count == 10
+
+
+def test_token_cost_sum_user_id_grouping(agentic_metadata_conn):
+    """Test that token cost sum is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 3
+
+    # Verify each metric has user_id dimension
+    for metric in metrics:
+        user_ids_found = set()
+        for series in metric.numeric_series:
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            # Extract user_id value from dimensions
+            user_id_dim = next(
+                dim for dim in series.dimensions if dim.name == "user_id"
+            )
+            user_ids_found.add(user_id_dim.value)
+
+            # Verify all values are non-negative
+            for point in series.values:
+                assert point.value >= 0
+
+        # Should have at least one user_id
+        assert len(user_ids_found) >= 1
+
+
+def test_annotation_count_user_id_grouping(agentic_metadata_conn):
+    """Test that annotation count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticAnnotationCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_span_count_user_id_grouping(agentic_metadata_conn):
+    """Test that span count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_trace_latency_user_id_grouping(agentic_metadata_conn):
+    """Test that trace latency is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    from base64 import b64decode
+
+    for series in metric.sketch_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify sketch data is valid
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            assert sketch.n > 0
+            assert sketch.get_min_value() > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_token_cost_distribution_user_id_grouping(agentic_metadata_conn):
+    """Test that token cost distribution is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 3
+
+    # Verify each metric has user_id dimension
+    from base64 import b64decode
+
+    for metric in metrics:
+        user_ids_found = set()
+        for series in metric.sketch_series:
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            # Extract user_id value from dimensions
+            user_id_dim = next(
+                dim for dim in series.dimensions if dim.name == "user_id"
+            )
+            user_ids_found.add(user_id_dim.value)
+
+            # Verify sketch data is valid
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                assert sketch.n > 0
+                assert sketch.get_min_value() >= 0
+
+        # Should have at least one user_id
+        assert len(user_ids_found) >= 1

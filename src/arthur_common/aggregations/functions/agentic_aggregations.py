@@ -62,9 +62,10 @@ class AgenticTraceCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name}
-            GROUP BY ts
+            GROUP BY ts, user_id
             ORDER BY ts DESC;
             """,
         ).df()
@@ -72,7 +73,7 @@ class AgenticTraceCountAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            [],
+            ["user_id"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -121,6 +122,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.annotation_score,
                 unnest.run_status,
                 unnest.continuous_eval_name,
@@ -131,7 +133,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             FROM {dataset.dataset_table_name},
                 UNNEST(annotations)
             WHERE annotations IS NOT NULL
-            GROUP BY ts, unnest.annotation_score, unnest.run_status, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version, unnest.annotation_type
+            GROUP BY ts, user_id, unnest.annotation_score, unnest.run_status, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version, unnest.annotation_type
             ORDER BY ts DESC;
             """,
         ).df()
@@ -143,6 +145,7 @@ class AgenticAnnotationCountAggregation(NumericAggregationFunction):
             results,
             "count",
             [
+                "user_id",
                 "annotation_score",
                 "run_status",
                 "continuous_eval_name",
@@ -198,6 +201,7 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 duration_ms
             FROM {dataset.dataset_table_name}
             WHERE duration_ms IS NOT NULL AND duration_ms > 0
@@ -212,7 +216,7 @@ class AgenticTraceLatencyAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "duration_ms",
-            [],
+            ["user_id"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -271,11 +275,12 @@ class AgenticTokenCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 SUM(total_token_cost) as total_cost,
                 SUM(prompt_token_cost) as prompt_cost,
                 SUM(completion_token_cost) as completion_cost
             FROM {dataset.dataset_table_name}
-            GROUP BY ts
+            GROUP BY ts, user_id
             ORDER BY ts DESC;
             """,
         ).df()
@@ -290,7 +295,7 @@ class AgenticTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "total_cost",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series))
@@ -300,7 +305,7 @@ class AgenticTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "prompt_cost",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series))
@@ -310,7 +315,7 @@ class AgenticTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "completion_cost",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(
@@ -372,6 +377,7 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 total_token_cost,
                 prompt_token_cost,
                 completion_token_cost
@@ -391,13 +397,13 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
         # Total cost distribution
         if "total_token_cost" in results.columns:
             total_data = results[results["total_token_cost"].notna()][
-                ["ts", "total_token_cost"]
+                ["ts", "user_id", "total_token_cost"]
             ]
             if not total_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     total_data,
                     "total_token_cost",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -407,13 +413,13 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
         # Prompt cost distribution
         if "prompt_token_cost" in results.columns:
             prompt_data = results[results["prompt_token_cost"].notna()][
-                ["ts", "prompt_token_cost"]
+                ["ts", "user_id", "prompt_token_cost"]
             ]
             if not prompt_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     prompt_data,
                     "prompt_token_cost",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -423,13 +429,13 @@ class AgenticTokenCostDistributionAggregation(SketchAggregationFunction):
         # Completion cost distribution
         if "completion_token_cost" in results.columns:
             completion_data = results[results["completion_token_cost"].notna()][
-                ["ts", "completion_token_cost"]
+                ["ts", "user_id", "completion_token_cost"]
             ]
             if not completion_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     completion_data,
                     "completion_token_cost",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -491,11 +497,12 @@ class AgenticTokenCountSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 SUM(total_token_count) as total_count,
                 SUM(prompt_token_count) as prompt_count,
                 SUM(completion_token_count) as completion_count
             FROM {dataset.dataset_table_name}
-            GROUP BY ts
+            GROUP BY ts, user_id
             ORDER BY ts DESC;
             """,
         ).df()
@@ -510,7 +517,7 @@ class AgenticTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "total_count",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series))
@@ -520,7 +527,7 @@ class AgenticTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "prompt_count",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series))
@@ -530,7 +537,7 @@ class AgenticTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "completion_count",
-                [],
+                ["user_id"],
                 "ts",
             )
             metrics.append(
@@ -592,6 +599,7 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 total_token_count,
                 prompt_token_count,
                 completion_token_count
@@ -611,13 +619,13 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
         # Total count distribution
         if "total_token_count" in results.columns:
             total_data = results[results["total_token_count"].notna()][
-                ["ts", "total_token_count"]
+                ["ts", "user_id", "total_token_count"]
             ]
             if not total_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     total_data,
                     "total_token_count",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -627,13 +635,13 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
         # Prompt count distribution
         if "prompt_token_count" in results.columns:
             prompt_data = results[results["prompt_token_count"].notna()][
-                ["ts", "prompt_token_count"]
+                ["ts", "user_id", "prompt_token_count"]
             ]
             if not prompt_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     prompt_data,
                     "prompt_token_count",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -643,13 +651,13 @@ class AgenticTokenCountDistributionAggregation(SketchAggregationFunction):
         # Completion count distribution
         if "completion_token_count" in results.columns:
             completion_data = results[results["completion_token_count"].notna()][
-                ["ts", "completion_token_count"]
+                ["ts", "user_id", "completion_token_count"]
             ]
             if not completion_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     completion_data,
                     "completion_token_count",
-                    [],
+                    ["user_id"],
                     "ts",
                 )
                 metrics.append(
@@ -701,6 +709,7 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.continuous_eval_name,
                 unnest.eval_name,
                 unnest.eval_version,
@@ -709,7 +718,7 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
                 UNNEST(annotations)
             WHERE annotations IS NOT NULL
                 AND unnest."cost" IS NOT NULL
-            GROUP BY ts, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version
+            GROUP BY ts, user_id, unnest.continuous_eval_name, unnest.eval_name, unnest.eval_version
             ORDER BY ts DESC;
             """,
         ).df()
@@ -720,7 +729,7 @@ class AgenticAnnotationCostSumAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "total_cost",
-            ["continuous_eval_name", "eval_name", "eval_version"],
+            ["user_id", "continuous_eval_name", "eval_name", "eval_version"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -771,6 +780,7 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.continuous_eval_name,
                 unnest.eval_name,
                 unnest.eval_version,
@@ -790,7 +800,7 @@ class AgenticAnnotationCostDistributionAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "cost",
-            ["continuous_eval_name", "eval_name", "eval_version"],
+            ["user_id", "continuous_eval_name", "eval_name", "eval_version"],
             "ts",
         )
 
@@ -842,13 +852,14 @@ class AgenticSpanCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 unnest.status_code,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
             WHERE spans IS NOT NULL
-            GROUP BY ts, unnest.span_kind, unnest.status_code
+            GROUP BY ts, user_id, unnest.span_kind, unnest.status_code
             ORDER BY ts DESC;
             """,
         ).df()
@@ -859,7 +870,7 @@ class AgenticSpanCountAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            ["span_kind", "status_code"],
+            ["user_id", "span_kind", "status_code"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -918,6 +929,7 @@ class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 SUM(unnest.total_token_cost) as total_cost,
                 SUM(unnest.prompt_token_cost) as prompt_cost,
@@ -925,7 +937,7 @@ class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
             WHERE spans IS NOT NULL
-            GROUP BY ts, unnest.span_kind
+            GROUP BY ts, user_id, unnest.span_kind
             ORDER BY ts DESC;
             """,
         ).df()
@@ -940,7 +952,7 @@ class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "total_cost",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series))
@@ -950,7 +962,7 @@ class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "prompt_cost",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series))
@@ -960,7 +972,7 @@ class AgenticSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "completion_cost",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(
@@ -1022,6 +1034,7 @@ class AgenticSpanTokenCostDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 unnest.total_token_cost,
                 unnest.prompt_token_cost,
@@ -1044,13 +1057,13 @@ class AgenticSpanTokenCostDistributionAggregation(SketchAggregationFunction):
         # Total cost distribution
         if "total_token_cost" in results.columns:
             total_data = results[results["total_token_cost"].notna()][
-                ["ts", "span_kind", "total_token_cost"]
+                ["ts", "user_id", "span_kind", "total_token_cost"]
             ]
             if not total_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     total_data,
                     "total_token_cost",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1060,13 +1073,13 @@ class AgenticSpanTokenCostDistributionAggregation(SketchAggregationFunction):
         # Prompt cost distribution
         if "prompt_token_cost" in results.columns:
             prompt_data = results[results["prompt_token_cost"].notna()][
-                ["ts", "span_kind", "prompt_token_cost"]
+                ["ts", "user_id", "span_kind", "prompt_token_cost"]
             ]
             if not prompt_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     prompt_data,
                     "prompt_token_cost",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1076,13 +1089,13 @@ class AgenticSpanTokenCostDistributionAggregation(SketchAggregationFunction):
         # Completion cost distribution
         if "completion_token_cost" in results.columns:
             completion_data = results[results["completion_token_cost"].notna()][
-                ["ts", "span_kind", "completion_token_cost"]
+                ["ts", "user_id", "span_kind", "completion_token_cost"]
             ]
             if not completion_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     completion_data,
                     "completion_token_cost",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1144,6 +1157,7 @@ class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 SUM(unnest.total_token_count) as total_count,
                 SUM(unnest.prompt_token_count) as prompt_count,
@@ -1151,7 +1165,7 @@ class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
             WHERE spans IS NOT NULL
-            GROUP BY ts, unnest.span_kind
+            GROUP BY ts, user_id, unnest.span_kind
             ORDER BY ts DESC;
             """,
         ).df()
@@ -1166,7 +1180,7 @@ class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "total_count",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series))
@@ -1176,7 +1190,7 @@ class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "prompt_count",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series))
@@ -1186,7 +1200,7 @@ class AgenticSpanTokenCountSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "completion_count",
-                ["span_kind"],
+                ["user_id", "span_kind"],
                 "ts",
             )
             metrics.append(
@@ -1248,6 +1262,7 @@ class AgenticSpanTokenCountDistributionAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 unnest.total_token_count,
                 unnest.prompt_token_count,
@@ -1270,13 +1285,13 @@ class AgenticSpanTokenCountDistributionAggregation(SketchAggregationFunction):
         # Total count distribution
         if "total_token_count" in results.columns:
             total_data = results[results["total_token_count"].notna()][
-                ["ts", "span_kind", "total_token_count"]
+                ["ts", "user_id", "span_kind", "total_token_count"]
             ]
             if not total_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     total_data,
                     "total_token_count",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1286,13 +1301,13 @@ class AgenticSpanTokenCountDistributionAggregation(SketchAggregationFunction):
         # Prompt count distribution
         if "prompt_token_count" in results.columns:
             prompt_data = results[results["prompt_token_count"].notna()][
-                ["ts", "span_kind", "prompt_token_count"]
+                ["ts", "user_id", "span_kind", "prompt_token_count"]
             ]
             if not prompt_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     prompt_data,
                     "prompt_token_count",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1302,13 +1317,13 @@ class AgenticSpanTokenCountDistributionAggregation(SketchAggregationFunction):
         # Completion count distribution
         if "completion_token_count" in results.columns:
             completion_data = results[results["completion_token_count"].notna()][
-                ["ts", "span_kind", "completion_token_count"]
+                ["ts", "user_id", "span_kind", "completion_token_count"]
             ]
             if not completion_data.empty:
                 series = self.group_query_results_to_sketch_metrics(
                     completion_data,
                     "completion_token_count",
-                    ["span_kind"],
+                    ["user_id", "span_kind"],
                     "ts",
                 )
                 metrics.append(
@@ -1360,6 +1375,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.span_kind,
                 EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
             FROM {dataset.dataset_table_name},
@@ -1378,7 +1394,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "latency_ms",
-            ["span_kind"],
+            ["user_id", "span_kind"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -1427,6 +1443,7 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.status_code,
                 unnest.span_name,
                 COUNT(*) as count
@@ -1434,7 +1451,7 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
                 UNNEST(spans)
             WHERE spans IS NOT NULL
                 AND UPPER(unnest.span_kind) = 'TOOL'
-            GROUP BY ts, unnest.status_code, unnest.span_name
+            GROUP BY ts, user_id, unnest.status_code, unnest.span_name
             ORDER BY ts DESC;
             """,
         ).df()
@@ -1445,7 +1462,7 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            ["status_code", "span_name"],
+            ["user_id", "status_code", "span_name"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -1494,6 +1511,7 @@ class AgenticLLMSpanLatencyAggregation(SketchAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
                 unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
                 EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
@@ -1513,7 +1531,7 @@ class AgenticLLMSpanLatencyAggregation(SketchAggregationFunction):
         series = self.group_query_results_to_sketch_metrics(
             results,
             "latency_ms",
-            ["provider", "model_name"],
+            ["user_id", "provider", "model_name"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -1572,6 +1590,7 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             f"""
             SELECT
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
                 unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
                 unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
                 SUM(unnest.total_token_cost) as total_cost,
@@ -1581,7 +1600,7 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
                 UNNEST(spans)
             WHERE spans IS NOT NULL
                 AND UPPER(unnest.span_kind) = 'LLM'
-            GROUP BY ts, provider, model_name
+            GROUP BY ts, user_id, provider, model_name
             ORDER BY ts DESC;
             """,
         ).df()
@@ -1596,7 +1615,7 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "total_cost",
-                ["provider", "model_name"],
+                ["user_id", "provider", "model_name"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.TOTAL_COST_METRIC_NAME, series))
@@ -1606,7 +1625,7 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "prompt_cost",
-                ["provider", "model_name"],
+                ["user_id", "provider", "model_name"],
                 "ts",
             )
             metrics.append(self.series_to_metric(self.PROMPT_COST_METRIC_NAME, series))
@@ -1616,7 +1635,7 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             series = self.group_query_results_to_numeric_metrics(
                 results,
                 "completion_cost",
-                ["provider", "model_name"],
+                ["user_id", "provider", "model_name"],
                 "ts",
             )
             metrics.append(
