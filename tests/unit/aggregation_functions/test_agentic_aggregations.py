@@ -1,1741 +1,984 @@
-from base64 import b64decode
+import json
+from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from datasketches import kll_floats_sketch
-from duckdb import DuckDBPyConnection, connect
+from duckdb import connect
 
 from arthur_common.aggregations.functions.agentic_aggregations import (
-    AgenticEventCountAggregation,
-    AgenticLLMCallCountAggregation,
-    AgenticMetricsOverTimeAggregation,
-    AgenticRelevancePassFailCountAggregation,
+    AgenticAnnotationCostDistributionAggregation,
+    AgenticAnnotationCostSumAggregation,
+    AgenticAnnotationCountAggregation,
+    AgenticLLMSpanLatencyAggregation,
+    AgenticLLMSpanTokenCostSumAggregation,
+    AgenticSpanCountAggregation,
     AgenticSpanLatencyAggregation,
-    AgenticToolPassFailCountAggregation,
-    AgenticToolSelectionAndUsageByAgentAggregation,
+    AgenticSpanTokenCostDistributionAggregation,
+    AgenticSpanTokenCostSumAggregation,
+    AgenticSpanTokenCountDistributionAggregation,
+    AgenticSpanTokenCountSumAggregation,
+    AgenticTokenCostDistributionAggregation,
+    AgenticTokenCostSumAggregation,
+    AgenticTokenCountDistributionAggregation,
+    AgenticTokenCountSumAggregation,
+    AgenticToolSpanCountAggregation,
+    AgenticTraceCountAggregation,
     AgenticTraceLatencyAggregation,
 )
 from arthur_common.models.metrics import DatasetReference
 
-from .helpers import *
 
-
-def test_agentic_metrics_over_time_with_metrics(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test metrics over time aggregation with trace data containing metrics.
-
-    Math: The test data contains 5 traces with metrics. Each trace has:
-    - ToolSelection metrics with tool_selection_score and tool_usage_score
-    - QueryRelevance metrics with llm_relevance_score, reranker_relevance_score, bert_f_score
-    - ResponseRelevance metrics with similar relevance scores
-
-    Expected results:
-    - tool_selection_over_time: Distribution of tool_selection_score values over time
-    - tool_usage_over_time: Distribution of tool_usage_score values over time
-    - query_relevance_scores_over_time: Distribution of individual relevance scores over time
-    - response_relevance_scores_over_time: Distribution of individual relevance scores over time
-
-    Individual relevance scores: llm_relevance_score, reranker_relevance_score, bert_f_score
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticMetricsOverTimeAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return multiple sketch metrics
-    assert len(metrics) > 0
-
-    # Check that we have the expected metric types
-    metric_names = [metric.name for metric in metrics]
-    expected_names = [
-        "tool_selection_over_time",
-        "tool_usage_over_time",
-        "query_relevance_scores_over_time",
-        "response_relevance_scores_over_time",
-    ]
-
-    # Not all metrics may be present depending on the test data
-    for name in metric_names:
-        assert name in expected_names
-
-
-def test_agentic_metrics_over_time_no_metrics(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test metrics over time aggregation with trace data without metrics.
-
-    Math: The test data contains 2 traces without any metrics.
-    Expected result: Empty list since no metrics are present to aggregate.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticMetricsOverTimeAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list when no metrics are present
-    assert len(metrics) == 0
-
-
-def test_agentic_metrics_over_time_various_structures(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that the aggregation works with various trace structures.
-
-    Math: The test data contains 5 traces with different span structures.
-    Each trace has nested spans with metrics at various levels.
-    The aggregation should recursively extract all spans with metrics
-    and create time-series distributions regardless of the nesting structure.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticMetricsOverTimeAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should process traces regardless of structure
-    assert len(metrics) > 0
-
-    # Verify that the metrics contain time series data
-    for metric in metrics:
-        assert hasattr(metric, "sketch_series")
-        assert len(metric.sketch_series) > 0
-
-
-def test_relevance_pass_fail_count_with_metrics(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test relevance pass/fail count aggregation with trace data containing metrics.
-
-    Math: The test data contains relevance scores that are evaluated against threshold 0.5.
-    For each relevance score:
-    - Pass: score >= 0.5
-    - Fail: score < 0.5
-
-    The aggregation counts passes and failures for:
-    - QueryRelevance metrics (llm, reranker, bert scores)
-    - ResponseRelevance metrics (llm, reranker, bert scores)
-
-    Expected result: One metric with counts of passes/failures by agent, metric_type, score_type, and result.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticRelevancePassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "relevance_pass_fail_count"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_relevance_pass_fail_count_no_metrics(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test relevance pass/fail count aggregation with trace data without metrics.
-
-    Math: The test data contains 2 traces without any relevance metrics.
-    Expected result: Empty list since no relevance metrics are present to evaluate.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticRelevancePassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list when no metrics are present
-    assert len(metrics) == 0
-
-
-def test_relevance_pass_fail_count_dimensions(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that relevance pass/fail count includes expected dimensions.
-
-    Math: The aggregation groups results by:
-    - agent_name: Extracted from span metadata
-    - metric_type: 'QueryRelevance' or 'ResponseRelevance'
-    - score_type: 'llm_relevance_score', 'reranker_relevance_score', 'bert_f_score'
-    - result: 'pass' (score >= 0.5) or 'fail' (score < 0.5)
-
-    Expected dimensions: All four dimension types should be present in the results.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticRelevancePassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    if len(metrics) > 0:
-        metric = metrics[0]
-        # Check that dimensions include agent_name, metric_type, score_type, and result
-        for group in metric.numeric_series:
-            dimension_names = {dim.name for dim in group.dimensions}
-            expected_dimensions = {"agent_name", "metric_type", "score_type", "result"}
-            assert expected_dimensions.issubset(dimension_names)
-
-
-def test_relevance_pass_fail_count_correct_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that relevance pass/fail count returns correct values based on test data.
-
-    Each metric contains 3 scores: llm_relevance_score, reranker_relevance_score, bert_f_score.
-
-    Individual scores are derived from base scores: (see test_agentic_data_helper.py)
-    - llm_relevance_score: base score
-    - reranker_relevance_score: base score + 0.02
-    - bert_f_score: base score - 0.05
-
-    Test data values:
-    - Trace 1: qrelevance=0.8 (llm=0.8, reranker=0.82, bert=0.75), resprelevance=0.9 (llm=0.9, reranker=0.93, bert=0.85) - all pass
-    - Trace 2: qrelevance=0.7 (llm=0.7, reranker=0.72, bert=0.65), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72) - all pass
-    - Trace 3: qrelevance=0.6 (llm=0.6, reranker=0.62, bert=0.55), resprelevance=0.7 (llm=0.7, reranker=0.73, bert=0.62) - all pass
-    - Trace 4: qrelevance=0.3 (llm=0.3, reranker=0.32, bert=0.25), resprelevance=0.4 (llm=0.4, reranker=0.43, bert=0.32) - all fail
-    - Trace 5: qrelevance=0.9 (llm=0.9, reranker=0.92, bert=0.85), resprelevance=0.8 (llm=0.8, reranker=0.83, bert=0.72) - all pass
-
-
-    Expected counts: 5 traces x 2 metric types x 3 score types = 30 total scores
-    - Pass: 24 scores (all scores from traces 1, 2, 3, 5)
-    - Fail: 6 scores (all scores from trace 4)
-
-    Since all agent names are "unknown", the aggregation will group by time bucket and combine results
-    from different time buckets that have the same agent name, metric type, score type, and result.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticRelevancePassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values
-    metric_data = {}
-
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:  # Only process non-zero values
-                # Extract dimensions
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                metric_type = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "metric_type"
-                    ),
-                    "unknown",
-                )
-                score_type = next(
-                    (dim.value for dim in group.dimensions if dim.name == "score_type"),
-                    "unknown",
-                )
-                result = next(
-                    (dim.value for dim in group.dimensions if dim.name == "result"),
-                    "unknown",
-                )
-
-                # Create key for tracking
-                key = (agent_name, metric_type, score_type, result)
-                if key not in metric_data:
-                    metric_data[key] = 0
-                metric_data[key] += point.value
-
-    # Count passes and failures
-    pass_count = sum(value for key, value in metric_data.items() if key[3] == "pass")
-    fail_count = sum(value for key, value in metric_data.items() if key[3] == "fail")
-
-    # Verify expected counts
-    assert pass_count == 24, f"Expected 24 passes, got {pass_count}"
-    assert fail_count == 6, f"Expected 6 failures, got {fail_count}"
-
-    # With the new agent name extraction, we expect the following combinations:
-    # Each combination represents the sum across all time buckets
-    expected_values = {
-        # QueryRelevance - all scores from traces 1, 2, 3, 5 pass, trace 4 fails
-        ("unknown", "QueryRelevance", "llm_relevance_score", "pass"): 2,  # traces 1, 5
-        ("agent_1", "QueryRelevance", "llm_relevance_score", "pass"): 1,  # trace 2
-        ("agent_2", "QueryRelevance", "llm_relevance_score", "pass"): 1,  # trace 3
-        (
-            "unknown",
-            "QueryRelevance",
-            "reranker_relevance_score",
-            "pass",
-        ): 2,  # traces 1, 5
-        ("agent_1", "QueryRelevance", "reranker_relevance_score", "pass"): 1,  # trace 2
-        ("agent_2", "QueryRelevance", "reranker_relevance_score", "pass"): 1,  # trace 3
-        ("unknown", "QueryRelevance", "bert_f_score", "pass"): 2,  # traces 1, 5
-        ("agent_1", "QueryRelevance", "bert_f_score", "pass"): 1,  # trace 2
-        ("agent_2", "QueryRelevance", "bert_f_score", "pass"): 1,  # trace 3
-        ("agent_3", "QueryRelevance", "llm_relevance_score", "fail"): 1,  # trace 4
-        ("agent_3", "QueryRelevance", "reranker_relevance_score", "fail"): 1,  # trace 4
-        ("agent_3", "QueryRelevance", "bert_f_score", "fail"): 1,  # trace 4
-        # ResponseRelevance - all scores from traces 1, 2, 3, 5 pass, trace 4 fails
-        (
-            "unknown",
-            "ResponseRelevance",
-            "llm_relevance_score",
-            "pass",
-        ): 2,  # traces 1, 5
-        ("agent_1", "ResponseRelevance", "llm_relevance_score", "pass"): 1,  # trace 2
-        ("agent_2", "ResponseRelevance", "llm_relevance_score", "pass"): 1,  # trace 3
-        (
-            "unknown",
-            "ResponseRelevance",
-            "reranker_relevance_score",
-            "pass",
-        ): 2,  # traces 1, 5
-        (
-            "agent_1",
-            "ResponseRelevance",
-            "reranker_relevance_score",
-            "pass",
-        ): 1,  # trace 2
-        (
-            "agent_2",
-            "ResponseRelevance",
-            "reranker_relevance_score",
-            "pass",
-        ): 1,  # trace 3
-        ("unknown", "ResponseRelevance", "bert_f_score", "pass"): 2,  # traces 1, 5
-        ("agent_1", "ResponseRelevance", "bert_f_score", "pass"): 1,  # trace 2
-        ("agent_2", "ResponseRelevance", "bert_f_score", "pass"): 1,  # trace 3
-        ("agent_3", "ResponseRelevance", "llm_relevance_score", "fail"): 1,  # trace 4
-        (
-            "agent_3",
-            "ResponseRelevance",
-            "reranker_relevance_score",
-            "fail",
-        ): 1,  # trace 4
-        ("agent_3", "ResponseRelevance", "bert_f_score", "fail"): 1,  # trace 4
-    }
-
-    # Verify each expected metric value
-    for key, expected_value in expected_values.items():
-        actual_value = metric_data.get(key, 0)
-        assert (
-            actual_value == expected_value
-        ), f"Expected {key} = {expected_value}, got {actual_value}"
-
-    # Verify no unexpected metrics
-    unexpected_keys = set(metric_data.keys()) - set(expected_values.keys())
-    assert len(unexpected_keys) == 0, f"Unexpected metric keys found: {unexpected_keys}"
-
-
-def test_tool_pass_fail_count_with_metrics(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test tool pass/fail count aggregation with trace data containing metrics.
-
-    Math: The test data contains tool selection scores that are evaluated as:
-    - Pass: score = 1 (correct tool selection/usage)
-    - Fail: score = 0 (incorrect tool selection/usage)
-    - No tool: score = 2 (no tool was selected/used)
-
-    The aggregation counts passes, failures, and no-tool cases for:
-    - tool_selection: Whether the correct tool was selected
-    - tool_usage: Whether the selected tool was used correctly
-
-    Expected result: One metric with counts by agent, tool_metric, and result.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolPassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "tool_pass_fail_count"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_tool_pass_fail_count_no_metrics(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test tool pass/fail count aggregation with trace data without metrics.
-
-    Math: The test data contains 2 traces without any tool selection metrics.
-    Expected result: Empty list since no tool metrics are present to evaluate.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticToolPassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list when no metrics are present
-    assert len(metrics) == 0
-
-
-def test_tool_pass_fail_count_dimensions(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool pass/fail count includes expected dimensions.
-
-    Math: The aggregation groups results by:
-    - agent_name: Extracted from span metadata
-    - tool_metric: 'tool_selection' or 'tool_usage'
-    - result: 'pass' (score = 1), 'fail' (score = 0), or 'no_tool' (score = 2)
-
-    Expected dimensions: All three dimension types should be present in the results.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolPassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    if len(metrics) > 0:
-        metric = metrics[0]
-        # Check that dimensions include agent_name, tool_metric, and result
-        for group in metric.numeric_series:
-            dimension_names = {dim.name for dim in group.dimensions}
-            expected_dimensions = {"agent_name", "tool_metric", "result"}
-            assert expected_dimensions.issubset(dimension_names)
-
-
-def test_tool_pass_fail_count_correct_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool pass/fail count returns correct values based on test data.
-
-    Math: Based on hardcoded test data:
-    - Trace 1 (no agent): tool_selection=1, tool_usage=1 (both pass)
-    - Trace 2 (agent_1): tool_selection=0, tool_usage=1 (selection fail, usage pass)
-    - Trace 3 (agent_2): tool_selection=2, tool_usage=2 (both no_tool)
-    - Trace 4 (agent_3): tool_selection=0, tool_usage=0 (both fail)
-    - Trace 5 (no agent): tool_selection=1, tool_usage=0 (selection pass, usage fail)
-
-
-    Expected counts:
-    - tool_selection: pass=2, fail=2, no_tool=1
-    - tool_usage: pass=2, fail=2, no_tool=1
-    - Total: pass=4, fail=4, no_tool=2
-
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolPassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values
-    metric_data = {}
-
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:  # Only process non-zero values
-                # Extract dimensions
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                tool_metric = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "tool_metric"
-                    ),
-                    "unknown",
-                )
-                result = next(
-                    (dim.value for dim in group.dimensions if dim.name == "result"),
-                    "unknown",
-                )
-
-                # Create key for tracking
-                key = (agent_name, tool_metric, result)
-                metric_data[key] = metric_data.get(key, 0) + point.value
-
-    # Count by result type
-    pass_count = sum(value for key, value in metric_data.items() if key[2] == "pass")
-    fail_count = sum(value for key, value in metric_data.items() if key[2] == "fail")
-    no_tool_count = sum(
-        value for key, value in metric_data.items() if key[2] == "no_tool"
+@pytest.fixture
+def inferences_data():
+    """Load test data from inferences.json"""
+    test_data_path = (
+        Path(__file__).parent.parent.parent
+        / "test_data"
+        / "agentic_trace_metadata"
+        / "inferences.json"
+    )
+    with open(test_data_path) as f:
+        data = json.load(f)
+    return data["traces"]
+
+
+@pytest.fixture
+def agentic_metadata_conn(inferences_data):
+    """Create a DuckDB connection with agentic metadata test data"""
+    conn = connect(":memory:")
+    dataset_ref = DatasetReference(
+        dataset_name="test_agentic_metadata",
+        dataset_table_name="test_metadata",
+        dataset_id=uuid4(),
     )
 
-    # Verify expected counts
-    assert pass_count == 4, f"Expected 4 passes, got {pass_count}"
-    assert fail_count == 4, f"Expected 4 failures, got {fail_count}"
-    assert no_tool_count == 2, f"Expected 2 no_tool, got {no_tool_count}"
+    # Create table with the new schema
+    conn.sql(
+        f"""
+        CREATE TABLE {dataset_ref.dataset_table_name} (
+            prompt_token_count BIGINT,
+            completion_token_count BIGINT,
+            total_token_count BIGINT,
+            prompt_token_cost DOUBLE,
+            completion_token_cost DOUBLE,
+            total_token_cost DOUBLE,
+            trace_id VARCHAR,
+            task_id UUID,
+            user_id VARCHAR,
+            session_id VARCHAR,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            span_count BIGINT,
+            duration_ms DOUBLE,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            input_content VARCHAR,
+            output_content VARCHAR,
+            annotations STRUCT(
+                id UUID,
+                annotation_type VARCHAR,
+                trace_id VARCHAR,
+                continuous_eval_id UUID,
+                continuous_eval_name VARCHAR,
+                eval_name VARCHAR,
+                eval_version BIGINT,
+                annotation_score BIGINT,
+                annotation_description VARCHAR,
+                input_variables STRUCT(name VARCHAR, value VARCHAR)[],
+                run_status VARCHAR,
+                cost DOUBLE,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )[],
+            spans STRUCT(
+                prompt_token_count BIGINT,
+                completion_token_count BIGINT,
+                total_token_count BIGINT,
+                prompt_token_cost DOUBLE,
+                completion_token_cost DOUBLE,
+                total_token_cost DOUBLE,
+                id UUID,
+                trace_id VARCHAR,
+                span_id VARCHAR,
+                parent_span_id VARCHAR,
+                span_kind VARCHAR,
+                span_name VARCHAR,
+                start_time TIMESTAMP,
+                end_time TIMESTAMP,
+                task_id UUID,
+                session_id VARCHAR,
+                status_code VARCHAR,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
+                raw_data JSON,
+                input_content VARCHAR,
+                output_content VARCHAR,
+                metric_results STRUCT(
+                    id UUID,
+                    metric_type VARCHAR,
+                    details VARCHAR,
+                    prompt_tokens BIGINT,
+                    completion_tokens BIGINT,
+                    latency_ms BIGINT,
+                    span_id UUID,
+                    metric_id UUID,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                )[]
+            )[]
+        )
+        """,
+    )
 
-    # With the new agent name extraction, we expect the following combinations:
-    # Each combination represents the sum across all time buckets
-    expected_values = {
-        # tool_selection: 2 passes (traces 1, 5), 2 fails (traces 2, 4), 1 no_tool (trace 3)
-        ("unknown", "tool_selection", "pass"): 2,  # traces 1, 5 (no agent)
-        ("agent_1", "tool_selection", "fail"): 1,  # trace 2
-        ("agent_2", "tool_selection", "no_tool"): 1,  # trace 3
-        ("agent_3", "tool_selection", "fail"): 1,  # trace 4
-        # tool_usage: 2 passes (traces 1, 2), 2 fails (traces 4, 5), 1 no_tool (trace 3)
-        ("unknown", "tool_usage", "pass"): 1,  # trace 1 (no agent)
-        ("agent_1", "tool_usage", "pass"): 1,  # trace 2
-        ("agent_2", "tool_usage", "no_tool"): 1,  # trace 3
-        ("agent_3", "tool_usage", "fail"): 1,  # trace 4
-        ("unknown", "tool_usage", "fail"): 1,  # trace 5 (no agent)
-    }
+    # Insert test data
+    for trace in inferences_data:
+        # Normalize annotations to ensure all fields exist
+        annotations = trace.get("annotations", [])
+        normalized_annotations = []
+        for ann in annotations:
+            normalized_ann = {
+                "id": ann.get("id"),
+                "annotation_type": ann.get("annotation_type"),
+                "trace_id": ann.get("trace_id"),
+                "continuous_eval_id": ann.get("continuous_eval_id"),
+                "continuous_eval_name": ann.get("continuous_eval_name"),
+                "eval_name": ann.get("eval_name"),
+                "eval_version": ann.get("eval_version"),
+                "annotation_score": ann.get("annotation_score"),
+                "annotation_description": ann.get("annotation_description"),
+                "input_variables": ann.get("input_variables", []),
+                "run_status": ann.get("run_status"),
+                "cost": ann.get("cost"),
+                "created_at": ann.get("created_at"),
+                "updated_at": ann.get("updated_at"),
+            }
+            normalized_annotations.append(normalized_ann)
 
-    # Verify each expected metric value
-    for key, expected_value in expected_values.items():
-        actual_value = metric_data.get(key, 0)
-        assert (
-            actual_value == expected_value
-        ), f"Expected {key} = {expected_value}, got {actual_value}"
+        annotations_json = json.dumps(normalized_annotations).replace("'", "''")
 
-    # Verify no unexpected metrics
-    unexpected_keys = set(metric_data.keys()) - set(expected_values.keys())
-    assert len(unexpected_keys) == 0, f"Unexpected metric keys found: {unexpected_keys}"
+        # Normalize spans to ensure all fields exist
+        spans = trace.get("spans", [])
+        normalized_spans = []
+        for span in spans:
+            # Normalize metric_results for each span
+            metric_results = span.get("metric_results", [])
+            normalized_metric_results = []
+            for mr in metric_results:
+                normalized_mr = {
+                    "id": mr.get("id"),
+                    "metric_type": mr.get("metric_type"),
+                    "details": mr.get("details"),
+                    "prompt_tokens": mr.get("prompt_tokens"),
+                    "completion_tokens": mr.get("completion_tokens"),
+                    "latency_ms": mr.get("latency_ms"),
+                    "span_id": mr.get("span_id"),
+                    "metric_id": mr.get("metric_id"),
+                    "created_at": mr.get("created_at"),
+                    "updated_at": mr.get("updated_at"),
+                }
+                normalized_metric_results.append(normalized_mr)
+
+            normalized_span = {
+                "prompt_token_count": span.get("prompt_token_count"),
+                "completion_token_count": span.get("completion_token_count"),
+                "total_token_count": span.get("total_token_count"),
+                "prompt_token_cost": span.get("prompt_token_cost"),
+                "completion_token_cost": span.get("completion_token_cost"),
+                "total_token_cost": span.get("total_token_cost"),
+                "id": span.get("id"),
+                "trace_id": span.get("trace_id"),
+                "span_id": span.get("span_id"),
+                "parent_span_id": span.get("parent_span_id"),
+                "span_kind": span.get("span_kind"),
+                "span_name": span.get("span_name"),
+                "start_time": span.get("start_time"),
+                "end_time": span.get("end_time"),
+                "task_id": span.get("task_id"),
+                "session_id": span.get("session_id"),
+                "status_code": span.get("status_code"),
+                "created_at": span.get("created_at"),
+                "updated_at": span.get("updated_at"),
+                "raw_data": span.get("raw_data"),
+                "input_content": span.get("input_content"),
+                "output_content": span.get("output_content"),
+                "metric_results": normalized_metric_results,
+            }
+            normalized_spans.append(normalized_span)
+
+        spans_json = json.dumps(normalized_spans).replace("'", "''")
+
+        conn.sql(
+            f"""
+            INSERT INTO {dataset_ref.dataset_table_name} VALUES (
+                {trace.get('prompt_token_count')},
+                {trace.get('completion_token_count')},
+                {trace.get('total_token_count')},
+                {trace.get('prompt_token_cost')},
+                {trace.get('completion_token_cost')},
+                {trace.get('total_token_cost')},
+                '{trace.get('trace_id')}',
+                '{trace.get('task_id')}',
+                '{trace.get('user_id')}',
+                '{trace.get('session_id')}',
+                '{trace.get('start_time')}',
+                '{trace.get('end_time')}',
+                {trace.get('span_count')},
+                {trace.get('duration_ms')},
+                '{trace.get('created_at')}',
+                '{trace.get('updated_at')}',
+                '{trace.get('input_content', '').replace("'", "''")}',
+                '{trace.get('output_content', '').replace("'", "''")}',
+                '{annotations_json}'::JSON,
+                '{spans_json}'::JSON
+            )
+            """,
+        )
+
+    return conn, dataset_ref
 
 
-def test_event_count_with_traces(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test inference count aggregation with trace data.
-
-    Math: The test data contains 5 traces with timestamps.
-    The aggregation groups traces by 5-minute time buckets and counts traces per bucket.
-
-    Expected result: One metric with trace counts over time.
-    Total count across all time buckets should equal 5.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticEventCountAggregation()
+# Trace Count Tests
+def test_trace_count(agentic_metadata_conn):
+    """Test trace counting functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTraceCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
 
-    # Should return exactly one metric
+    # Check basic structure
     assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "event_count"
+    assert metrics[0].name == "trace_count"
+    assert hasattr(metrics[0], "numeric_series")
+    assert len(metrics[0].numeric_series) > 0
 
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_event_count_no_traces(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test inference count aggregation with minimal trace data.
-
-    Math: The test data contains 2 traces with timestamps.
-    The aggregation groups traces by 5-minute time buckets and counts traces per bucket.
-
-    Expected result: One metric with trace counts over time.
-    Total count across all time buckets should equal 2.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticEventCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric even with minimal data
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "event_count"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_event_count_total(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that inference count totals match expected number of traces.
-
-    Math: The test data contains exactly 5 traces.
-    The aggregation counts traces per time bucket, then sums across all buckets.
-
-    Expected result: Total count = 5 traces
-    Calculation: Sum of all values across all numeric series groups = 5
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticEventCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    metric = metrics[0]
-
-    # Extract and validate metric values
-    metric_data = {}
+    # Sum all counts across time buckets and verify total
     total_count = 0
-
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                metric_data[point.timestamp] = point.value
-                total_count += point.value
-
-    # Should count all traces (5 in our hardcoded test data)
-    assert total_count == 5, f"Expected total count 5, got {total_count}"
-
-    # Verify specific time bucket values
-    # Each trace should be in its own 5-minute bucket
-    expected_buckets = 5
-    assert (
-        len(metric_data) == expected_buckets
-    ), f"Expected {expected_buckets} time buckets, got {len(metric_data)}"
-
-    # Each bucket should have exactly 1 trace
-    for timestamp, count in metric_data.items():
-        assert count == 1, f"Expected count 1 for bucket {timestamp}, got {count}"
-
-
-def test_event_count_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that event count correctly groups traces by time buckets.
-
-    Math: The test data contains 5 traces with timestamps:
-    - Trace 1: 12:00:00 (bucket 12:00-12:05)
-    - Trace 2: 12:05:00 (bucket 12:05-12:10)
-    - Trace 3: 12:10:00 (bucket 12:10-12:15)
-    - Trace 4: 12:15:00 (bucket 12:15-12:20)
-    - Trace 5: 12:20:00 (bucket 12:20-12:25)
-
-    Expected result: 5 time buckets, each with count = 1
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticEventCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Count time buckets and verify each has exactly 1 trace
-    bucket_counts = {}
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                bucket_counts[point.timestamp] = point.value
-
-    # Should have 5 time buckets
-    assert len(bucket_counts) == 5, f"Expected 5 time buckets, got {len(bucket_counts)}"
-
-    # Each bucket should have exactly 1 trace
-    for bucket, count in bucket_counts.items():
-        assert count == 1, f"Expected count 1 for bucket {bucket}, got {count}"
-
-
-def test_llm_call_count_with_traces(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test LLM call count aggregation with trace data.
-
-    Math: The test data contains 5 traces, each with LLM spans.
-    The aggregation recursively counts all spans with span_kind = 'LLM' across all traces.
-    Results are grouped by 5-minute time buckets.
-
-    Expected result: One metric with LLM call counts over time.
-    Total count across all time buckets should equal the total number of LLM spans.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticLLMCallCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "llm_call_count"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_llm_call_count_no_traces(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test LLM call count aggregation with minimal trace data.
-
-    Math: The test data contains 2 traces, each with LLM spans.
-    The aggregation recursively counts all spans with span_kind = 'LLM' across all traces.
-    Results are grouped by 5-minute time buckets.
-
-    Expected result: One metric with LLM call counts over time.
-    Total count across all time buckets should equal the total number of LLM spans.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticLLMCallCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric even with minimal data
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "llm_call_count"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_llm_call_count_total(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that LLM call count totals match expected number of LLM spans.
-
-    Math: The test data contains 5 traces, each with exactly 1 LLM span.
-    The aggregation counts all spans where span_kind = 'LLM' across all traces.
-
-    Expected result: Total count = 5 LLM spans
-    Calculation: Sum of all values across all numeric series groups = 5
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticLLMCallCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    metric = metrics[0]
-
-    # Extract and validate metric values
-    metric_data = {}
-    total_count = 0
-
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                metric_data[point.timestamp] = point.value
-                total_count += point.value
-
-    # Should count all LLM spans (5 in our hardcoded test data - one per trace)
-    assert total_count == 5, f"Expected total count 5, got {total_count}"
-
-    # Verify specific time bucket values
-    # Each LLM span should be in its own 5-minute bucket
-    expected_buckets = 5
-    assert (
-        len(metric_data) == expected_buckets
-    ), f"Expected {expected_buckets} time buckets, got {len(metric_data)}"
-
-    # Each bucket should have exactly 1 LLM span
-    for timestamp, count in metric_data.items():
-        assert count == 1, f"Expected count 1 for bucket {timestamp}, got {count}"
-
-
-def test_llm_call_count_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that LLM call count correctly groups spans by time buckets.
-
-    Math: The test data contains 5 LLM spans with timestamps:
-    - LLM 1: 12:00:05 (bucket 12:00-12:05)
-    - LLM 2: 12:05:10 (bucket 12:05-12:10)
-    - LLM 3: 12:10:12 (bucket 12:10-12:15)
-    - LLM 4: 12:15:05 (bucket 12:15-12:20)
-    - LLM 5: 12:20:05 (bucket 12:20-12:25)
-
-    Expected result: 5 time buckets, each with count = 1
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticLLMCallCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Count time buckets and verify each has exactly 1 LLM span
-    bucket_counts = {}
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                bucket_counts[point.timestamp] = point.value
-
-    # Should have 5 time buckets
-    assert len(bucket_counts) == 5, f"Expected 5 time buckets, got {len(bucket_counts)}"
-
-    # Each bucket should have exactly 1 LLM span
-    for bucket, count in bucket_counts.items():
-        assert count == 1, f"Expected count 1 for bucket {bucket}, got {count}"
-
-
-def test_tool_selection_and_usage_by_agent_with_metrics(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test tool selection and usage by agent aggregation with trace data containing metrics.
-
-    Math: The test data contains tool selection scores that are categorized as:
-    - Selection categories:
-      * correct_selection: tool_selection_score = 1
-      * incorrect_selection: tool_selection_score = 0
-      * no_selection: tool_selection_score = 2
-    - Usage categories:
-      * correct_usage: tool_usage_score = 1
-      * incorrect_usage: tool_usage_score = 0
-      * no_usage: tool_usage_score = 2
-
-    The aggregation counts combinations of selection and usage categories by agent.
-
-    Expected result: One metric with counts by agent, selection_category, and usage_category.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "tool_selection_and_usage_by_agent"
-
-    # Should have numeric series data
-    assert hasattr(metric, "numeric_series")
-    assert len(metric.numeric_series) > 0
-
-
-def test_tool_selection_and_usage_by_agent_no_metrics(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test tool selection and usage by agent aggregation with trace data without metrics.
-
-    Math: The test data contains 2 traces without any tool selection metrics.
-    Expected result: Empty list since no tool metrics are present to categorize.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list when no metrics are present
-    assert len(metrics) == 0
-
-
-def test_tool_selection_and_usage_by_agent_dimensions(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool selection and usage by agent includes expected dimensions.
-
-    Math: The aggregation groups results by:
-    - agent_name: Extracted from span metadata
-    - selection_category: 'correct_selection', 'incorrect_selection', or 'no_selection'
-    - usage_category: 'correct_usage', 'incorrect_usage', or 'no_usage'
-
-    Expected dimensions: All three dimension types should be present in the results.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    if len(metrics) > 0:
-        metric = metrics[0]
-        # Check that dimensions include agent_name, selection_category, and usage_category
-        for group in metric.numeric_series:
-            dimension_names = {dim.name for dim in group.dimensions}
-            expected_dimensions = {"agent_name", "selection_category", "usage_category"}
-            assert expected_dimensions.issubset(dimension_names)
-
-
-def test_tool_selection_and_usage_by_agent_correct_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool selection and usage by agent returns correct values based on test data.
-
-    Math: Based on hardcoded test data:
-    - Trace 1: tool_selection=1, tool_usage=1 (correct_selection, correct_usage)
-    - Trace 2: tool_selection=0, tool_usage=1 (incorrect_selection, correct_usage)
-    - Trace 3: tool_selection=2, tool_usage=2 (no_selection, no_usage)
-    - Trace 4: tool_selection=0, tool_usage=0 (incorrect_selection, incorrect_usage)
-    - Trace 5: tool_selection=1, tool_usage=0 (correct_selection, incorrect_usage)
-
-
-    Expected combinations:
-    - correct_selection + correct_usage: 1
-    - incorrect_selection + correct_usage: 1
-    - no_selection + no_usage: 1
-    - incorrect_selection + incorrect_usage: 1
-    - correct_selection + incorrect_usage: 1
-
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values
-    metric_data = {}
-
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:  # Only process non-zero values
-                # Extract dimensions
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                selection_category = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "selection_category"
-                    ),
-                    "unknown",
-                )
-                usage_category = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "usage_category"
-                    ),
-                    "unknown",
-                )
-
-                # Create key for tracking
-                key = (agent_name, selection_category, usage_category)
-                metric_data[key] = point.value
-
-    # Count by selection and usage categories
-    category_counts = {}
-    for key, value in metric_data.items():
-        combo_key = f"{key[1]}_{key[2]}"
-        category_counts[combo_key] = value
-
-    # Verify expected combinations exist
-    expected_combinations = [
-        "correct_selection_correct_usage",
-        "incorrect_selection_correct_usage",
-        "no_selection_no_usage",
-        "incorrect_selection_incorrect_usage",
-        "correct_selection_incorrect_usage",
-    ]
-
-    for combo in expected_combinations:
-        assert combo in category_counts, f"Expected combination {combo} not found"
-        assert (
-            category_counts[combo] == 1
-        ), f"Expected count 1 for {combo}, got {category_counts[combo]}"
-
-    # Verify total count
-    total_count = sum(category_counts.values())
-    assert total_count == 5, f"Expected total count 5, got {total_count}"
-
-    # With the new agent name extraction, we expect the following combinations:
-    # Each combination represents the sum across all time buckets
-    expected_values = {
-        # All combinations should have the correct agent names
-        ("unknown", "correct_selection", "correct_usage"): 1,  # trace 1 (no agent)
-        ("agent_1", "incorrect_selection", "correct_usage"): 1,  # trace 2
-        ("agent_2", "no_selection", "no_usage"): 1,  # trace 3
-        ("agent_3", "incorrect_selection", "incorrect_usage"): 1,  # trace 4
-        ("unknown", "correct_selection", "incorrect_usage"): 1,  # trace 5 (no agent)
-    }
-
-    # Verify each expected metric value
-    for key, expected_value in expected_values.items():
-        actual_value = metric_data.get(key, 0)
-        assert (
-            actual_value == expected_value
-        ), f"Expected {key} = {expected_value}, got {actual_value}"
-
-    # Verify no unexpected metrics
-    unexpected_keys = set(metric_data.keys()) - set(expected_values.keys())
-    assert len(unexpected_keys) == 0, f"Unexpected metric keys found: {unexpected_keys}"
-
-
-def test_agentic_metrics_over_time_correct_values(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that metrics over time aggregation returns correct distributions.
-
-    Math: Based on hardcoded test data, we expect distributions of:
-
-    Tool Selection Scores:
-    - Score 1 (pass): 2 traces (Trace 1, Trace 5)
-    - Score 0 (fail): 2 traces (Trace 2, Trace 4)
-    - Score 2 (no_tool): 1 trace (Trace 3)
-
-    Tool Usage Scores:
-    - Score 1 (pass): 2 traces (Trace 1, Trace 2)
-    - Score 0 (fail): 2 traces (Trace 4, Trace 5)
-    - Score 2 (no_tool): 1 trace (Trace 3)
-
-    Query Relevance Scores (individual):
-    - llm_relevance_score, reranker_relevance_score, bert_f_score for each trace
-    - Individual scores vary by trace based on the test data
-
-    Response Relevance Scores (individual):
-    - llm_relevance_score, reranker_relevance_score, bert_f_score for each trace
-    - Individual scores vary by trace based on the test data
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticMetricsOverTimeAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return multiple sketch metrics
-    assert len(metrics) > 0
-
-    # Verify each metric has sketch series data
-    for metric in metrics:
-        assert hasattr(metric, "sketch_series")
-        assert len(metric.sketch_series) > 0
-
-        # Each sketch series should have data points
-        for series in metric.sketch_series:
-            assert (
-                len(series.values) > 0
-            ), f"Sketch series for {metric.name} should have data points"
-
-
-def test_agentic_metrics_over_time_metric_names(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that metrics over time aggregation returns expected metric names.
-
-    Math: The aggregation should create 4 distinct metrics:
-    - tool_selection_over_time: Distribution of tool selection scores
-    - tool_usage_over_time: Distribution of tool usage scores
-    - query_relevance_scores_over_time: Distribution of individual query relevance scores
-    - response_relevance_scores_over_time: Distribution of individual response relevance scores
-
-    Expected result: All 4 metric names should be present
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticMetricsOverTimeAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly 4 metrics
-    assert len(metrics) == 4, f"Expected 4 metrics, got {len(metrics)}"
-
-    # Check that we have the expected metric types
-    metric_names = [metric.name for metric in metrics]
-    expected_names = [
-        "tool_selection_over_time",
-        "tool_usage_over_time",
-        "query_relevance_scores_over_time",
-        "response_relevance_scores_over_time",
-    ]
-
-    # All expected names should be present
-    for name in expected_names:
-        assert name in metric_names, f"Expected metric {name} not found"
-
-
-def test_relevance_pass_fail_count_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that relevance pass/fail count correctly groups by time buckets.
-
-    Math: The test data contains relevance scores across 5 time buckets.
-    Each trace has both QueryRelevance and ResponseRelevance metrics.
-    Each metric contains 3 scores: llm_relevance_score, reranker_relevance_score, bert_f_score.
-
-    Individual scores are derived from base scores: (see test_agentic_data_helper.py)
-    - llm_relevance_score: base score
-    - reranker_relevance_score: base score + 0.02
-    - bert_f_score: base score - 0.05
-
-    Test data values by bucket:
-    - Bucket 1 (12:00-12:05): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 1)
-    - Bucket 2 (12:05-12:10): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 2)
-    - Bucket 3 (12:10-12:15): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 3)
-    - Bucket 4 (12:15-12:20): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 4)
-    - Bucket 5 (12:20-12:25): 6 scores (3 QueryRelevance + 3 ResponseRelevance from Trace 5)
-
-    Expected result: 5 time buckets, each with 6 scores (3 QueryRelevance + 3 ResponseRelevance)
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticRelevancePassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values by time bucket
-    bucket_data = {}
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                bucket = point.timestamp
-                if bucket not in bucket_data:
-                    bucket_data[bucket] = {}
-
-                # Extract dimensions for this bucket
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                metric_type = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "metric_type"
-                    ),
-                    "unknown",
-                )
-                score_type = next(
-                    (dim.value for dim in group.dimensions if dim.name == "score_type"),
-                    "unknown",
-                )
-                result = next(
-                    (dim.value for dim in group.dimensions if dim.name == "result"),
-                    "unknown",
-                )
-
-                key = (agent_name, metric_type, score_type, result)
-                bucket_data[bucket][key] = point.value
-
-    # Should have 5 time buckets
-    assert len(bucket_data) == 5, f"Expected 5 time buckets, got {len(bucket_data)}"
-
-    # Each bucket should have exactly 6 scores (3 QueryRelevance + 3 ResponseRelevance)
-    for bucket, metrics in bucket_data.items():
-        total_scores = sum(metrics.values())
-        assert (
-            total_scores == 6
-        ), f"Expected count 6 for bucket {bucket}, got {total_scores}"
-
-        # Verify that each bucket has the expected score types
-        expected_score_types = {
-            "llm_relevance_score",
-            "reranker_relevance_score",
-            "bert_f_score",
-        }
-        actual_score_types = {key[2] for key in metrics.keys()}
-        assert (
-            actual_score_types == expected_score_types
-        ), f"Bucket {bucket}: Expected score types {expected_score_types}, got {actual_score_types}"
-
-        # Verify that each bucket has both QueryRelevance and ResponseRelevance
-        expected_metric_types = {"QueryRelevance", "ResponseRelevance"}
-        actual_metric_types = {key[1] for key in metrics.keys()}
-        assert (
-            actual_metric_types == expected_metric_types
-        ), f"Bucket {bucket}: Expected metric types {expected_metric_types}, got {actual_metric_types}"
-
-
-def test_tool_pass_fail_count_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool pass/fail count correctly groups by time buckets.
-
-    Math: The test data contains tool scores across 5 time buckets:
-    - Bucket 1 (12:00-12:05): 2 scores (tool_selection=1 pass, tool_usage=1 pass)
-    - Bucket 2 (12:05-12:10): 2 scores (tool_selection=0 fail, tool_usage=1 pass)
-    - Bucket 3 (12:10-12:15): 2 scores (tool_selection=2 no_tool, tool_usage=2 no_tool)
-    - Bucket 4 (12:15-12:20): 2 scores (tool_selection=0 fail, tool_usage=0 fail)
-    - Bucket 5 (12:20-12:25): 2 scores (tool_selection=1 pass, tool_usage=0 fail)
-
-    Expected result: 5 time buckets, each with 2 scores (1 tool_selection + 1 tool_usage)
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolPassFailCountAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values by time bucket
-    bucket_data = {}
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                bucket = point.timestamp
-                if bucket not in bucket_data:
-                    bucket_data[bucket] = {}
-
-                # Extract dimensions for this bucket
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                tool_metric = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "tool_metric"
-                    ),
-                    "unknown",
-                )
-                result = next(
-                    (dim.value for dim in group.dimensions if dim.name == "result"),
-                    "unknown",
-                )
-
-                key = (agent_name, tool_metric, result)
-                bucket_data[bucket][key] = point.value
-
-    # Should have 5 time buckets
-    assert len(bucket_data) == 5, f"Expected 5 time buckets, got {len(bucket_data)}"
-
-    # Each bucket should have exactly 2 scores (1 tool_selection + 1 tool_usage)
-    for bucket, metrics in bucket_data.items():
-        total_scores = sum(metrics.values())
-        assert (
-            total_scores == 2
-        ), f"Expected count 2 for bucket {bucket}, got {total_scores}"
-
-        # Verify that each bucket has both tool_selection and tool_usage
-        expected_tool_metrics = {"tool_selection", "tool_usage"}
-        actual_tool_metrics = {key[1] for key in metrics.keys()}
-        assert (
-            actual_tool_metrics == expected_tool_metrics
-        ), f"Bucket {bucket}: Expected tool metrics {expected_tool_metrics}, got {actual_tool_metrics}"
-
-        # Verify that each bucket has valid result types
-        valid_results = {"pass", "fail", "no_tool"}
-        actual_results = {key[2] for key in metrics.keys()}
-        assert actual_results.issubset(
-            valid_results,
-        ), f"Bucket {bucket}: Invalid result types {actual_results - valid_results}"
-
-
-def test_tool_selection_and_usage_by_agent_time_buckets(
-    get_agentic_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test that tool selection and usage by agent correctly groups by time buckets.
-
-    Math: The test data contains tool selection/usage combinations across 5 time buckets:
-    - Bucket 1 (12:00-12:05): 1 combination (correct_selection, correct_usage)
-    - Bucket 2 (12:05-12:10): 1 combination (incorrect_selection, correct_usage)
-    - Bucket 3 (12:10-12:15): 1 combination (no_selection, no_usage)
-    - Bucket 4 (12:15-12:20): 1 combination (incorrect_selection, incorrect_usage)
-    - Bucket 5 (12:20-12:25): 1 combination (correct_selection, incorrect_usage)
-
-    Expected result: 5 time buckets, each with 1 combination
-    """
-    conn, dataset_ref = get_agentic_dataset_conn
-    aggregation = AgenticToolSelectionAndUsageByAgentAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-    validate_expected_metric_names(aggregation, metrics)
-
-    assert len(metrics) == 1
-    metric = metrics[0]
-
-    # Extract and validate metric values by time bucket
-    bucket_data = {}
-    for group in metric.numeric_series:
-        for point in group.values:
-            if point.value > 0:
-                bucket = point.timestamp
-                if bucket not in bucket_data:
-                    bucket_data[bucket] = {}
-
-                # Extract dimensions for this bucket
-                agent_name = next(
-                    (dim.value for dim in group.dimensions if dim.name == "agent_name"),
-                    "unknown",
-                )
-                selection_category = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "selection_category"
-                    ),
-                    "unknown",
-                )
-                usage_category = next(
-                    (
-                        dim.value
-                        for dim in group.dimensions
-                        if dim.name == "usage_category"
-                    ),
-                    "unknown",
-                )
-
-                key = (agent_name, selection_category, usage_category)
-                bucket_data[bucket][key] = point.value
-
-    # Should have 5 time buckets
-    assert len(bucket_data) == 5, f"Expected 5 time buckets, got {len(bucket_data)}"
-
-    # Each bucket should have exactly 1 combination
-    for bucket, metrics in bucket_data.items():
-        total_combinations = sum(metrics.values())
-        assert (
-            total_combinations == 1
-        ), f"Expected count 1 for bucket {bucket}, got {total_combinations}"
-
-        # Verify that each bucket has valid selection and usage categories
-        valid_selection_categories = {
-            "correct_selection",
-            "incorrect_selection",
-            "no_selection",
-        }
-        valid_usage_categories = {"correct_usage", "incorrect_usage", "no_usage"}
-
-        actual_selection_categories = {key[1] for key in metrics.keys()}
-        actual_usage_categories = {key[2] for key in metrics.keys()}
-
-        assert actual_selection_categories.issubset(
-            valid_selection_categories,
-        ), f"Bucket {bucket}: Invalid selection categories {actual_selection_categories - valid_selection_categories}"
-        assert actual_usage_categories.issubset(
-            valid_usage_categories,
-        ), f"Bucket {bucket}: Invalid usage categories {actual_usage_categories - valid_usage_categories}"
-
-
-def test_agentic_span_latency_aggregation_basic(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test basic span latency aggregation functionality.
-
-    Math: Based on the test data, we expect:
-    - CHAIN spans: ~25 seconds (25,000ms) latency
-    - LLM spans: ~15 seconds (15,000ms) latency
-    - AGENT spans: ~15 seconds (15,000ms) latency
-
-    Expected results:
-    - One sketch metric named "span_latency"
-    - Data grouped by span_kind and agent_name dimensions
-    - Sketch series with latency distributions
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Validate metric names
-    validate_expected_metric_names(aggregation, metrics)
-
-    # Should return exactly one sketch metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "span_latency"
-
-    # Should have sketch series data
-    assert hasattr(metric, "sketch_series")
-    assert len(metric.sketch_series) > 0
-
-    # Each sketch series should have data points
-    for series in metric.sketch_series:
-        assert len(series.values) > 0, "Sketch series should have data points"
-
-
-def test_agentic_span_latency_aggregation_dimensions(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test that span latency aggregation includes correct dimensions.
-
-    Expected dimensions:
-    - span_kind: TOOL, CHAIN, LLM, RETRIEVER, EMBEDDING, RERANKER, UNKNOWN, GUARDRAIL, EVALUATOR, AGENT
-    - agent_name: agent_1, agent_2, unknown (for spans without agent context)
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    metric = metrics[0]
-
-    # Check that we have the expected dimensions
-    assert_dimension_in_metric(metric, "span_kind")
-    assert_dimension_in_metric(metric, "agent_name")
-
-    # Collect all dimension values
-    span_kinds = set()
-    agent_names = set()
-
-    for series in metric.sketch_series:
-        dims = {d.name: d.value for d in series.dimensions}
-        span_kinds.add(dims["span_kind"])
-        agent_names.add(dims["agent_name"])
-
-    # Verify we have the expected span kinds
-    expected_span_kinds = {
-        "TOOL",
-        "CHAIN",
-        "LLM",
-        "RETRIEVER",
-        "EMBEDDING",
-        "RERANKER",
-        "UNKNOWN",
-        "GUARDRAIL",
-        "EVALUATOR",
-        "AGENT",
-    }
-    assert (
-        span_kinds == expected_span_kinds
-    ), f"Expected span kinds {expected_span_kinds}, got {span_kinds}"
-
-    # Verify we have agent names (should include at least agent_1, agent_2, and unknown)
-    assert (
-        "agent_1" in agent_names or "agent_2" in agent_names
-    ), f"Expected agent names, got {agent_names}"
-
-
-def test_agentic_span_latency_aggregation_sketch_values(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test that span latency aggregation produces valid sketch values."""
-
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    metric = metrics[0]
-
-    # Group sketches by span_kind for specific testing
-    sketches_by_span_kind = {}
-
-    for series in metric.sketch_series:
-        dims = {d.name: d.value for d in series.dimensions}
-        span_kind = dims["span_kind"]
-
+    for series in metrics[0].numeric_series:
         for point in series.values:
-            sketch = kll_floats_sketch.deserialize(b64decode(point.value))
-            if span_kind not in sketches_by_span_kind:
-                sketches_by_span_kind[span_kind] = []
-            sketches_by_span_kind[span_kind].append(sketch)
+            total_count += point.value
 
-    # Test exact latency values for each span kind
-    expected_values = {
-        "CHAIN": [255000, 45000, 195000, 240000, 55000],  # 5 different values
-        "TOOL": [195000],  # 1 value
-        "LLM": [
-            120000,
-            30000,
-            135000,
-            180000,
-            105000,
-            20000,
-            140000,
-            50000,
-            25000,
-            110000,
-        ],  # 10 different values
-        "RETRIEVER": [215000, 15000],  # 2 different values
-        "UNKNOWN": [270000],  # 1 value
-        "EMBEDDING": [245000],  # 1 value
-        "RERANKER": [140000],  # 1 value
-        "GUARDRAIL": [50000],  # 1 value
-        "AGENT": [195000, 205000, 212000, 155000],  # 4 different values
-        "EVALUATOR": [135000],  # 1 value
-    }
-
-    for span_kind, expected_latencies in expected_values.items():
-        if span_kind in sketches_by_span_kind:
-            for sketch in sketches_by_span_kind[span_kind]:
-                # Verify sketch has data
-                assert sketch.n > 0, f"{span_kind} sketch should contain data points"
-
-                # Test exact latency values
-                min_val = sketch.get_min_value()
-                max_val = sketch.get_max_value()
-
-                assert (
-                    min_val in expected_latencies
-                ), f"{span_kind} min latency {min_val}ms not in expected {expected_latencies}ms"
-                assert (
-                    max_val in expected_latencies
-                ), f"{span_kind} max latency {max_val}ms not in expected {expected_latencies}ms"
-
-                # For single-value spans, min and max should be the same
-                if len(expected_latencies) == 1:
-                    assert (
-                        min_val == max_val
-                    ), f"{span_kind} should have single latency value, got min={min_val}ms, max={max_val}ms"
-                    assert (
-                        min_val == expected_latencies[0]
-                    ), f"{span_kind} latency should be exactly {expected_latencies[0]}ms, got {min_val}ms"
-
-    # Test overall distribution properties
-    all_sketches = []
-    for sketches in sketches_by_span_kind.values():
-        all_sketches.extend(sketches)
-
-    if all_sketches:
-        # Test that we have reasonable overall latency distribution
-        all_min = min(sketch.get_min_value() for sketch in all_sketches)
-        all_max = max(sketch.get_max_value() for sketch in all_sketches)
-        assert (
-            all_min == 15000
-        ), f"Overall minimum latency should be 15000ms, got {all_min}"
-        assert (
-            all_max == 270000
-        ), f"Overall maximum latency should be 270000ms, got {all_max}"
+    # Should equal the number of traces in the test data (18)
+    assert total_count == 10
 
 
-def test_agentic_span_latency_aggregation_empty_data(
-    get_agentic_dataset_conn_no_metrics: tuple[DuckDBPyConnection, DatasetReference],
-):
-    """Test span latency aggregation with dataset containing spans but no evaluation metrics.
-
-    Note: The 'no_metrics' fixture contains spans with timing data but no metric_results,
-    so this test verifies that the aggregation works with spans that have timing information
-    but no evaluation metrics.
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_no_metrics
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # The no_metrics fixture still contains spans with timing data, so we should get results
-    # This test verifies the aggregation works with spans that have timing but no metrics
-    assert len(metrics) == 1  # Should return one metric
-    metric = metrics[0]
-    assert metric.name == "span_latency"
-
-    # Should have sketch series data
-    assert hasattr(metric, "sketch_series")
-    assert len(metric.sketch_series) > 0
-
-
-def test_agentic_span_latency_aggregation_truly_empty_data():
-    """Test span latency aggregation with truly empty dataset.
-
-    Expected result: Empty list of metrics
-    """
-
-    # Create a completely empty dataset
-    conn = connect(":memory:")
-    dataset_ref = DatasetReference(
-        dataset_name="empty_dataset",
-        dataset_table_name="empty_test_data",
-        dataset_id=uuid4(),
-    )
-
-    # Create empty table
-    conn.sql(
-        f"""
-        CREATE TABLE {dataset_ref.dataset_table_name} (
-            trace_id VARCHAR,
-            start_time TIMESTAMP,
-            end_time TIMESTAMP,
-            root_spans JSON
-        )
-        """
-    )
-
-    aggregation = AgenticSpanLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list for truly empty dataset
-    assert len(metrics) == 0
-
-
-def test_agentic_trace_latency_aggregation_basic(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test basic functionality of trace latency aggregation.
-
-    Expected result: Returns sketch metrics with trace latency data
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticTraceLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return exactly one metric
-    assert len(metrics) == 1
-    metric = metrics[0]
-    assert metric.name == "trace_latency"
-
-    # Should have sketch series data
-    assert hasattr(metric, "sketch_series")
-    assert len(metric.sketch_series) > 0
-
-    # Verify sketch series structure
-    series = metric.sketch_series[0]
-    assert hasattr(series, "values")
-    assert len(series.values) > 0, "Sketch series should have data points"
-
-
-def test_agentic_trace_latency_aggregation_sketch_values(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test that trace latency aggregation produces valid sketch values.
-
-    Expected result: Valid sketch metrics with exact latency values
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticTraceLatencyAggregation()
+# Annotation Count Tests
+def test_annotation_count(agentic_metadata_conn):
+    """Test annotation counting functionality and dimensions"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticAnnotationCountAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
     assert len(metrics) == 1
+    assert metrics[0].name == "annotation_count"
+    assert hasattr(metrics[0], "numeric_series")
+
+    # Check dimensions
     metric = metrics[0]
-    series = metric.sketch_series[0]
-
-    # Collect all sketches for testing
-    all_sketches = []
-    for sketch_value in series.values:
-        assert hasattr(sketch_value, "timestamp")
-
-        # Deserialize the sketch from the base64-encoded value
-        sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
-        all_sketches.append(sketch)
-
-    # Test exact latency values based on test data
-    expected_values = [
-        # Main traces (one per bucket)
-        270000,  # Trace 1: 4.5 minutes
-        285000,  # Trace 6: 4.75 minutes
-        260000,  # Trace 11: 4.33 minutes
-        270000,  # Trace 16: 4.5 minutes
-        255000,  # Trace 21: 4.25 minutes
-        # Additional traces per bucket (4 per bucket × 5 buckets = 20 traces)
-        # Bucket 1 (traces 2-5): 3.5, 3.67, 3.83, 4.0 minutes
-        210000,
-        220000,
-        230000,
-        240000,
-        # Bucket 2 (traces 7-10): 3.5, 3.67, 3.83, 4.0 minutes
-        210000,
-        220000,
-        230000,
-        240000,
-        # Bucket 3 (traces 12-15): 3.5, 3.67, 3.83, 4.0 minutes
-        210000,
-        220000,
-        230000,
-        240000,
-        # Bucket 4 (traces 17-20): 3.5, 3.67, 3.83, 4.0 minutes
-        210000,
-        220000,
-        230000,
-        240000,
-        # Bucket 5 (traces 22-25): 3.5, 3.67, 3.83, 4.0 minutes
-        210000,
-        220000,
-        230000,
-        240000,
-    ]
-
-    # Test that we have the expected number of sketches
-    assert len(all_sketches) == 5, "Should have 5 sketches"
-
-    # Test exact latency values for each sketch
-    for sketch in all_sketches:
-        # Verify sketch has data
-        assert sketch.n > 0, "Sketch should contain data points"
-
-        # Test exact latency values
-        min_val = sketch.get_min_value()
-        max_val = sketch.get_max_value()
-
-        assert (
-            min_val in expected_values
-        ), f"Min latency {min_val}ms not in expected {expected_values}ms"
-        assert (
-            max_val in expected_values
-        ), f"Max latency {max_val}ms not in expected {expected_values}ms"
-
-    # Test overall distribution properties
-    if all_sketches:
-        # Test that we have reasonable overall latency distribution
-        all_min = min(sketch.get_min_value() for sketch in all_sketches)
-        all_max = max(sketch.get_max_value() for sketch in all_sketches)
-        assert (
-            all_min == 220000
-        ), f"Overall minimum latency should be 220000ms, got {all_min}"
-        assert (
-            all_max == 285000
-        ), f"Overall maximum latency should be 285000ms, got {all_max}"
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {
+            "annotation_score",
+            "run_status",
+            "continuous_eval_name",
+            "eval_name",
+            "eval_version",
+            "annotation_type",
+        }
+        assert expected_dims.issubset(dim_names)
 
 
-def test_agentic_trace_latency_aggregation_truly_empty_data():
-    """Test trace latency aggregation with truly empty dataset.
-
-    Expected result: Empty list of metrics
-    """
-
-    # Create a completely empty dataset
-    conn = connect(":memory:")
-    dataset_ref = DatasetReference(
-        dataset_name="empty_dataset",
-        dataset_table_name="empty_test_data",
-        dataset_id=uuid4(),
-    )
-
-    # Create empty table
-    conn.sql(
-        f"""
-        CREATE TABLE {dataset_ref.dataset_table_name} (
-            trace_id VARCHAR,
-            start_time TIMESTAMP,
-            end_time TIMESTAMP,
-            root_spans JSON
-        )
-        """
-    )
-
+# Trace Latency Tests
+def test_trace_latency(agentic_metadata_conn):
+    """Test trace latency functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
     aggregation = AgenticTraceLatencyAggregation()
     metrics = aggregation.aggregate(conn, dataset_ref)
 
-    # Should return empty list for empty dataset
-    assert len(metrics) == 0
-
-
-def test_agentic_trace_latency_aggregation_null_timing_data():
-    """Test trace latency aggregation with null timing data.
-    Expected result: Empty list of metrics
-    """
-
-    # Create dataset with null timing data
-    conn = connect(":memory:")
-    dataset_ref = DatasetReference(
-        dataset_name="null_timing_dataset",
-        dataset_table_name="null_timing_test_data",
-        dataset_id=uuid4(),
-    )
-
-    # Create table with null timing data
-    conn.sql(
-        f"""
-        CREATE TABLE {dataset_ref.dataset_table_name} (
-            trace_id VARCHAR,
-            start_time TIMESTAMP,
-            end_time TIMESTAMP,
-            root_spans JSON
-        )
-        """
-    )
-
-    # Insert data with null timing
-    conn.sql(
-        f"""
-        INSERT INTO {dataset_ref.dataset_table_name} VALUES
-        ('trace-001', NULL, NULL, '[]'),
-        ('trace-002', NULL, '2024-01-01 12:00:00', '[]'),
-        ('trace-003', '2024-01-01 12:00:00', NULL, '[]')
-        """
-    )
-
-    aggregation = AgenticTraceLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should return empty list for null timing data
-    assert len(metrics) == 0
-
-
-def test_agentic_trace_latency_aggregation_metric_names(
-    get_agentic_dataset_conn_for_latency_tests: tuple[
-        DuckDBPyConnection, DatasetReference
-    ],
-):
-    """Test that trace latency aggregation returns expected metric names.
-
-    Expected metric name: "trace_latency"
-    """
-    conn, dataset_ref = get_agentic_dataset_conn_for_latency_tests
-    aggregation = AgenticTraceLatencyAggregation()
-    metrics = aggregation.aggregate(conn, dataset_ref)
-
-    # Should have exactly one metric with the expected name
+    # Check basic structure
     assert len(metrics) == 1
     assert metrics[0].name == "trace_latency"
+    assert hasattr(metrics[0], "sketch_series")
+    # Has user_id dimension, so may have multiple series
+    assert len(metrics[0].sketch_series) >= 1
 
-    # Verify the metric name matches what's reported
-    expected_names = [
-        metric.metric_name for metric in aggregation.reported_aggregations()
-    ]
-    assert "trace_latency" in expected_names
+    # Verify sketch data is valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check that user_id dimension is present
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points (we have 22 traces)
+            assert sketch.n > 0
+            # Latencies should be positive (test data has ~1621ms to ~25104ms)
+            assert sketch.get_min_value() > 0
+            # Max latency should be reasonable (test data has max ~25 seconds)
+            assert sketch.get_max_value() < 60000  # Less than 60 seconds
+
+
+# Token Cost Sum Tests
+def test_token_cost_sum(agentic_metadata_conn):
+    """Test token cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "total_token_cost_sum",
+        "prompt_token_cost_sum",
+        "completion_token_cost_sum",
+    }
+
+    # Verify all values are non-negative
+    for metric in metrics:
+        for series in metric.numeric_series:
+            for point in series.values:
+                # Costs should be non-negative
+                assert point.value >= 0
+
+
+# Token Cost Distribution Tests
+def test_token_cost_distribution(agentic_metadata_conn):
+    """Test token cost distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "total_token_cost_distribution",
+        "prompt_token_cost_distribution",
+        "completion_token_cost_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has user_id dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that user_id dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points (we have 22 traces)
+                assert sketch.n > 0
+                # Costs should be non-negative
+                assert sketch.get_min_value() >= 0
+                # Max cost should be reasonable (test data has costs < 0.02)
+                assert sketch.get_max_value() < 1.0
+
+
+# Token Count Sum Tests
+def test_token_count_sum(agentic_metadata_conn):
+    """Test token count sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCountSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "total_token_count_sum",
+        "prompt_token_count_sum",
+        "completion_token_count_sum",
+    }
+
+    # Verify all values are non-negative
+    for metric in metrics:
+        for series in metric.numeric_series:
+            for point in series.values:
+                # Counts should be non-negative
+                assert point.value >= 0
+
+
+# Token Count Distribution Tests
+def test_token_count_distribution(agentic_metadata_conn):
+    """Test token count distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCountDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "total_token_count_distribution",
+        "prompt_token_count_distribution",
+        "completion_token_count_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has user_id dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that user_id dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points (we have 22 traces)
+                assert sketch.n > 0
+                # Token counts should be positive
+                assert sketch.get_min_value() > 0
+                # Max token count should be reasonable (test data has counts < 4000)
+                assert sketch.get_max_value() < 10000
+
+
+# Annotation Cost Sum Tests
+def test_annotation_cost_sum(agentic_metadata_conn):
+    """Test annotation cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticAnnotationCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    assert metrics[0].name == "annotation_cost_sum"
+    assert hasattr(metrics[0], "numeric_series")
+    # Test data has 8 annotations with cost across 2 unique dimension combinations
+    # Each combination should have at least one time series
+    assert len(metrics[0].numeric_series) >= 2
+
+    # Check dimensions
+    metric = metrics[0]
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {
+            "continuous_eval_name",
+            "eval_name",
+            "eval_version",
+        }
+        assert expected_dims.issubset(dim_names)
+
+        # Verify all values are non-negative
+        for point in series.values:
+            # Costs should be non-negative
+            assert point.value >= 0
+
+
+# Annotation Cost Distribution Tests
+def test_annotation_cost_distribution(agentic_metadata_conn):
+    """Test annotation cost distribution functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticAnnotationCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    assert metrics[0].name == "annotation_cost_distribution"
+    assert hasattr(metrics[0], "sketch_series")
+    # Test data has 8 annotations with cost across 2 unique dimension combinations:
+    # 1. SQL Dialect Matcher / Postgres SQL Dialect Detector v1 (5 annotations)
+    # 2. Always fail / Always Fails v1 (3 annotations)
+    # So we expect exactly 2 series
+    assert len(metrics[0].sketch_series) == 2
+
+    # Verify sketches are valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check dimensions
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {
+            "continuous_eval_name",
+            "eval_name",
+            "eval_version",
+        }
+        assert expected_dims.issubset(dim_names)
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points (annotations with cost field)
+            assert sketch.n > 0
+            # Costs should be non-negative (test data has small costs ~0.001)
+            assert sketch.get_min_value() >= 0
+            # Max annotation cost should be reasonable (test data has costs < 0.002)
+            assert sketch.get_max_value() < 1.0
+
+
+# Span Count Tests
+def test_span_count(agentic_metadata_conn):
+    """Test span counting functionality and dimensions"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    assert metrics[0].name == "span_count"
+    assert hasattr(metrics[0], "numeric_series")
+    assert len(metrics[0].numeric_series) > 0
+
+    # Check dimensions
+    metric = metrics[0]
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {"span_kind", "status_code"}
+        assert expected_dims.issubset(dim_names)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+
+# Span Token Cost Sum Tests
+def test_span_token_cost_sum(agentic_metadata_conn):
+    """Test span token cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_cost_sum",
+        "span_prompt_token_cost_sum",
+        "span_completion_token_cost_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            for point in series.values:
+                # Costs should be non-negative
+                assert point.value >= 0
+
+
+# Span Token Cost Distribution Tests
+def test_span_token_cost_distribution(agentic_metadata_conn):
+    """Test span token cost distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_cost_distribution",
+        "span_prompt_token_cost_distribution",
+        "span_completion_token_cost_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has span_kind dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points
+                assert sketch.n > 0
+                # Costs should be non-negative
+                assert sketch.get_min_value() >= 0
+
+
+# Span Token Count Sum Tests
+def test_span_token_count_sum(agentic_metadata_conn):
+    """Test span token count sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCountSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_count_sum",
+        "span_prompt_token_count_sum",
+        "span_completion_token_count_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            for point in series.values:
+                # Counts should be non-negative
+                assert point.value >= 0
+
+
+# Span Token Count Distribution Tests
+def test_span_token_count_distribution(agentic_metadata_conn):
+    """Test span token count distribution functionality"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanTokenCountDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "span_total_token_count_distribution",
+        "span_prompt_token_count_distribution",
+        "span_completion_token_count_distribution",
+    }
+
+    # Verify sketch contents for each metric
+    from base64 import b64decode
+
+    for metric in metrics:
+        # Has span_kind dimension, so may have multiple series
+        assert len(metric.sketch_series) >= 1
+        for series in metric.sketch_series:
+            # Check that span_kind dimension is present
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "span_kind" in dim_names
+
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                # Should have data points
+                assert sketch.n > 0
+                # Token counts should be positive
+                assert sketch.get_min_value() > 0
+
+
+# Span Latency Tests
+def test_span_latency(agentic_metadata_conn):
+    """Test span latency functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # Check basic structure
+    assert len(metrics) == 1
+    assert metrics[0].name == "span_latency"
+    assert hasattr(metrics[0], "sketch_series")
+    # Has span_kind dimension, so may have multiple series
+    assert len(metrics[0].sketch_series) >= 1
+
+    # Verify sketch data is valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check that span_kind dimension is present
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "span_kind" in dim_names
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points
+            assert sketch.n > 0
+            # Latencies should be positive
+            assert sketch.get_min_value() >= 0
+            # Max latency should be reasonable (spans should be shorter than traces)
+            assert sketch.get_max_value() < 60000  # Less than 60 seconds
+
+
+# Tool Span Count Tests
+def test_tool_span_count(agentic_metadata_conn):
+    """Test tool span counting functionality and dimensions"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticToolSpanCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no tool spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    assert metrics[0].name == "tool_span_count"
+    assert hasattr(metrics[0], "numeric_series")
+
+    # Check dimensions
+    metric = metrics[0]
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {"status_code", "span_name"}
+        assert expected_dims.issubset(dim_names)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+
+# LLM Span Latency Tests
+def test_llm_span_latency(agentic_metadata_conn):
+    """Test LLM span latency functionality and sketch values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticLLMSpanLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no LLM spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    # Check basic structure
+    assert len(metrics) == 1
+    assert metrics[0].name == "llm_span_latency"
+    assert hasattr(metrics[0], "sketch_series")
+    assert len(metrics[0].sketch_series) >= 1
+
+    # Verify sketch data is valid
+    from base64 import b64decode
+
+    for series in metrics[0].sketch_series:
+        # Check that provider and model_name dimensions are present
+        dim_names = {dim.name for dim in series.dimensions}
+        expected_dims = {"provider", "model_name"}
+        assert expected_dims.issubset(dim_names)
+
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            # Should have data points
+            assert sketch.n > 0
+            # Latencies should be non-negative
+            assert sketch.get_min_value() >= 0
+            # Max latency should be reasonable
+            assert sketch.get_max_value() < 60000  # Less than 60 seconds
+
+
+# LLM Span Token Cost Sum Tests
+def test_llm_span_token_cost_sum(agentic_metadata_conn):
+    """Test LLM span token cost sum functionality and values"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticLLMSpanTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    # If no LLM spans in test data, function should return empty list
+    if len(metrics) == 0:
+        return
+
+    # Should return 3 metrics
+    assert len(metrics) == 3
+    metric_names = {m.name for m in metrics}
+    assert metric_names == {
+        "llm_span_total_token_cost_sum",
+        "llm_span_prompt_token_cost_sum",
+        "llm_span_completion_token_cost_sum",
+    }
+
+    # Verify all values are non-negative and check dimensions
+    for metric in metrics:
+        for series in metric.numeric_series:
+            # Check that provider and model_name dimensions are present
+            dim_names = {dim.name for dim in series.dimensions}
+            expected_dims = {"provider", "model_name"}
+            assert expected_dims.issubset(dim_names)
+
+            for point in series.values:
+                # Costs should be non-negative
+                assert point.value >= 0
+
+
+# User ID Grouping Tests
+def test_trace_count_user_id_grouping(agentic_metadata_conn):
+    """Test that trace count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTraceCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.name == "trace_count"
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    total_count = 0
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Sum counts for this user_id
+        series_count = sum(point.value for point in series.values)
+        total_count += series_count
+
+    # Should have multiple user_ids (including None)
+    assert len(user_ids_found) >= 1
+    # Total count should equal number of traces (10)
+    assert total_count == 10
+
+
+def test_token_cost_sum_user_id_grouping(agentic_metadata_conn):
+    """Test that token cost sum is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostSumAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 3
+
+    # Verify each metric has user_id dimension
+    for metric in metrics:
+        user_ids_found = set()
+        for series in metric.numeric_series:
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            # Extract user_id value from dimensions
+            user_id_dim = next(
+                dim for dim in series.dimensions if dim.name == "user_id"
+            )
+            user_ids_found.add(user_id_dim.value)
+
+            # Verify all values are non-negative
+            for point in series.values:
+                assert point.value >= 0
+
+        # Should have at least one user_id
+        assert len(user_ids_found) >= 1
+
+
+def test_annotation_count_user_id_grouping(agentic_metadata_conn):
+    """Test that annotation count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticAnnotationCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_span_count_user_id_grouping(agentic_metadata_conn):
+    """Test that span count is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticSpanCountAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    if len(metrics) == 0:
+        return
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    for series in metric.numeric_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify all counts are positive
+        for point in series.values:
+            assert point.value > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_trace_latency_user_id_grouping(agentic_metadata_conn):
+    """Test that trace latency is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTraceLatencyAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 1
+    metric = metrics[0]
+
+    # Verify user_id dimension is present in all series
+    user_ids_found = set()
+    from base64 import b64decode
+
+    for series in metric.sketch_series:
+        dim_names = {dim.name for dim in series.dimensions}
+        assert "user_id" in dim_names
+
+        # Extract user_id value from dimensions
+        user_id_dim = next(dim for dim in series.dimensions if dim.name == "user_id")
+        user_ids_found.add(user_id_dim.value)
+
+        # Verify sketch data is valid
+        assert len(series.values) > 0
+        for sketch_value in series.values:
+            sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+            assert sketch.n > 0
+            assert sketch.get_min_value() > 0
+
+    # Should have at least one user_id
+    assert len(user_ids_found) >= 1
+
+
+def test_token_cost_distribution_user_id_grouping(agentic_metadata_conn):
+    """Test that token cost distribution is properly grouped by user_id"""
+    conn, dataset_ref = agentic_metadata_conn
+    aggregation = AgenticTokenCostDistributionAggregation()
+    metrics = aggregation.aggregate(conn, dataset_ref)
+
+    assert len(metrics) == 3
+
+    # Verify each metric has user_id dimension
+    from base64 import b64decode
+
+    for metric in metrics:
+        user_ids_found = set()
+        for series in metric.sketch_series:
+            dim_names = {dim.name for dim in series.dimensions}
+            assert "user_id" in dim_names
+
+            # Extract user_id value from dimensions
+            user_id_dim = next(
+                dim for dim in series.dimensions if dim.name == "user_id"
+            )
+            user_ids_found.add(user_id_dim.value)
+
+            # Verify sketch data is valid
+            assert len(series.values) > 0
+            for sketch_value in series.values:
+                sketch = kll_floats_sketch.deserialize(b64decode(sketch_value.value))
+                assert sketch.n > 0
+                assert sketch.get_min_value() >= 0
+
+        # Should have at least one user_id
+        assert len(user_ids_found) >= 1
