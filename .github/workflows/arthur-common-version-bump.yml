@@ -4,19 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       intent:
-        description: 'Trigger version bump'
+        description: "Trigger version bump"
         required: true
-        default: 'bump_version'
+        default: "bump_version"
         type: string
       bump_type:
-        description: 'Version bump type (patch, minor, major)'
+        description: "Version bump type (patch, minor, major)"
         required: true
-        default: 'patch'
+        default: "patch"
         type: choice
         options:
           - patch
           - minor
           - major
+          - dev
 
 jobs:
   bump-version:
@@ -51,4 +52,3 @@ jobs:
           git status
 
           git push origin
-
