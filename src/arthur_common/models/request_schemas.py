@@ -670,6 +670,10 @@ class TraceQueryRequest(BaseModel):
         None,
         description="Filter by continuous eval name.",
     )
+    include_experiment_traces: bool = Field(
+        default=False,
+        description="Include traces originating from Arthur experiments. Defaults to false for most uses."
+    )
 
     # Query relevance filters
     query_relevance_eq: Optional[float] = Field(
