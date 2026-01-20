@@ -45,6 +45,27 @@ class LLMEval(BaseModel):
         return self.deleted_at is not None
 
 
+class ContinuousEvalVariableMappingResponse(BaseModel):
+    matching_variables: List[str] = Field(
+        description="List of matching variables.",
+    )
+    transform_variables: List[str] = Field(
+        description="List of transform variables.",
+    )
+    eval_variables: List[str] = Field(
+        description="List of eval variables.",
+    )
+
+
+class ContinuousEvalTransformVariableMappingResponse(BaseModel):
+    transform_variable: str = Field(
+        description="Name of the transform variable.",
+    )
+    eval_variable: str = Field(
+        description="Name of the eval variable.",
+    )
+
+
 class ContinuousEvalResponse(BaseModel):
     id: UUID = Field(description="ID of the transform.")
     name: str = Field(description="Name of the continuous eval.")
@@ -56,6 +77,15 @@ class ContinuousEvalResponse(BaseModel):
     llm_eval_name: str = Field(description="Name of the llm eval.")
     llm_eval_version: int = Field(description="Version of the llm eval.")
     transform_id: UUID = Field(description="ID of the transform.")
+    transform_variable_mapping: List[ContinuousEvalTransformVariableMappingResponse] = (
+        Field(
+            default_factory=list,
+            description="Mapping of transform variables to eval variables.",
+        )
+    )
+    enabled: bool = Field(
+        description="Whether the continuous eval is enabled.",
+    )
     created_at: datetime = Field(
         description="Timestamp representing the time the transform was added to the llm eval.",
     )
