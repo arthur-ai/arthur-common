@@ -84,6 +84,7 @@ class ContinuousEvalResponse(BaseModel):
         )
     )
     enabled: bool = Field(
+        default=True,
         description="Whether the continuous eval is enabled.",
     )
     created_at: datetime = Field(
