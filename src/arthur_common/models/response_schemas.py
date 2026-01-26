@@ -657,6 +657,7 @@ class SpanWithMetricsResponse(TokenCountCostSchema):
     end_time: datetime
     task_id: Optional[str] = None
     session_id: Optional[str] = None
+    user_id: Optional[str] = None
     status_code: str = Field(description="Status code for the span (Unset, Error, Ok)")
     created_at: datetime
     updated_at: datetime
@@ -689,6 +690,7 @@ class NestedSpanWithMetricsResponse(TokenCountCostSchema):
     end_time: datetime
     task_id: Optional[str] = None
     session_id: Optional[str] = None
+    user_id: Optional[str] = None
     status_code: str = Field(description="Status code for the span (Unset, Error, Ok)")
     created_at: datetime
     updated_at: datetime
@@ -717,7 +719,8 @@ class AgenticAnnotationResponse(BaseModel):
     annotation_type: AgenticAnnotationType = Field(description="Type of annotation")
     trace_id: str = Field(description="ID of the trace this annotation belongs to")
     continuous_eval_id: Optional[str] = Field(
-        default=None, description="ID of the continuous eval this annotation belongs to"
+        default=None,
+        description="ID of the continuous eval this annotation belongs to",
     )
     continuous_eval_name: Optional[str] = Field(
         default=None,
@@ -732,19 +735,24 @@ class AgenticAnnotationResponse(BaseModel):
         description="Version of the eval the continuous eval used when scoring",
     )
     annotation_score: Optional[int] = Field(
-        default=None, description="Binary score for a positive or negative annotation."
+        default=None,
+        description="Binary score for a positive or negative annotation.",
     )
     annotation_description: Optional[str] = Field(
-        default=None, description="Description of the annotation."
+        default=None,
+        description="Description of the annotation.",
     )
     input_variables: Optional[List[VariableTemplateValue]] = Field(
-        default=None, description="Input variables for the continuous eval"
+        default=None,
+        description="Input variables for the continuous eval",
     )
     run_status: Optional[ContinuousEvalRunStatus] = Field(
-        default=None, description="Status of the continuous eval run"
+        default=None,
+        description="Status of the continuous eval run",
     )
     cost: Optional[float] = Field(
-        default=None, description="Cost of the continuous eval run"
+        default=None,
+        description="Cost of the continuous eval run",
     )
     created_at: datetime = Field(description="Time the annotation was created")
     updated_at: datetime = Field(description="Time the annotation was last updated")
@@ -752,7 +760,7 @@ class AgenticAnnotationResponse(BaseModel):
 
 class ListAgenticAnnotationsResponse(BaseModel):
     annotations: list[AgenticAnnotationResponse] = Field(
-        description="List of annotations"
+        description="List of annotations",
     )
     count: int = Field(description="Total number of annotations")
 
@@ -778,7 +786,8 @@ class TraceResponse(TokenCountCostSchema):
         default=[],
     )
     annotations: Optional[List[AgenticAnnotationResponse]] = Field(
-        default=None, description="Annotations for this trace."
+        default=None,
+        description="Annotations for this trace.",
     )
 
 
