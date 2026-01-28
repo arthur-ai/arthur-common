@@ -1,8 +1,15 @@
 import pytest
 
+from arthur_common.models.schema_definitions import (
+    DatasetColumn,
+    DatasetScalarType,
+    DatasetSchema,
+    DType,
+)
 from arthur_common.tools.duckdb_data_loader import (
     escape_identifier,
     escape_str_literal,
+    make_duckdb_dataset_schema,
     unescape_identifier,
 )
 
@@ -38,3 +45,35 @@ def test_unescape_identifier(
 ) -> None:
     unescaped_identifier = unescape_identifier(col_name_escaped)
     assert unescaped_identifier == col_name_expected_unescaped
+
+
+@pytest.mark.parametrize(
+    "dtype, expected_duckdb_type",
+    [
+        (DType.INT, "BIGINT"),
+        (DType.FLOAT, "DOUBLE"),
+        (DType.BOOL, "BOOLEAN"),
+        (DType.STRING, "VARCHAR"),
+        (DType.IMAGE, "VARCHAR"),
+        (DType.UUID, "UUID"),
+        (DType.TIMESTAMP, "TIMESTAMP"),
+        (DType.DATE, "DATE"),
+        (DType.JSON, "JSON"),
+    ],
+)
+def test_make_duckdb_dataset_schema_dtype_mappings(
+    dtype: DType, expected_duckdb_type: str
+) -> None:
+    """Test that all DType values are properly mapped to DuckDB types."""
+    schema = DatasetSchema(
+        alias_mask={},
+        columns=[
+            DatasetColumn(
+                source_name="test_column",
+                definition=DatasetScalarType(dtype=dtype),
+            )
+        ],
+    )
+    result = make_duckdb_dataset_schema(schema)
+    assert len(result) == 1
+    assert result[0].format == expected_duckdb_type
