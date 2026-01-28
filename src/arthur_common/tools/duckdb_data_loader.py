@@ -301,6 +301,8 @@ def _make_schema(
                 return "UUID"
             case DType.TIMESTAMP:
                 return "TIMESTAMP"
+            case DType.DATE:
+                return "DATE"
             case DType.JSON:
                 return "JSON"
             case _:
