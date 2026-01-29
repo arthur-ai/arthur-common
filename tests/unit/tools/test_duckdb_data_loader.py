@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime
+from uuid import UUID
 
 import duckdb
 import pandas as pd
@@ -242,16 +243,19 @@ class TestLoadUnstructuredDataWithDatetimes:
             {"id": 2, "created_at": datetime(2024, 1, 16, 11, 45, 30)},
         ]
 
+        col1_uuid = UUID("12345678-1234-5678-1234-567812345678")
+        col2_uuid = UUID("87654321-4321-8765-4321-876543218765")
+
         schema = DatasetSchema(
             alias_mask={},
             columns=[
                 DatasetColumn(
-                    id="col1",
+                    id=col1_uuid,
                     source_name="id",
                     definition=DatasetScalarType(dtype=DType.INT),
                 ),
                 DatasetColumn(
-                    id="col2",
+                    id=col2_uuid,
                     source_name="created_at",
                     definition=DatasetScalarType(dtype=DType.TIMESTAMP),
                 ),
@@ -263,8 +267,10 @@ class TestLoadUnstructuredDataWithDatetimes:
             data=data, table_name="test_table", conn=conn, schema=schema
         )
 
-        # Verify data was loaded with schema applied
-        result = result_conn.sql("SELECT * FROM test_table ORDER BY col1").fetchall()
+        # Verify data was loaded with schema applied (columns are aliased to UUIDs)
+        result = result_conn.sql(
+            f'SELECT * FROM test_table ORDER BY "{col1_uuid}"'
+        ).fetchall()
         assert len(result) == 2
         assert result[0][0] == 1
         assert result[1][0] == 2
