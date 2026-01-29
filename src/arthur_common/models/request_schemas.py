@@ -672,7 +672,7 @@ class TraceQueryRequest(BaseModel):
     )
     include_experiment_traces: bool = Field(
         default=False,
-        description="Include traces originating from Arthur experiments. Defaults to false for most uses."
+        description="Include traces originating from Arthur experiments. Defaults to false for most uses.",
     )
 
     # Query relevance filters

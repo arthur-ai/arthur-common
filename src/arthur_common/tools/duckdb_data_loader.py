@@ -27,7 +27,7 @@ class DateTimeJSONEncoder(json.JSONEncoder):
     and pyarrow timestamp/date types by converting them to ISO format strings.
     """
 
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         # Handle Python datetime and date objects
         if isinstance(obj, datetime):
             return obj.isoformat()
