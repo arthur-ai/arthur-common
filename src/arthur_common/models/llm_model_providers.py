@@ -18,6 +18,7 @@ class ModelProvider(str, Enum):
     GEMINI = "gemini"
     BEDROCK = "bedrock"
     VERTEX_AI = "vertex_ai"
+    VLLM = "hosted_vllm"
 
     # not supporting for v0
     # AZURE = "azure"
@@ -42,7 +43,6 @@ class ModelProvider(str, Enum):
     # PETALS = "petals"
     # REPLICATE = "replicate"
     # TOGETHER_AI = "together_ai"
-    # VLLM = "vllm"
     # WATSONX = "watsonx"
 
 
