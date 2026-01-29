@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import date, datetime
 from typing import Any
 
 import duckdb
@@ -18,6 +19,37 @@ from arthur_common.models.schema_definitions import (
 )
 
 MAX_JSON_OBJECT_SIZE = 1024 * 1024 * 1024  # 1GB
+
+
+class DateTimeJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder that handles datetime, date, pandas Timestamp,
+    and pyarrow timestamp/date types by converting them to ISO format strings.
+    """
+
+    def default(self, obj):
+        # Handle Python datetime and date objects
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, date):
+            return obj.isoformat()
+
+        # Handle pandas Timestamp
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+
+        # Handle pyarrow scalar types (if present) by converting to Python objects
+        # This uses duck typing to avoid requiring pyarrow as a dependency
+        if hasattr(obj, "as_py"):
+            try:
+                py_obj = obj.as_py()
+                if isinstance(py_obj, (datetime, date)):
+                    return py_obj.isoformat()
+            except Exception:
+                pass
+
+        # Let the base class raise TypeError for other types
+        return super().default(obj)
 
 
 class ColumnFormat(BaseModel):
@@ -94,7 +126,7 @@ class DuckDBOperator:
         schema: DatasetSchema | None,
     ) -> None:
         with filesystem("memory").open(f"inferences.json", "w") as file:
-            file.write(json.dumps(data))
+            file.write(json.dumps(data, cls=DateTimeJSONEncoder))
         conn.register_filesystem(filesystem("memory"))
 
         if schema:
