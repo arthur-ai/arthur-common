@@ -180,3 +180,7 @@ class ContinuousEvalRunStatus(BaseEnum):
 class AgenticAnnotationType(BaseEnum):
     HUMAN = "human"
     CONTINUOUS_EVAL = "continuous_eval"
+
+
+class RegisteredAgentProvider(BaseEnum):
+    GCP = "gcp"
