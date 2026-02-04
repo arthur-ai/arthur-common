@@ -27,6 +27,7 @@ from arthur_common.models.constants import (
 )
 from arthur_common.models.enums import (
     AgenticAnnotationType,
+    RegisteredAgentProvider,
     APIKeysRolesEnum,
     ContinuousEvalRunStatus,
     InferenceFeedbackTarget,
@@ -315,11 +316,36 @@ class SearchRulesRequest(BaseModel):
     )
 
 
+class GCPAgentMetadata(BaseModel):
+    project_id: str = Field(description="Project ID of the agent.")
+    region: str = Field(description="Region of the agent.")
+    resource_id: str = Field(description="Resource ID of the agent.")
+
+
+class AgentMetadata(BaseModel):
+    provider: RegisteredAgentProvider = Field(description="Provider of the registered agent.")
+    gcp_metadata: Optional[GCPAgentMetadata] = Field(description="Metadata for the agent.", default=None)
+    
+    class Config:
+        use_enum_values = True
+
+    @model_validator(mode="after")
+    def validate_agent_metadata(self) -> Self:
+        if self.provider == RegisteredAgentProvider.GCP:
+            if self.gcp_metadata is None:
+                raise ValueError("GCP metadata is required when provider is GCP.")
+        return self
+
+
 class NewTaskRequest(BaseModel):
     name: str = Field(description="Name of the task.", min_length=1)
     is_agentic: bool = Field(
         description="Whether the task is agentic or not.",
         default=False,
+    )
+    agent_metadata: Optional[AgentMetadata] = Field(
+        description="Metadata for registered agents.",
+        default=None,
     )
 
 
