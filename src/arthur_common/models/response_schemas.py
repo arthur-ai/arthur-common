@@ -18,11 +18,35 @@ from arthur_common.models.enums import (
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
+    RegisteredAgentProvider,
     RuleResultEnum,
     RuleScope,
     RuleType,
     ToxicityViolationType,
 )
+
+
+class GCPAgentMetadataResponse(BaseModel):
+    """GCP-specific agent metadata for responses."""
+
+    project_id: str = Field(description="Project ID of the agent.")
+    region: str = Field(description="Region of the agent.")
+    resource_id: str = Field(description="Resource ID of the agent.")
+
+
+class AgentMetadataResponse(BaseModel):
+    """Agent metadata for responses."""
+
+    provider: RegisteredAgentProvider = Field(
+        description="Provider of the registered agent.",
+    )
+    gcp_metadata: Optional[GCPAgentMetadataResponse] = Field(
+        description="Metadata for the agent.",
+        default=None,
+    )
+
+    class Config:
+        use_enum_values = True
 
 
 class HTTPError(BaseModel):
@@ -451,6 +475,10 @@ class TaskResponse(BaseModel):
     )
     is_agentic: Optional[bool] = Field(
         description="Whether the task is agentic or not",
+        default=None,
+    )
+    agent_metadata: Optional[AgentMetadataResponse] = Field(
+        description="Metadata for registered agents.",
         default=None,
     )
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")

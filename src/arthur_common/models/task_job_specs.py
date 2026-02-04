@@ -4,7 +4,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from arthur_common.models.enums import TaskType
-from arthur_common.models.request_schemas import NewMetricRequest, NewRuleRequest
+from arthur_common.models.request_schemas import (
+    AgentMetadata,
+    NewMetricRequest,
+    NewRuleRequest,
+)
 
 onboarding_id_desc = "An identifier to assign to the created model to make it easy to retrieve. Used by the UI during the GenAI model creation flow."
 
@@ -28,6 +32,10 @@ class CreateModelTaskJobSpec(BaseModel):
     )
     initial_metrics: list[NewMetricRequest] = Field(
         description="The initial metrics to apply to agentic tasks.",
+    )
+    agent_metadata: Optional[AgentMetadata] = Field(
+        default=None,
+        description="Metadata for registered agents.",
     )
 
     @model_validator(mode="after")
