@@ -53,11 +53,6 @@ class SnowflakeConnectorAuthenticatorMethods(BaseEnum):
     SNOWFLAKE_PASSWORD = "snowflake_password"
 
 
-class DatabricksConnectorAuthenticatorMethods(BaseEnum):
-    DATABRICKS_PAT = "databricks_pat"
-    DATABRICKS_OAUTH_TOKEN_PASSTHROUGH = "databricks_oauth_token_passthrough"
-
-
 # Using version from arthur-engine, which has str and enum type inheritance.
 # Note: These string values are not arbitrary and map to Presidio entity types: https://microsoft.github.io/presidio/supported_entities/
 class PIIEntityTypes(BaseEnum):
