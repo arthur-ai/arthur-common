@@ -175,6 +175,8 @@ class DuckDBOperator:
             create_table_stmt = (
                 f"CREATE OR REPLACE TEMP TABLE {table_name} ({stringified_schema});"
             )
+            # needed to prevent this issue: for databricks usage data where less than 1% of rows are non-null
+            conn.execute(f"SET GLOBAL pandas_analyze_sample={data.size}")
             conn.sql(create_table_stmt)
             conn.sql(f"INSERT INTO {table_name} SELECT * FROM data")
 
