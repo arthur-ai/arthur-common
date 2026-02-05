@@ -172,6 +172,13 @@ class ContinuousEvalRunStatus(BaseEnum):
     ERROR = "error"
 
 
+class AgentPollingStatus(BaseEnum):
+    PENDING = "pending"
+    IDLE = "idle"
+    RUNNING = "running"
+    ERROR = "error"
+
+
 class AgenticAnnotationType(BaseEnum):
     HUMAN = "human"
     CONTINUOUS_EVAL = "continuous_eval"
