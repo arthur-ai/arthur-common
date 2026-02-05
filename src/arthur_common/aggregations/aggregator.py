@@ -2,7 +2,7 @@ import os
 import re
 from abc import ABC, abstractmethod
 from base64 import b64encode
-from typing import Any, Type, Union
+from typing import Any, Type, Union, cast
 
 import pandas as pd
 from datasketches import kll_floats_sketch
@@ -289,7 +289,7 @@ class SketchAggregationFunction(AggregationFunction, ABC):
             if sketch is not None:
                 values.append(
                     SketchPoint(
-                        timestamp=group_timestamp,
+                        timestamp=cast(pd.Timestamp, group_timestamp),
                         value=b64encode(sketch.serialize()).decode(),
                     ),
                 )
