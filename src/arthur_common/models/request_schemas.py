@@ -27,12 +27,12 @@ from arthur_common.models.constants import (
 )
 from arthur_common.models.enums import (
     AgenticAnnotationType,
-    RegisteredAgentProvider,
     APIKeysRolesEnum,
     ContinuousEvalRunStatus,
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
+    RegisteredAgentProvider,
     RuleScope,
     RuleType,
     StatusCodeEnum,
@@ -323,9 +323,13 @@ class GCPAgentMetadata(BaseModel):
 
 
 class AgentMetadata(BaseModel):
-    provider: RegisteredAgentProvider = Field(description="Provider of the registered agent.")
-    gcp_metadata: Optional[GCPAgentMetadata] = Field(description="Metadata for the agent.", default=None)
-    
+    provider: RegisteredAgentProvider = Field(
+        description="Provider of the registered agent."
+    )
+    gcp_metadata: Optional[GCPAgentMetadata] = Field(
+        description="Metadata for the agent.", default=None
+    )
+
     class Config:
         use_enum_values = True
 
