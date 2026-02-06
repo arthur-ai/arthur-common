@@ -348,7 +348,7 @@ class NewTaskRequest(BaseModel):
         default=False,
     )
     agent_metadata: Optional[AgentMetadata] = Field(
-        description="Metadata for registered agents.",
+        description="Metadata to describe the creation source/provider for registered agents.",
         default=None,
     )
 
