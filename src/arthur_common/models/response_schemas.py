@@ -477,8 +477,12 @@ class TaskResponse(BaseModel):
         description="Whether the task is agentic or not",
         default=None,
     )
+    is_system_task: Optional[bool] = Field(
+        description="Whether this is a system-managed task (e.g., for unregistered traces)",
+        default=False,
+    )
     agent_metadata: Optional[AgentMetadataResponse] = Field(
-        description="Metadata for registered agents.",
+        description="Metadata to describe the creation source/provider for registered agents.",
         default=None,
     )
     rules: List[RuleResponse] = Field(description="List of all the rules for the task.")
