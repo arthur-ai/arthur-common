@@ -147,3 +147,4 @@ class ListTraceTransformsResponse(BaseModel):
     transforms: List[TraceTransformResponse] = Field(
         description="List of transforms for the task.",
     )
+    count: int = Field(description="Total number of transforms matching filters")
