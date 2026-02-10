@@ -478,7 +478,11 @@ class TaskResponse(BaseModel):
         default=None,
     )
     is_system_task: Optional[bool] = Field(
-        description="Whether this is a system-managed task (e.g., for unregistered traces)",
+        description="Whether this is a system-managed task (e.g., for traces without a task_id or service name, or for Arthur-created traces)",
+        default=False,
+    )
+    is_autocreated: Optional[bool] = Field(
+        description="Whether this task was automatically created by Arthur",
         default=False,
     )
     agent_metadata: Optional[AgentMetadataResponse] = Field(
