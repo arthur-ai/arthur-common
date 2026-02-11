@@ -44,6 +44,10 @@ class AgentMetadataResponse(BaseModel):
         description="Metadata for the agent.",
         default=None,
     )
+    service_names: Optional[List[str]] = Field(
+        description="List of service names that send traces to this task",
+        default=None,
+    )
 
     class Config:
         use_enum_values = True
