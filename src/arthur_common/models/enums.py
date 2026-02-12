@@ -186,3 +186,4 @@ class AgenticAnnotationType(BaseEnum):
 
 class RegisteredAgentProvider(BaseEnum):
     GCP = "gcp"
+    EXTERNAL = "external"
