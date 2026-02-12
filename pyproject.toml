@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arthur-common"
-version = "2.4.42"
+version = "2.4.43"
 description = "Utility code common to Arthur platform components."
 authors = ["Arthur <engineering@arthur.ai>"]
 license = "MIT"
