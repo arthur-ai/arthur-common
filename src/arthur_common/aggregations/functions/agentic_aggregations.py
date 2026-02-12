@@ -1476,7 +1476,7 @@ class AgenticAgentSpanCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def id() -> UUID:
-        return UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
+        return UUID("93d76db3-f507-4e9b-ab51-034af40dcd89")
 
     @staticmethod
     def display_name() -> str:
