@@ -1469,6 +1469,74 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
         return [metric]
 
 
+class AgenticAgentSpanCountAggregation(NumericAggregationFunction):
+    """Aggregation that counts agent spans grouped by agent name and status_code."""
+
+    METRIC_NAME = "agent_span_count"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Agent Span Count by Name and Status"
+
+    @staticmethod
+    def description() -> str:
+        return "Metric that counts agent spans grouped by agent name and status_code over time."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticAgentSpanCountAggregation.METRIC_NAME,
+                description=AgenticAgentSpanCountAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
+                unnest.status_code,
+                COALESCE(unnest.raw_data->'attributes'->'agent'->>'name', 'unknown') as agent_name,
+                COUNT(*) as count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'AGENT'
+            GROUP BY ts, user_id, unnest.status_code, agent_name
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_numeric_metrics(
+            results,
+            "count",
+            ["user_id", "status_code", "agent_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
 class AgenticLLMSpanLatencyAggregation(SketchAggregationFunction):
     """Aggregation that reports the distribution of LLM span latencies in milliseconds."""
 
