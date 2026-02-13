@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from arthur_common.models.enums import ModelProblemType
 
 
+STATIC_DATASET_TIMESTAMP_COL = "__arthur_calculated_at"
+
+
 class ScopeSchemaTag(str, Enum):
     LLM_CONTEXT = "llm_context"
     LLM_PROMPT = "llm_prompt"
