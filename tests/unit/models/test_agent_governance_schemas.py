@@ -3,10 +3,12 @@ from datetime import datetime, timezone
 import pytest
 
 from arthur_common.models.agent_governance_schemas import (
+    DataSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPCreationSource,
     ManualCreationSource,
+    Model,
     OTELCreationSource,
     SubAgent,
     TaskMetadata,
@@ -162,11 +164,13 @@ class TestEnrichedAgentMetadata:
         metadata: EnrichedAgentMetadata = {
             "tools": [Tool(name="search")],
             "sub_agents": [SubAgent(name="planner")],
-            "models": ["gpt-4", "claude-3"],
-            "data_sources": ["postgres"],
+            "models": [Model(name="gpt-4"), Model(name="claude-3")],
+            "data_sources": [DataSource(url="https://postgres.example.com")],
             "num_spans": 42,
         }
         assert len(metadata["tools"]) == 1
+        assert metadata["models"][0].name == "gpt-4"
+        assert metadata["data_sources"][0].url == "https://postgres.example.com"
         assert metadata["num_spans"] == 42
 
 
@@ -203,8 +207,8 @@ class TestEnrichedTaskResponse:
                 Tool(name="search", arguments=[ToolArgument(name="q", type_="str")]),
             ],
             sub_agents=[SubAgent(name="planner")],
-            models=["gpt-4"],
-            data_sources=["bigquery"],
+            models=[Model(name="gpt-4")],
+            data_sources=[DataSource(url="https://bigquery.googleapis.com")],
             num_spans=100,
         )
         assert response.is_autocreated is True

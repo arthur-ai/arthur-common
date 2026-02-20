@@ -41,6 +41,18 @@ class SubAgent(BaseModel):
     name: str = Field(description="Name of the sub-agent.")
 
 
+class Model(BaseModel):
+    """Model used by an agent."""
+
+    name: str = Field(description="Name of the model.")
+
+
+class DataSource(BaseModel):
+    """Data source used by an agent."""
+
+    url: str = Field(description="URL of the data source.")
+
+
 # Creation Source discriminated union
 
 
@@ -99,8 +111,8 @@ class EnrichedAgentMetadata(TypedDict):
 
     tools: list[Tool]
     sub_agents: list[SubAgent]
-    models: list[str]
-    data_sources: list[str]
+    models: list[Model]
+    data_sources: list[DataSource]
     num_spans: int
 
 
@@ -131,11 +143,11 @@ class EnrichedTaskResponse(BaseModel):
         default=None,
         description="Sub-agents used by this agent (computed from spans)",
     )
-    models: Optional[List[str]] = Field(
+    models: Optional[List[Model]] = Field(
         default=None,
         description="Models used by this agent (computed from spans)",
     )
-    data_sources: Optional[List[str]] = Field(
+    data_sources: Optional[List[DataSource]] = Field(
         default=None,
         description="Data sources used by this agent (computed from spans)",
     )
