@@ -1402,7 +1402,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
 
 
 class AgenticToolSpanCountAggregation(NumericAggregationFunction):
-    """Aggregation that counts tool spans grouped by status_code and span_name."""
+    """Aggregation that counts tool spans grouped by status_code and tool name."""
 
     METRIC_NAME = "tool_span_count"
 
@@ -1416,7 +1416,7 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that counts tool spans grouped by status_code and span_name over time."
+        return "Metric that counts tool spans grouped by status_code and tool name over time."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
@@ -1446,12 +1446,13 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
                 user_id,
                 unnest.status_code,
                 unnest.span_name,
+                COALESCE(unnest.raw_data->'attributes'->'tool_call'->'function'->>'name', unnest.span_name) as tool_name,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
             WHERE spans IS NOT NULL
                 AND UPPER(unnest.span_kind) = 'TOOL'
-            GROUP BY ts, user_id, unnest.status_code, unnest.span_name
+            GROUP BY ts, user_id, unnest.status_code, unnest.span_name, tool_name
             ORDER BY ts DESC;
             """,
         ).df()
@@ -1462,7 +1463,77 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            ["user_id", "status_code", "span_name"],
+            ["user_id", "status_code", "span_name", "tool_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticToolSpanLatencyAggregation(SketchAggregationFunction):
+    """Aggregation that reports the distribution of tool span latencies in milliseconds."""
+
+    METRIC_NAME = "tool_span_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("b3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Tool Span Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Distribution of tool span latencies in milliseconds over time, segmented by status code and tool name."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticToolSpanLatencyAggregation.METRIC_NAME,
+                description=AgenticToolSpanLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
+                unnest.status_code,
+                unnest.span_name,
+                COALESCE(unnest.raw_data->'attributes'->'tool_call'->'function'->>'name', unnest.span_name) as tool_name,
+                EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'TOOL'
+                AND unnest.start_time IS NOT NULL
+                AND unnest.end_time IS NOT NULL
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "latency_ms",
+            ["user_id", "status_code", "span_name", "tool_name"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -1513,7 +1584,7 @@ class AgenticAgentSpanCountAggregation(NumericAggregationFunction):
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 user_id,
                 unnest.status_code,
-                COALESCE(unnest.raw_data->'attributes'->'agent'->>'name', 'unknown') as agent_name,
+                COALESCE(unnest.raw_data->'attributes'->'agent'->>'name', unnest.span_name) as agent_name,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
@@ -1818,7 +1889,3 @@ class AgenticLLMSpanTokenCountSumAggregation(NumericAggregationFunction):
             )
 
         return metrics
-
-
-# TODO
-# - add tool latency aggregation
