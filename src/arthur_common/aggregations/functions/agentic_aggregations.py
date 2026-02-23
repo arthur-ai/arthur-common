@@ -1711,3 +1711,114 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             )
 
         return metrics
+
+
+class AgenticLLMSpanTokenCountSumAggregation(NumericAggregationFunction):
+    """Aggregation that sums LLM span token counts (total, prompt, and completion) over time."""
+
+    TOTAL_COUNT_METRIC_NAME = "llm_span_total_token_count_sum"
+    PROMPT_COUNT_METRIC_NAME = "llm_span_prompt_token_count_sum"
+    COMPLETION_COUNT_METRIC_NAME = "llm_span_completion_token_count_sum"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d")
+
+    @staticmethod
+    def display_name() -> str:
+        return "LLM Span Token Count Sums"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports the sum of total, prompt, and completion token counts for LLM spans over time, segmented by provider and model."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.TOTAL_COUNT_METRIC_NAME,
+                description="Sum of total token counts for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.PROMPT_COUNT_METRIC_NAME,
+                description="Sum of prompt token counts for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.COMPLETION_COUNT_METRIC_NAME,
+                description="Sum of completion token counts for LLM spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token count information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
+                unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
+                unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
+                SUM(unnest.total_token_count) as total_count,
+                SUM(unnest.prompt_token_count) as prompt_count,
+                SUM(unnest.completion_token_count) as completion_count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'LLM'
+            GROUP BY ts, user_id, provider, model_name
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total count metric
+        if "total_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "total_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series))
+
+        # Prompt count metric
+        if "prompt_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "prompt_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series))
+
+        # Completion count metric
+        if "completion_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "completion_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(
+                self.series_to_metric(self.COMPLETION_COUNT_METRIC_NAME, series),
+            )
+
+        return metrics
+
+
+# TODO
+# - add tool latency aggregation
