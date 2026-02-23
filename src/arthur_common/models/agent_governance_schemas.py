@@ -41,7 +41,7 @@ class SubAgent(BaseModel):
     name: str = Field(description="Name of the sub-agent.")
 
 
-class Model(BaseModel):
+class LLMModel(BaseModel):
     """Model used by an agent."""
 
     name: str = Field(description="Name of the model.")
@@ -111,7 +111,7 @@ class EnrichedAgentMetadata(TypedDict):
 
     tools: list[Tool]
     sub_agents: list[SubAgent]
-    models: list[Model]
+    models: list[LLMModel]
     data_sources: list[DataSource]
     num_spans: int
 
@@ -143,7 +143,7 @@ class EnrichedTaskResponse(BaseModel):
         default=None,
         description="Sub-agents used by this agent (computed from spans)",
     )
-    models: Optional[List[Model]] = Field(
+    models: Optional[List[LLMModel]] = Field(
         default=None,
         description="Models used by this agent (computed from spans)",
     )

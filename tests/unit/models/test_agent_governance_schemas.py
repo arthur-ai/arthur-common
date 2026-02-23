@@ -8,7 +8,7 @@ from arthur_common.models.agent_governance_schemas import (
     EnrichedTaskResponse,
     GCPCreationSource,
     ManualCreationSource,
-    Model,
+    LLMModel,
     OTELCreationSource,
     SubAgent,
     TaskMetadata,
@@ -164,7 +164,7 @@ class TestEnrichedAgentMetadata:
         metadata: EnrichedAgentMetadata = {
             "tools": [Tool(name="search")],
             "sub_agents": [SubAgent(name="planner")],
-            "models": [Model(name="gpt-4"), Model(name="claude-3")],
+            "models": [LLMModel(name="gpt-4"), LLMModel(name="claude-3")],
             "data_sources": [DataSource(url="https://postgres.example.com")],
             "num_spans": 42,
         }
@@ -207,7 +207,7 @@ class TestEnrichedTaskResponse:
                 Tool(name="search", arguments=[ToolArgument(name="q", type_="str")]),
             ],
             sub_agents=[SubAgent(name="planner")],
-            models=[Model(name="gpt-4")],
+            models=[LLMModel(name="gpt-4")],
             data_sources=[DataSource(url="https://bigquery.googleapis.com")],
             num_spans=100,
         )
