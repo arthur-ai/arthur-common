@@ -13,14 +13,7 @@ def test_shield_inference_hallucination_count(
     monkeypatch,
 ):
     # Enable segmentation for this test
-    monkeypatch.setenv(
-        "SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION",
-        "true",
-    )
-    # Update the class attribute since it's evaluated at import time
-    ShieldInferenceHallucinationCountAggregation.SHIELD_INFERENCE_HALLUCINATION_COUNT_AGGREGATION_SEGMENTATION = (
-        True
-    )
+    monkeypatch.setenv("INFERENCE_USER_CONVERSATION_SEGMENTATION", "true")
     conn, dataset_ref = get_shield_dataset_rule_based
 
     hallucination_count_aggregator = ShieldInferenceHallucinationCountAggregation()

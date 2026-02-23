@@ -131,7 +131,8 @@ def get_shield_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
             inference_prompt STRUCT(tokens BIGINT),
             inference_response STRUCT(tokens BIGINT, response_rule_results STRUCT(rule_type STRING, result STRING)[]),
             conversation_id STRING,
-            user_id STRING
+            user_id STRING,
+            model_name STRING
         )
         """,
     )
@@ -151,6 +152,7 @@ def get_shield_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
             },
             "conversation_id_1",
             "user_id_1",
+            "gpt-4o",
         ),
         # Second 5-minute interval
         (
@@ -164,6 +166,7 @@ def get_shield_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
             },
             "conversation_id_2",
             "user_id_1",
+            "gpt-4o",
         ),
         # Third 5-minute interval
         (
@@ -177,11 +180,12 @@ def get_shield_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
             },
             "conversation_id_3",
             "user_id_2",
+            "gpt-4o-mini",
         ),
     ]
 
     # Insert the test data
-    for created_at, prompt, response, conversation_id, user_id in test_data:
+    for created_at, prompt, response, conversation_id, user_id, model_name in test_data:
         conn.sql(
             f"""
             INSERT INTO {dataset_ref.dataset_table_name}
@@ -190,7 +194,8 @@ def get_shield_dataset_conn() -> tuple[DuckDBPyConnection, DatasetReference]:
                 ROW({prompt['tokens']}),
                 ROW({response['tokens']}, {response['response_rule_results']}),
                 '{conversation_id}',
-                '{user_id}'
+                '{user_id}',
+                '{model_name}'
             )
             """,
         )
@@ -220,7 +225,8 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
             inference_prompt STRUCT(tokens BIGINT),
             inference_response STRUCT(tokens BIGINT),
             conversation_id STRING,
-            user_id STRING
+            user_id STRING,
+            model_name STRING
         )
         """,
     )
@@ -234,6 +240,7 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
             {"tokens": None},
             "conversation_id_1",
             "user_id_1",
+            "gpt-4o",
         ),
         # Record with NULL prompt tokens
         (
@@ -242,6 +249,7 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
             {"tokens": 50},
             "conversation_id_2",
             "user_id_1",
+            "gpt-4o",
         ),
         # Record with NULL response tokens
         (
@@ -250,11 +258,12 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
             {"tokens": None},
             "conversation_id_3",
             "user_id_2",
+            "gpt-4o-mini",
         ),
     ]
 
     # Insert the test data
-    for created_at, prompt, response, conversation_id, user_id in test_data:
+    for created_at, prompt, response, conversation_id, user_id, model_name in test_data:
         prompt_tokens = "NULL" if prompt["tokens"] is None else prompt["tokens"]
         response_tokens = "NULL" if response["tokens"] is None else response["tokens"]
 
@@ -266,7 +275,8 @@ def get_shield_dataset_conn_no_tokens() -> tuple[DuckDBPyConnection, DatasetRefe
                 ROW({prompt_tokens}),
                 ROW({response_tokens}),
                 '{conversation_id}',
-                '{user_id}'
+                '{user_id}',
+                '{model_name}'
             )
             """,
         )
@@ -297,7 +307,8 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             inference_prompt STRUCT(tokens BIGINT, result STRING),
             inference_response STRUCT(tokens BIGINT, result STRING, response_rule_results STRUCT(rule_type STRING, result STRING)[]),
             conversation_id STRING,
-            user_id STRING
+            user_id STRING,
+            model_name STRING
         )
         """,
     )
@@ -317,6 +328,7 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_1",
             "user_id_1",
+            "gpt-4o",
         ),
         (
             1704067500000,  # 2024-01-01 00:05:00
@@ -331,6 +343,7 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_1",
             "user_id_1",
+            "gpt-4o",
         ),
         (
             1704067800000,  # 2024-01-01 00:10:00
@@ -345,6 +358,7 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_2",
             "user_id_2",
+            "gpt-4o-mini",
         ),
         (
             1704067500000,  # 2024-01-01 00:05:00
@@ -359,6 +373,7 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_2",
             "user_id_2",
+            "gpt-4o-mini",
         ),
         (
             1704067200000,  # 2024-01-01 00:00:00
@@ -373,6 +388,7 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_3",
             "user_id_1",
+            "gpt-4o",
         ),
         (
             1704067500000,  # 2024-01-01 00:05:00
@@ -387,10 +403,11 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
             },
             "conversation_id_3",
             "user_id_1",
+            "gpt-4o",
         ),
     ]
 
-    for created_at, result, prompt, response, conversation_id, user_id in test_data:
+    for created_at, result, prompt, response, conversation_id, user_id, model_name in test_data:
         conn.sql(
             f"""
             INSERT INTO {dataset_ref.dataset_table_name}
@@ -400,7 +417,8 @@ def get_shield_dataset_pass_fail_count() -> tuple[DuckDBPyConnection, DatasetRef
                 ROW({prompt['tokens']}, '{prompt['result']}'),
                 ROW({response['tokens']}, '{response['result']}', {response['response_rule_results']}),
                 '{conversation_id}',
-                '{user_id}'
+                '{user_id}',
+                '{model_name}'
             )
             """,
         )
@@ -450,7 +468,8 @@ def get_shield_dataset_rule_based() -> tuple[DuckDBPyConnection, DatasetReferenc
                 )[]
             ),
             conversation_id STRING,
-            user_id STRING
+            user_id STRING,
+            model_name STRING
         )
         """,
     )
@@ -506,6 +525,7 @@ def get_shield_dataset_rule_based() -> tuple[DuckDBPyConnection, DatasetReferenc
             },
             "conversation_id_1",
             "user_id_1",
+            "gpt-4o",
         ),
         # Second record - different rules and results
         (
@@ -538,6 +558,7 @@ def get_shield_dataset_rule_based() -> tuple[DuckDBPyConnection, DatasetReferenc
             },
             "conversation_id_2",
             "user_id_2",
+            "gpt-4o-mini",
         ),
         # Third record - mixed results
         (
@@ -572,11 +593,12 @@ def get_shield_dataset_rule_based() -> tuple[DuckDBPyConnection, DatasetReferenc
             },
             "conversation_id_3",
             "user_id_1",
+            "gpt-4o",
         ),
     ]
 
     # Insert the test data
-    for created_at, prompt, response, conversation_id, user_id in test_data:
+    for created_at, prompt, response, conversation_id, user_id, model_name in test_data:
         conn.sql(
             f"""
             INSERT INTO {dataset_ref.dataset_table_name}
@@ -591,7 +613,8 @@ def get_shield_dataset_rule_based() -> tuple[DuckDBPyConnection, DatasetReferenc
                     {response['response_rule_results']}
                 ),
                 '{conversation_id}',
-                '{user_id}'
+                '{user_id}',
+                '{model_name}'
             )
             """,
         )

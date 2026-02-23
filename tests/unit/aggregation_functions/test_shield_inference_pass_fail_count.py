@@ -13,14 +13,7 @@ def test_shield_inference_pass_fail_count(
     monkeypatch,
 ):
     # Enable segmentation for this test
-    monkeypatch.setenv(
-        "SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION",
-        "true",
-    )
-    # Update the class attribute since it's evaluated at import time
-    ShieldInferencePassFailCountAggregation.SHIELD_INFERENCE_PASS_FAIL_COUNT_AGGREGATION_SEGMENTATION = (
-        True
-    )
+    monkeypatch.setenv("INFERENCE_USER_CONVERSATION_SEGMENTATION", "true")
     conn, dataset_ref = get_shield_dataset_pass_fail_count
     pass_fail_count_aggregator = ShieldInferencePassFailCountAggregation()
     metrics = pass_fail_count_aggregator.aggregate(
