@@ -3,7 +3,7 @@ from arthur_common.tools.aggregation_loader import AggregationLoader
 
 def test_aggregation_loader():
     functions = AggregationLoader.load_aggregations()
-    total_expected = 43
+    total_expected = 45
     for func in functions:
         print(func)
     assert len(functions) == total_expected
