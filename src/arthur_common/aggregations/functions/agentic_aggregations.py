@@ -1402,7 +1402,7 @@ class AgenticSpanLatencyAggregation(SketchAggregationFunction):
 
 
 class AgenticToolSpanCountAggregation(NumericAggregationFunction):
-    """Aggregation that counts tool spans grouped by status_code and span_name."""
+    """Aggregation that counts tool spans grouped by status_code and tool name."""
 
     METRIC_NAME = "tool_span_count"
 
@@ -1416,7 +1416,7 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that counts tool spans grouped by status_code and span_name over time."
+        return "Metric that counts tool spans grouped by status_code and tool name over time."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
@@ -1446,12 +1446,13 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
                 user_id,
                 unnest.status_code,
                 unnest.span_name,
+                COALESCE(unnest.raw_data->'attributes'->'tool_call'->'function'->>'name', unnest.span_name) as tool_name,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
             WHERE spans IS NOT NULL
                 AND UPPER(unnest.span_kind) = 'TOOL'
-            GROUP BY ts, user_id, unnest.status_code, unnest.span_name
+            GROUP BY ts, user_id, unnest.status_code, unnest.span_name, tool_name
             ORDER BY ts DESC;
             """,
         ).df()
@@ -1462,7 +1463,77 @@ class AgenticToolSpanCountAggregation(NumericAggregationFunction):
         series = self.group_query_results_to_numeric_metrics(
             results,
             "count",
-            ["user_id", "status_code", "span_name"],
+            ["user_id", "status_code", "span_name", "tool_name"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticToolSpanLatencyAggregation(SketchAggregationFunction):
+    """Aggregation that reports the distribution of tool span latencies in milliseconds."""
+
+    METRIC_NAME = "tool_span_latency"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("b3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Tool Span Latency"
+
+    @staticmethod
+    def description() -> str:
+        return "Distribution of tool span latencies in milliseconds over time, segmented by status code and tool name."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticToolSpanLatencyAggregation.METRIC_NAME,
+                description=AgenticToolSpanLatencyAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[SketchMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
+                unnest.status_code,
+                unnest.span_name,
+                COALESCE(unnest.raw_data->'attributes'->'tool_call'->'function'->>'name', unnest.span_name) as tool_name,
+                EXTRACT(EPOCH FROM (unnest.end_time - unnest.start_time)) * 1000 as latency_ms
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'TOOL'
+                AND unnest.start_time IS NOT NULL
+                AND unnest.end_time IS NOT NULL
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        series = self.group_query_results_to_sketch_metrics(
+            results,
+            "latency_ms",
+            ["user_id", "status_code", "span_name", "tool_name"],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
@@ -1513,7 +1584,7 @@ class AgenticAgentSpanCountAggregation(NumericAggregationFunction):
                 time_bucket(INTERVAL '5 minutes', start_time) as ts,
                 user_id,
                 unnest.status_code,
-                COALESCE(unnest.raw_data->'attributes'->'agent'->>'name', 'unknown') as agent_name,
+                COALESCE(unnest.raw_data->'attributes'->'agent'->>'name', unnest.span_name) as agent_name,
                 COUNT(*) as count
             FROM {dataset.dataset_table_name},
                 UNNEST(spans)
@@ -1708,6 +1779,113 @@ class AgenticLLMSpanTokenCostSumAggregation(NumericAggregationFunction):
             )
             metrics.append(
                 self.series_to_metric(self.COMPLETION_COST_METRIC_NAME, series),
+            )
+
+        return metrics
+
+
+class AgenticLLMSpanTokenCountSumAggregation(NumericAggregationFunction):
+    """Aggregation that sums LLM span token counts (total, prompt, and completion) over time."""
+
+    TOTAL_COUNT_METRIC_NAME = "llm_span_total_token_count_sum"
+    PROMPT_COUNT_METRIC_NAME = "llm_span_prompt_token_count_sum"
+    COMPLETION_COUNT_METRIC_NAME = "llm_span_completion_token_count_sum"
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d")
+
+    @staticmethod
+    def display_name() -> str:
+        return "LLM Span Token Count Sums"
+
+    @staticmethod
+    def description() -> str:
+        return "Aggregation that reports the sum of total, prompt, and completion token counts for LLM spans over time, segmented by provider and model."
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.TOTAL_COUNT_METRIC_NAME,
+                description="Sum of total token counts for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.PROMPT_COUNT_METRIC_NAME,
+                description="Sum of prompt token counts for LLM spans over time.",
+            ),
+            BaseReportedAggregation(
+                metric_name=AgenticLLMSpanTokenCountSumAggregation.COMPLETION_COUNT_METRIC_NAME,
+                description="Sum of completion token counts for LLM spans over time.",
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing spans with token count information.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                user_id,
+                unnest.raw_data->'attributes'->'llm'->>'provider' as provider,
+                unnest.raw_data->'attributes'->'llm'->>'model_name' as model_name,
+                SUM(unnest.total_token_count) as total_count,
+                SUM(unnest.prompt_token_count) as prompt_count,
+                SUM(unnest.completion_token_count) as completion_count
+            FROM {dataset.dataset_table_name},
+                UNNEST(spans)
+            WHERE spans IS NOT NULL
+                AND UPPER(unnest.span_kind) = 'LLM'
+            GROUP BY ts, user_id, provider, model_name
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        if results.empty:
+            return []
+
+        metrics = []
+
+        # Total count metric
+        if "total_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "total_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.TOTAL_COUNT_METRIC_NAME, series))
+
+        # Prompt count metric
+        if "prompt_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "prompt_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(self.series_to_metric(self.PROMPT_COUNT_METRIC_NAME, series))
+
+        # Completion count metric
+        if "completion_count" in results.columns:
+            series = self.group_query_results_to_numeric_metrics(
+                results,
+                "completion_count",
+                ["user_id", "provider", "model_name"],
+                "ts",
+            )
+            metrics.append(
+                self.series_to_metric(self.COMPLETION_COUNT_METRIC_NAME, series),
             )
 
         return metrics
