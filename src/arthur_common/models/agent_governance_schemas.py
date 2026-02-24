@@ -56,7 +56,7 @@ class DataSource(BaseModel):
 # Creation Source discriminated union
 
 
-class GCPCreationSource(BaseModel):
+class GCPAgentCreationSource(BaseModel):
     """Creation source for GCP-discovered agents."""
 
     type: Literal["GCP"] = "GCP"
@@ -71,7 +71,7 @@ class GCPCreationSource(BaseModel):
     )
 
 
-class OTELCreationSource(BaseModel):
+class OTELAgentCreationSource(BaseModel):
     """Creation source for OTEL-discovered agents (auto-created from traces)."""
 
     type: Literal["OTEL"] = "OTEL"
@@ -81,14 +81,14 @@ class OTELCreationSource(BaseModel):
     )
 
 
-class ManualCreationSource(BaseModel):
+class ManualAgentCreationSource(BaseModel):
     """Creation source for manually created tasks."""
 
     type: Literal["MANUAL"] = "MANUAL"
 
 
 # Union type for creation source (discriminated by 'type' field)
-CreationSource = Union[GCPCreationSource, OTELCreationSource, ManualCreationSource]
+AgentCreationSource = Union[GCPAgentCreationSource, OTELAgentCreationSource, ManualAgentCreationSource]
 
 
 class TaskMetadata(BaseModel):
@@ -100,7 +100,7 @@ class TaskMetadata(BaseModel):
     Service names are looked up from service_name_task_mappings at query time.
     """
 
-    creation_source: Optional[CreationSource] = Field(
+    creation_source: Optional[AgentCreationSource] = Field(
         default=None,
         description="Information about how this task/agent was created",
     )
@@ -127,7 +127,7 @@ class EnrichedTaskResponse(BaseModel):
         default=False,
         description="Whether this task was auto-created (vs manually created)",
     )
-    creation_source: Optional[CreationSource] = Field(
+    creation_source: Optional[AgentCreationSource] = Field(
         default=None,
         description="Information about how this task/agent was created",
     )

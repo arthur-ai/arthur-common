@@ -6,10 +6,10 @@ from arthur_common.models.agent_governance_schemas import (
     DataSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
-    GCPCreationSource,
-    ManualCreationSource,
+    GCPAgentCreationSource,
+    ManualAgentCreationSource,
     LLMModel,
-    OTELCreationSource,
+    OTELAgentCreationSource,
     SubAgent,
     TaskMetadata,
     Tool,
@@ -75,7 +75,7 @@ class TestSubAgent:
 
 class TestCreationSource:
     def test_gcp_creation_source(self):
-        src = GCPCreationSource(
+        src = GCPAgentCreationSource(
             gcp_project_id="my-project",
             gcp_region="us-central1",
             gcp_reasoning_engine_id="12345",
@@ -86,7 +86,7 @@ class TestCreationSource:
         assert dumped["service_names"] == []
 
     def test_gcp_creation_source_with_service_names(self):
-        src = GCPCreationSource(
+        src = GCPAgentCreationSource(
             gcp_project_id="proj",
             gcp_region="us-east1",
             gcp_reasoning_engine_id="456",
@@ -95,17 +95,17 @@ class TestCreationSource:
         assert src.service_names == ["svc-a", "svc-b"]
 
     def test_otel_creation_source(self):
-        src = OTELCreationSource()
+        src = OTELAgentCreationSource()
         dumped = src.model_dump()
         assert dumped["type"] == "OTEL"
         assert dumped["service_names"] == []
 
     def test_otel_creation_source_with_service_names(self):
-        src = OTELCreationSource(service_names=["my-service"])
+        src = OTELAgentCreationSource(service_names=["my-service"])
         assert src.service_names == ["my-service"]
 
     def test_manual_creation_source(self):
-        src = ManualCreationSource()
+        src = ManualAgentCreationSource()
         dumped = src.model_dump()
         assert dumped == {"type": "MANUAL"}
 
@@ -113,16 +113,16 @@ class TestCreationSource:
         "json_data,expected_type",
         [
             (
-                {
+                    {
                     "type": "GCP",
                     "gcp_project_id": "p",
                     "gcp_region": "r",
                     "gcp_reasoning_engine_id": "e",
                 },
-                GCPCreationSource,
+                    GCPAgentCreationSource,
             ),
-            ({"type": "OTEL"}, OTELCreationSource),
-            ({"type": "MANUAL"}, ManualCreationSource),
+            ({"type": "OTEL"}, OTELAgentCreationSource),
+            ({"type": "MANUAL"}, ManualAgentCreationSource),
         ],
     )
     def test_discriminated_union_deserialization(self, json_data, expected_type):
@@ -141,7 +141,7 @@ class TestTaskMetadata:
 
     def test_with_gcp_source_round_trip(self):
         original = TaskMetadata(
-            creation_source=GCPCreationSource(
+            creation_source=GCPAgentCreationSource(
                 gcp_project_id="test-project",
                 gcp_region="us-central1",
                 gcp_reasoning_engine_id="engine-1",
@@ -149,12 +149,12 @@ class TestTaskMetadata:
         )
         dumped = original.model_dump(mode="json")
         restored = TaskMetadata.model_validate(dumped)
-        assert isinstance(restored.creation_source, GCPCreationSource)
+        assert isinstance(restored.creation_source, GCPAgentCreationSource)
         assert restored.creation_source.gcp_project_id == "test-project"
         assert restored.creation_source.gcp_reasoning_engine_id == "engine-1"
 
     def test_exclude_none(self):
-        metadata = TaskMetadata(creation_source=ManualCreationSource())
+        metadata = TaskMetadata(creation_source=ManualAgentCreationSource())
         dumped = metadata.model_dump(exclude_none=True)
         assert dumped == {"creation_source": {"type": "MANUAL"}}
 
@@ -196,7 +196,7 @@ class TestEnrichedTaskResponse:
             created_at=now,
             updated_at=now,
             is_autocreated=True,
-            creation_source=GCPCreationSource(
+            creation_source=GCPAgentCreationSource(
                 gcp_project_id="proj",
                 gcp_region="us-central1",
                 gcp_reasoning_engine_id="eng-1",
@@ -212,7 +212,7 @@ class TestEnrichedTaskResponse:
             num_spans=100,
         )
         assert response.is_autocreated is True
-        assert isinstance(response.creation_source, GCPCreationSource)
+        assert isinstance(response.creation_source, GCPAgentCreationSource)
         assert len(response.tools) == 1
         assert response.tools[0].arguments[0].type_ == "str"
 
@@ -223,11 +223,11 @@ class TestEnrichedTaskResponse:
             name="OTEL Agent",
             created_at=now,
             updated_at=now,
-            creation_source=OTELCreationSource(service_names=["my-svc"]),
+            creation_source=OTELAgentCreationSource(service_names=["my-svc"]),
             num_spans=5,
         )
         dumped = original.model_dump(mode="json")
         restored = EnrichedTaskResponse.model_validate(dumped)
-        assert isinstance(restored.creation_source, OTELCreationSource)
+        assert isinstance(restored.creation_source, OTELAgentCreationSource)
         assert restored.creation_source.service_names == ["my-svc"]
         assert restored.num_spans == 5
