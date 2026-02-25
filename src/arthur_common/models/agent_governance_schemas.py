@@ -6,7 +6,7 @@ These schemas are shared across services for the /api/v2/agent-tasks endpoint.
 from datetime import datetime
 from typing import List, Literal, Optional, TypedDict, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from arthur_common.models.response_schemas import RuleResponse
 
@@ -88,12 +88,16 @@ class ManualAgentCreationSource(BaseModel):
 
 
 # Union type for creation source (discriminated by 'type' field)
-class AgentCreationSource(BaseModel):
-    __root_: Union[
-        GCPAgentCreationSource,
-        OTELAgentCreationSource,
-        ManualAgentCreationSource,
+class AgentCreationSource(
+    RootModel[
+        Union[
+            GCPAgentCreationSource,
+            OTELAgentCreationSource,
+            ManualAgentCreationSource,
+        ]
     ]
+):
+    pass
 
 
 class TaskMetadata(BaseModel):
