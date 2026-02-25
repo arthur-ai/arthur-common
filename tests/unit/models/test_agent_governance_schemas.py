@@ -14,6 +14,7 @@ from arthur_common.models.agent_governance_schemas import (
     TaskMetadata,
     Tool,
     ToolArgument,
+    AgentCreationSource,
 )
 
 
@@ -113,13 +114,13 @@ class TestCreationSource:
         "json_data,expected_type",
         [
             (
-                    {
+                {
                     "type": "GCP",
                     "gcp_project_id": "p",
                     "gcp_region": "r",
                     "gcp_reasoning_engine_id": "e",
                 },
-                    GCPAgentCreationSource,
+                GCPAgentCreationSource,
             ),
             ({"type": "OTEL"}, OTELAgentCreationSource),
             ({"type": "MANUAL"}, ManualAgentCreationSource),
@@ -129,7 +130,7 @@ class TestCreationSource:
         """Pydantic should correctly discriminate CreationSource variants by 'type' field."""
         # Wrap in TaskMetadata to test the union deserialization
         metadata = TaskMetadata.model_validate({"creation_source": json_data})
-        assert isinstance(metadata.creation_source, expected_type)
+        assert isinstance(metadata.creation_source.root, expected_type)
 
 
 class TestTaskMetadata:
@@ -149,9 +150,9 @@ class TestTaskMetadata:
         )
         dumped = original.model_dump(mode="json")
         restored = TaskMetadata.model_validate(dumped)
-        assert isinstance(restored.creation_source, GCPAgentCreationSource)
-        assert restored.creation_source.gcp_project_id == "test-project"
-        assert restored.creation_source.gcp_reasoning_engine_id == "engine-1"
+        assert isinstance(restored.creation_source.root, GCPAgentCreationSource)
+        assert restored.creation_source.root.gcp_project_id == "test-project"
+        assert restored.creation_source.root.gcp_reasoning_engine_id == "engine-1"
 
     def test_exclude_none(self):
         metadata = TaskMetadata(creation_source=ManualAgentCreationSource())
@@ -212,7 +213,7 @@ class TestEnrichedTaskResponse:
             num_spans=100,
         )
         assert response.is_autocreated is True
-        assert isinstance(response.creation_source, GCPAgentCreationSource)
+        assert isinstance(response.creation_source.root, GCPAgentCreationSource)
         assert len(response.tools) == 1
         assert response.tools[0].arguments[0].type_ == "str"
 
@@ -228,6 +229,6 @@ class TestEnrichedTaskResponse:
         )
         dumped = original.model_dump(mode="json")
         restored = EnrichedTaskResponse.model_validate(dumped)
-        assert isinstance(restored.creation_source, OTELAgentCreationSource)
-        assert restored.creation_source.service_names == ["my-svc"]
+        assert isinstance(restored.creation_source.root, OTELAgentCreationSource)
+        assert restored.creation_source.root.service_names == ["my-svc"]
         assert restored.num_spans == 5
