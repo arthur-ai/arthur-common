@@ -291,6 +291,10 @@ class SearchTasksRequest(BaseModel):
         description="Filter tasks by agentic status. If not provided, returns both agentic and non-agentic tasks.",
         default=None,
     )
+    include_archived: Optional[bool] = Field(
+        description="Include archived tasks in results. True returns both active and archived tasks, False or None returns only active tasks.",
+        default=None,
+    )
 
 
 class SearchRulesRequest(BaseModel):
@@ -324,10 +328,11 @@ class GCPAgentMetadata(BaseModel):
 
 class AgentMetadata(BaseModel):
     provider: RegisteredAgentProvider = Field(
-        description="Provider of the registered agent."
+        description="Provider of the registered agent.",
     )
     gcp_metadata: Optional[GCPAgentMetadata] = Field(
-        description="Metadata for the agent.", default=None
+        description="Metadata for the agent.",
+        default=None,
     )
 
     class Config:

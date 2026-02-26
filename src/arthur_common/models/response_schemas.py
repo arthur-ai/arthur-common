@@ -489,6 +489,10 @@ class TaskResponse(BaseModel):
         description="Whether this task was automatically created by Arthur",
         default=False,
     )
+    is_archived: Optional[bool] = Field(
+        description="Whether this task is archived",
+        default=False,
+    )
     agent_metadata: Optional[AgentMetadataResponse] = Field(
         description="Metadata to describe the creation source/provider for registered agents.",
         default=None,
