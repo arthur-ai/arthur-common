@@ -292,7 +292,11 @@ class SearchTasksRequest(BaseModel):
         default=None,
     )
     include_archived: Optional[bool] = Field(
-        description="Include archived tasks in results. True returns both active and archived tasks, False or None returns only active tasks.",
+        description="Include archived tasks in results. True returns both active and archived tasks, False or None returns only active tasks. If only_archived is True, this flag is ignored.",
+        default=None,
+    )
+    only_archived: Optional[bool] = Field(
+        description="Return only archived tasks. True returns exclusively archived tasks, False or None has no effect. Takes precedence over include_archived when both are set.",
         default=None,
     )
 
