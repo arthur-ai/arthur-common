@@ -13,18 +13,18 @@ from .helpers import *
     "model_name,expected_prompt_tokens,expected_response_tokens,expected_prompt_cost,expected_response_cost",
     [
         (
-            "gpt-4o",
+            "claude-opus-4-6",
             100,  # prompt tokens
             150,  # response tokens
-            0.00025,  # prompt cost (litellm pricing)
-            0.0015,  # response cost (litellm pricing)
+            0.0005,  # prompt cost (litellm pricing)
+            0.00375,  # response cost (litellm pricing)
         ),
         (
-            "gpt-3.5-turbo",
+            "gpt-5.2",
             100,
             150,
-            0.00005,  # prompt cost (litellm pricing)
-            0.000225,  # response cost (litellm pricing: 0.000225 = 150 * 0.0015 / 1000)
+            0.000175,  # prompt cost (litellm pricing)
+            0.0021,  # response cost (litellm pricing)
         ),
     ],
 )
@@ -115,18 +115,18 @@ def test_shield_token_count(
     "model_name,expected_prompt_tokens,expected_response_tokens,expected_prompt_cost,expected_response_cost",
     [
         (
-            "gpt-4o",
+            "claude-opus-4-6",
             30,  # prompt tokens
             50,  # response tokens
-            0.000075,  # prompt cost (litellm pricing: 7.5e-05)
-            0.0005,  # response cost (litellm pricing)
+            0.00015,  # prompt cost (litellm pricing)
+            0.00125,  # response cost (litellm pricing)
         ),
         (
-            "gpt-3.5-turbo",
+            "gpt-5.2",
             30,
             50,
-            0.000015,  # prompt cost (litellm pricing: 1.5e-05)
-            0.000075,  # response cost (litellm pricing: 7.5e-05)
+            0.0000525,  # prompt cost (litellm pricing: 5.25e-05)
+            0.0007,  # response cost (litellm pricing)
         ),
     ],
 )

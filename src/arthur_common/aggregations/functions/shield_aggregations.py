@@ -969,16 +969,33 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "token_count"
     FEATURE_FLAG_NAME = USER_CONVERSATION_SEGMENTATION_FF
     SUPPORTED_MODELS = [
-        "gpt-4o",
-        "gpt-4o-mini",
-        "gpt-3.5-turbo",
-        "o1-mini",
-        "deepseek/deepseek-chat",
-        "claude-3-5-sonnet-20241022",
-        "gemini/gemini-1.5-pro",
-        "meta.llama3-1-8b-instruct-v1:0",
-        "meta.llama3-1-70b-instruct-v1:0",
-        "meta.llama3-2-11b-instruct-v1:0",
+        # Anthropic
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        # OpenAI
+        "gpt-5.2",
+        "gpt-5.3-codex",
+        "o3",
+        # Google
+        "gemini/gemini-3.1-pro-preview",
+        "gemini/gemini-3-flash-preview",
+        # xAI
+        "xai/grok-4",
+        "xai/grok-4-1-fast",
+        # DeepSeek
+        "deepseek/deepseek-v3.2",
+        "deepseek/deepseek-v3",
+        "deepseek/deepseek-r1",
+        # Meta
+        "meta.llama4-maverick-17b-instruct-v1:0",
+        "meta.llama4-scout-17b-instruct-v1:0",
+        # Alibaba
+        "qwen.qwen3-32b-v1:0",
+        # Moonshot
+        "moonshot/kimi-k2.5",
+        # Mistral
+        "mistral/mistral-large-latest",
     ]
 
     @staticmethod
