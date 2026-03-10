@@ -815,6 +815,60 @@ class TraceQueryRequest(BaseModel):
         description="Duration less than or equal to this value (seconds).",
     )
 
+    # Span count filters (number of spans in a trace)
+    span_count_eq: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of spans exactly equal to this value.",
+    )
+    span_count_gt: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of spans greater than this value.",
+    )
+    span_count_gte: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of spans greater than or equal to this value.",
+    )
+    span_count_lt: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of spans less than this value.",
+    )
+    span_count_lte: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of spans less than or equal to this value.",
+    )
+
+    # Token count filters
+    total_token_count_eq: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Token count exactly equal to this value.",
+    )
+    total_token_count_gt: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Token count greater than this value.",
+    )
+    total_token_count_gte: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Token count greater than or equal to this value.",
+    )
+    total_token_count_lt: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Token count less than this value.",
+    )
+    total_token_count_lte: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Token count less than or equal to this value.",
+    )
+
     @field_validator(
         "query_relevance_eq",
         "query_relevance_gt",
@@ -907,7 +961,7 @@ class TraceQueryRequest(BaseModel):
     def validate_filter_combinations(self) -> Self:
         """Validate that filter combinations are logically valid."""
         # Check mutually exclusive filters for each metric type
-        for prefix in ["query_relevance", "response_relevance", "trace_duration"]:
+        for prefix in ["query_relevance", "response_relevance", "trace_duration", "span_count", "total_token_count"]:
             eq_field = f"{prefix}_eq"
             comparison_fields = [f"{prefix}_{op}" for op in ["gt", "gte", "lt", "lte"]]
 
