@@ -127,7 +127,10 @@ class DuckDBOperator:
     ) -> None:
         with filesystem("memory").open(f"inferences.json", "w") as file:
             file.write(json.dumps(data, cls=DateTimeJSONEncoder))
-        conn.register_filesystem(filesystem("memory"))
+        try:
+            conn.register_filesystem(filesystem("memory"))
+        except duckdb.InvalidInputException:
+            pass  # filesystem already registered
 
         if schema:
             column_formats = make_duckdb_dataset_schema(schema)
