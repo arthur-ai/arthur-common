@@ -45,7 +45,7 @@ repos:
     hooks:
       - id: pytest-check
         name: "pytest unit tests and coverage"
-        entry: poetry run pytest tests/ --cov=arthur_common --cov-fail-under=45
+        entry: uv run pytest tests/ --cov=arthur_common --cov-fail-under=45
         language: system
         types: [python]
         pass_filenames: false
@@ -53,7 +53,7 @@ repos:
         files: ^src/arthur_common/
       - id: mypy
         name: "mypy type checking"
-        entry: poetry run mypy src/arthur_common/ --ignore-missing-imports
+        entry: uv run mypy src/arthur_common/ --ignore-missing-imports
         language: system
         types: [python]
         pass_filenames: false

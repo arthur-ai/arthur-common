@@ -4,10 +4,10 @@ Arthur Common is a library that contains common operations between Arthur platfo
 
 ## Installation
 
-To install the package, use [Poetry](https://python-poetry.org/):
+To install the package, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
-poetry add arthur-common
+uv add arthur-common
 ```
 
 or pip
@@ -18,15 +18,14 @@ pip install arthur-common
 
 ## Requirements
 
-- Python 3.13
+- Python 3.12+
 
 ## Development
 
-To set up the development environment, ensure you have [Poetry](https://python-poetry.org/) installed, then run:
+To set up the development environment, ensure you have [uv](https://docs.astral.sh/uv/) installed, then run:
 
 ```bash
-poetry env use 3.13
-poetry install
+uv sync --all-groups
 ```
 
 ### Running Tests
@@ -34,7 +33,7 @@ poetry install
 This project uses [pytest](https://pytest.org/) for testing. To run the tests, execute:
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 ## Release process
@@ -43,11 +42,3 @@ poetry run pytest
 3. Click **Run workflow**. The workflow will create a new commit with the version bump, push it back to the same branch it is triggered on (default `main`), and start the release process
 4. Watch in [GitHub Actions](https://github.com/arthur-ai/arthur-common/actions) for Arthur Common Release to run
 5. Update package version in your project (arthur-engine)
-
-## License
-
-This project is licensed under the MIT License.
-
-## Authors
-
-- Arthur <engineering@arthur.ai>
