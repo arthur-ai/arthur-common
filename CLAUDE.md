@@ -11,7 +11,7 @@ This library is distributed as a PyPI package: `arthur-common`
 ## Technologies
 
 - **Language**: Python 3.12+
-- **Package Manager**: Poetry
+- **Package Manager**: uv
 - **Key Dependencies**:
   - Data Processing: Pandas, DuckDB, fsspec
   - Probabilistic Data Structures: datasketches
@@ -23,8 +23,8 @@ This library is distributed as a PyPI package: `arthur-common`
 ## Installation
 
 ```bash
-# Via Poetry
-poetry add arthur-common
+# Via uv
+uv add arthur-common
 
 # Via pip
 pip install arthur-common
@@ -35,26 +35,26 @@ pip install arthur-common
 ### Setup Development Environment
 
 ```bash
-poetry env use 3.13
-poetry install
-poetry run pre-commit install
+uv python pin 3.13
+uv sync --all-groups
+uv run pre-commit install
 ```
 
 ### Testing
 
 ```bash
-poetry run pytest                    # Run all tests
-poetry run pytest tests/unit/        # Run unit tests only
-poetry run pytest --cov             # Run with coverage
+uv run pytest                    # Run all tests
+uv run pytest tests/unit/        # Run unit tests only
+uv run pytest --cov             # Run with coverage
 ```
 
 ### Code Quality
 
 ```bash
-poetry run autoflake src/                           # Remove unused imports
-poetry run isort src/ --profile black               # Sort imports
-poetry run black src/                               # Format code
-poetry run mypy --config-file pyproject.toml src/   # Type checking
+uv run autoflake src/                           # Remove unused imports
+uv run isort src/ --profile black               # Sort imports
+uv run black src/                               # Format code
+uv run mypy --config-file pyproject.toml src/   # Type checking
 ```
 
 ### Pre-commit Checks
@@ -172,7 +172,7 @@ class MyNewMetric(AggregationFunction):
 When updating data models:
 1. Edit appropriate file in `src/arthur_common/models/`
 2. Update Pydantic models with proper type hints
-3. Run tests to ensure backward compatibility: `poetry run pytest`
+3. Run tests to ensure backward compatibility: `uv run pytest`
 
 ### Data Processing
 
@@ -204,7 +204,7 @@ schema = inferer.infer_schema(dataframe)
 
 **Coverage Requirements:**
 - Minimum 45% code coverage enforced by pre-commit hooks
-- Run with: `poetry run pytest --cov --cov=src/arthur_common --cov-report term`
+- Run with: `uv run pytest --cov --cov=src/arthur_common --cov-report term`
 
 ## Pre-commit Hooks
 
@@ -223,10 +223,10 @@ pre-commit run --all-files
 
 | File | Purpose |
 |------|---------|
-| [pyproject.toml](pyproject.toml) | Poetry config, dependencies, tool settings (black, mypy, pytest, isort) |
+| [pyproject.toml](pyproject.toml) | Project config, dependencies, tool settings (black, mypy, pytest, isort) |
 | [.pre-commit-config.yaml](.pre-commit-config.yaml) | Pre-commit hooks for code quality |
 | [.bumpversion.cfg](.bumpversion.cfg) | Semantic versioning configuration |
-| [poetry.lock](poetry.lock) | Pinned dependency versions |
+| [uv.lock](uv.lock) | Pinned dependency versions |
 | [src/arthur_common/config/settings.yaml](src/arthur_common/config/settings.yaml) | Runtime settings |
 
 ## CI/CD
@@ -284,9 +284,9 @@ git checkout -b feature/your-feature
 # ... edit files ...
 
 # Run tests and formatting
-poetry run pytest
-poetry run black src/
-poetry run isort src/
+uv run pytest
+uv run black src/
+uv run isort src/
 
 # Commit (pre-commit hooks run automatically)
 git commit -m "Description"

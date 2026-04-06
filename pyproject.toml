@@ -1,41 +1,41 @@
-[tool.poetry]
+[project]
 name = "arthur-common"
 version = "2.4.53"
 description = "Utility code common to Arthur platform components."
-authors = ["Arthur <engineering@arthur.ai>"]
-license = "MIT"
+authors = [{name = "Arthur", email = "engineering@arthur.ai"}]
+license = {text = "MIT"}
 readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2",
+    "typing-extensions>=4.7.1",
+    "pandas>=2.2.2,<3.0.0",
+    "duckdb>=1.1.3",
+    "datasketches>=5.1.0",
+    "types-requests>=2.32.0.20241016",
+    "types-python-dateutil>=2.9.0",
+    "fsspec>=2024.10.0",
+    "litellm==1.80.0",
+    "fastapi>=0.115.8",
+    "simple-settings>=1.2.0",
+    "openinference-semantic-conventions>=0.1.12,<0.2.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-pydantic = ">=2"
-typing-extensions = ">=4.7.1"
-pandas = ">=2.2.2,<3.0.0"
-duckdb = ">=1.1.3"
-datasketches = ">=5.1.0"
-types-requests = ">=2.32.0.20241016"
-types-python-dateutil = ">=2.9.0"
-fsspec = ">=2024.10.0"
-litellm = "1.80.0"
-fastapi = ">=0.115.8"
-simple-settings = ">=1.2.0"
-openinference-semantic-conventions = "^0.1.12"
-
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-responses = "0.25.7"
-pytest-xdist = "3.6.1"
-pytest-cov = "^6.1.1"
-pre-commit = "^4.2.0"
-pandas-stubs = "~=2.3.3"
-
-
-[tool.poetry.group.linters.dependencies]
-autoflake = "^2.3.1"
-isort = "^6.0.1"
-black = "^25.1.0"
-mypy = "^1.17.0"
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5,<9",
+    "responses==0.25.7",
+    "pytest-xdist==3.6.1",
+    "pytest-cov>=6.1.1,<7",
+    "pre-commit>=4.2.0,<5",
+    "pandas-stubs>=2.3.3,<2.4",
+]
+linters = [
+    "autoflake>=2.3.1,<3",
+    "isort>=6.0.1,<7",
+    "black>=25.1.0,<26",
+    "mypy>=1.17.0,<2",
+]
 
 
 [tool.autoflake]
@@ -81,13 +81,9 @@ mypy_path = "src"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["arthur_common*"]
-
-[tool.setuptools.package-data]
-"pkgname" = ["py.typed"]
-
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arthur_common"]

@@ -24,15 +24,9 @@ jobs:
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
-      - uses: actions/setup-python@v5
-        # can't use container with python instead: https://github.com/pypa/gh-action-pypi-publish/tree/unstable/v1#:~:text=Running%20the%20action,that%20publishes%20them.
-        with:
-          python-version: 3.12
-      - uses: ./.github/workflows/composite-actions/setup-poetry
-        with:
-          poetry-version: 2.1.3
+      - uses: ./.github/workflows/composite-actions/setup-uv
       - name: Package project
-        run: poetry build
+        run: uv build
       - name: List build artifacts
         run: ls -la dist/
       - name: Archive package
@@ -93,16 +87,11 @@ jobs:
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
           safe-directory: ${{ runner.workspace }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-      - uses: ./.github/workflows/composite-actions/setup-poetry
-        with:
-          poetry-version: 2.1.3
+      - uses: ./.github/workflows/composite-actions/setup-uv
       - name: Get current version
         id: get-version
         run: |
-          VERSION=$(poetry version --short)
+          VERSION=$(python -c "import tomllib; data=tomllib.load(open('pyproject.toml','rb')); print(data['project']['version'])")
           echo "Current version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Create and push git tag
