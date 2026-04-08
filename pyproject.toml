@@ -37,6 +37,8 @@ linters = [
     "mypy>=1.17.0,<2",
 ]
 
+[tool.uv]
+exclude-newer = "3 days"
 
 [tool.autoflake]
 remove-all-unused-imports = true
