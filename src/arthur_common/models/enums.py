@@ -193,3 +193,11 @@ class AgenticAnnotationType(BaseEnum):
 class RegisteredAgentProvider(BaseEnum):
     GCP = "gcp"
     EXTERNAL = "external"
+
+
+class HTTPRequestMethod(BaseEnum):
+    GET = "get"
+    POST = "post"
+    PUT = "put"
+    PATCH = "patch"
+    DELETE = "delete"
