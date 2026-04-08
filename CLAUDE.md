@@ -17,7 +17,7 @@ This library is distributed as a PyPI package: `arthur-common`
   - Probabilistic Data Structures: datasketches
   - Data Validation: Pydantic v2
   - API Framework: FastAPI
-  - Token Cost Calculations: tokencost
+  - Token Cost Calculations: litellm
   - Observability: OpenInference semantic conventions
 
 ## Installation
