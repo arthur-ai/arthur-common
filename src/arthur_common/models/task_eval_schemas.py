@@ -77,6 +77,10 @@ class ContinuousEvalResponse(BaseModel):
     llm_eval_name: str = Field(description="Name of the llm eval.")
     llm_eval_version: int = Field(description="Version of the llm eval.")
     transform_id: UUID = Field(description="ID of the transform.")
+    transform_version_id: Optional[UUID] = Field(
+        default=None,
+        description="ID of the pinned transform version. When set, the continuous eval will always execute using this version's configuration snapshot.",
+    )
     transform_variable_mapping: List[ContinuousEvalTransformVariableMappingResponse] = (
         Field(
             default_factory=list,
