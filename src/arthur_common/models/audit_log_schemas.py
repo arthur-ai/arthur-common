@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from arthur_common.models.enums import HTTPRequestMethod
 
 
-class AuditLogResourceID(BaseModel):
-    resource_type: str = Field(description="The type of resource this id belongs to")
-    resource_id: Union[UUID, str] = Field(description="The ID of the resource")
+class AuditLogPathParameter(BaseModel):
+    param_name: str = Field(description="The parameter name for this path parameter")
+    param_value: Union[UUID, str] = Field(description="The value of the path parameter")
 
 
 class AuditLogResponseID(BaseModel):
@@ -25,8 +25,8 @@ class AuditLog(BaseModel):
         description="The HTTP request method used.",
     )
     request_path: str = Field(description="The HTTP request path.")
-    resource_ids: List[AuditLogResourceID] = Field(
-        description="The ID of the resource affected.",
+    path_params: List[AuditLogPathParameter] = Field(
+        description="The path parameters",
     )
     response_ids: List[AuditLogResponseID] = Field(
         description="The ID of the response affected.",
