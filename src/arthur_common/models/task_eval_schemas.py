@@ -136,9 +136,6 @@ class TraceTransformResponse(BaseModel):
         default=None,
         description="Description of the transform.",
     )
-    definition: TraceTransformDefinition = Field(
-        description="Transform definition specifying extraction rules.",
-    )
     created_at: datetime = Field(
         description="Timestamp representing the time of transform creation",
     )
