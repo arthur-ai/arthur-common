@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12"
 
 [options]
-exclude-newer = "2026-04-07T17:28:59.944626Z"
+exclude-newer = "2026-04-14T15:28:00.48373Z"
 exclude-newer-span = "P3D"
 
 [[package]]
@@ -146,7 +146,7 @@ wheels = [
 
 [[package]]
 name = "arthur-common"
-version = "2.4.54"
+version = "2.4.55"
 source = { editable = "." }
 dependencies = [
     { name = "datasketches" },
