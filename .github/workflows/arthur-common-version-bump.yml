@@ -39,7 +39,7 @@ jobs:
           safe-directory: ${{ runner.workspace }}
       - uses: astral-sh/setup-uv@v5
         with:
-          version: "0.6.x"
+          version: "0.11.x"
       - name: Bump version
         run: |
           uvx bump2version ${{ github.event.inputs.bump_type }}
