@@ -14,6 +14,9 @@ class AuditLogPathParameter(BaseModel):
 
 class AuditLogResponseID(BaseModel):
     response_type: str = Field(description="The response model type")
+    id_field: str = Field(
+        default="id", description="The field the response ID was extracted from"
+    )
     response_id: Union[UUID, str] = Field(description="The ID of the response")
 
 
