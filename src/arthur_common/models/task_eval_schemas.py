@@ -4,18 +4,27 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .llm_model_providers import LLMBaseConfigSettings, ModelProvider
+from .llm_model_providers import ModelProvider
 
 
 class LLMEval(BaseModel):
     name: str = Field(description="Name of the llm eval")
-    model_name: str = Field(
-        description="Name of the LLM model (e.g., 'gpt-4o', 'claude-3-sonnet')",
+    eval_type: str = Field(
+        default="llm_as_a_judge",
+        description="Eval type discriminator (e.g. 'llm_as_a_judge', 'pii', 'toxicity')",
     )
-    model_provider: ModelProvider = Field(
-        description="Provider of the LLM model (e.g., 'openai', 'anthropic', 'azure')",
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Name of the LLM model (e.g., 'gpt-4o', 'claude-3-sonnet'). None for ML evals.",
     )
-    instructions: str = Field(description="Instructions for the llm eval")
+    model_provider: Optional[ModelProvider] = Field(
+        default=None,
+        description="Provider of the LLM model (e.g., 'openai', 'anthropic', 'azure'). None for ML evals.",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Instructions for the llm eval. None for ML evals.",
+    )
     variables: List[str] = Field(
         default_factory=list,
         description="List of variable names for the llm eval",
@@ -24,9 +33,9 @@ class LLMEval(BaseModel):
         default_factory=list,
         description="List of tags for this llm eval version",
     )
-    config: Optional[LLMBaseConfigSettings] = Field(
+    config: Optional[Any] = Field(
         default=None,
-        description="LLM configurations for this eval (e.g. temperature, max_tokens, etc.)",
+        description="Eval configuration. LLMBaseConfigSettings for LLM evals; type-specific dict for ML evals.",
     )
     created_at: datetime = Field(
         ...,
@@ -115,19 +124,11 @@ class ContinuousEvalResponse(BaseModel):
     )
     llm_eval_name: Optional[str] = Field(
         default=None,
-        description="Name of the llm eval (set when eval_type='llm_eval').",
+        description="Name of the eval.",
     )
     llm_eval_version: Optional[int] = Field(
         default=None,
-        description="Version of the llm eval (set when eval_type='llm_eval').",
-    )
-    ml_eval_name: Optional[str] = Field(
-        default=None,
-        description="Name of the ml eval (set when eval_type='ml_eval').",
-    )
-    ml_eval_version: Optional[int] = Field(
-        default=None,
-        description="Version of the ml eval (set when eval_type='ml_eval').",
+        description="Version of the eval.",
     )
     transform_id: UUID = Field(description="ID of the transform.")
     transform_variable_mapping: List[ContinuousEvalTransformVariableMappingResponse] = (
