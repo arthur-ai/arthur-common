@@ -231,7 +231,7 @@ def test_multivalue_list_schema_inference():
             DatasetColumn(
                 id=uuid4(),
                 source_name="timestamp",
-                definition=DatasetScalarType(id=uuid4(), dtype=DType.STRING),
+                definition=DatasetScalarType(id=uuid4(), dtype=DType.TIMESTAMP),
             ),
             DatasetColumn(
                 id=uuid4(),
@@ -248,11 +248,16 @@ def test_multivalue_list_schema_inference():
     )
 
     schema = SchemaInferer(data).infer_schema()
-    print(schema)
 
     assert set(hash(col) for col in schema.columns) == set(
         hash(col) for col in expected_schema.columns
     )
+
+    # validate tag_hints
+    tag_hints_by_name = {col.source_name: col.definition.tag_hints for col in schema.columns}
+    assert tag_hints_by_name["id"] == [ScopeSchemaTag.POSSIBLE_SEGMENTATION]
+    assert tag_hints_by_name["timestamp"] == [ScopeSchemaTag.PRIMARY_TIMESTAMP]
+    assert tag_hints_by_name["data"] == []
 
 
 def test_tabular_schema():
