@@ -15,6 +15,7 @@ from arthur_common.models.common_schemas import (
 from arthur_common.models.enums import (
     AgenticAnnotationType,
     ContinuousEvalRunStatus,
+    EvalType,
     InferenceFeedbackTarget,
     MetricType,
     PIIEntityTypes,
@@ -770,7 +771,7 @@ class AgenticAnnotationResponse(BaseModel):
         default=None,
         description="Name of the continuous eval this annotation belongs to",
     )
-    eval_type: Optional[str] = Field(
+    eval_type: Optional[EvalType] = Field(
         default=None,
         description="Type of eval: 'llm_eval' or 'ml_eval'",
     )

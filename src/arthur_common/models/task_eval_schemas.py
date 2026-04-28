@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from .enums import EvalType
 from .llm_model_providers import ModelProvider
 
 
@@ -118,8 +119,8 @@ class ContinuousEvalResponse(BaseModel):
         description="Description of the continuous eval.",
     )
     task_id: str = Field(description="ID of the parent task.")
-    eval_type: str = Field(
-        default="llm_eval",
+    eval_type: EvalType = Field(
+        default=EvalType.LLM_EVAL,
         description="Type of evaluator: 'llm_eval' or 'ml_eval'.",
     )
     llm_eval_name: Optional[str] = Field(
