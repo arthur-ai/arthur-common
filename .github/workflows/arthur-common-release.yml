@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
+    tags:
+      - '*-lts'
+      - '*-lts-patch-*'
 
 jobs:
   pypi-build:
     # Should be separate from publish job: https://docs.pypi.org/trusted-publishers/security-model/#:~:text=Retrieve%20the%20publishable%20distribution%20files%20from%20a%20separate%20build%20job%3B
     # written from guide: https://johnfraney.ca/blog/how-to-publish-a-python-package-with-poetry-and-github-actions/
     name: Build release for PyPI
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: github.ref_type == 'branch' && startsWith(github.event.head_commit.message, 'Bump version')
     runs-on: ubuntu-latest
     env:
       GIT_DEPTH: 100
@@ -43,7 +46,7 @@ jobs:
     needs: pypi-build
     # does not run on dev—https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers:~:text=Local%20version%20identifiers%20SHOULD%20NOT%20be%20used%20when%20publishing%20upstream%20projects%20to%20a%20public%20index%20server%2C%20but%20MAY%20be%20used%20to%20identify%20private%20builds%20created%20directly%20from%20the%20project%20source.
     name: Upload release to PyPI
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: github.ref_type == 'branch' && startsWith(github.event.head_commit.message, 'Bump version')
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
@@ -67,7 +70,7 @@ jobs:
   create-git-tag:
     needs: pypi-publish
     name: Create git tag for the release
-    if: startsWith(github.event.head_commit.message, 'Bump version')
+    if: github.ref_type == 'branch' && startsWith(github.event.head_commit.message, 'Bump version')
     runs-on: ubuntu-latest
     environment:  # must be the same as what is set for the trusted publisher in PyPI
       name: shared-protected-branch-secrets
@@ -98,3 +101,63 @@ jobs:
         run: |
           git tag ${{ steps.get-version.outputs.version }}
           git push origin ${{ steps.get-version.outputs.version }}
+
+  # ---------------------------------------------------------------------------
+  # LTS publish — fires on *-lts and *-lts-patch-* tags only.
+  # The lts-management orchestrator writes pyproject.toml to the .post form
+  # (e.g. 1.5.0.post0) and pushes the LTS tag, which triggers these jobs.
+  # PyPI versions are immutable so we rebuild the wheel rather than retag.
+  # ---------------------------------------------------------------------------
+
+  lts-pypi-build:
+    name: Build LTS wheel
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: ./.github/workflows/composite-actions/setup-git
+        with:
+          safe-directory: ${{ runner.workspace }}
+      # Use astral-sh/setup-uv directly (NOT the local setup-uv composite,
+      # which runs `uv sync --frozen` — the orchestrator changed pyproject.toml
+      # putting it out of sync with uv.lock). uv build doesn't need a synced env.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.7"
+      - name: Build wheel
+        run: uv build
+      - name: List artifacts
+        run: ls -la dist/
+      - name: Archive wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: arthur-common-lts
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  lts-pypi-publish:
+    name: Publish LTS wheel to PyPI
+    needs: lts-pypi-build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment:
+      name: shared-protected-branch-secrets
+      url: https://pypi.org/project/arthur-common/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: arthur-common-lts
+          path: dist
+      - run: ls -la dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
