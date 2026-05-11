@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "3 days",
+  "schedule": ["* 0-4 * * *"],
+  "automergeSchedule": ["* 0-4 * * *"],
+  "timezone": "America/New_York",
+  "enabledManagers": ["uv"],
+  "includePaths": [
+    "**/pyproject.toml",
+    "**/uv.lock"
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "autoApprove": true
+    },
+    {
+      "matchPackageNames": ["python"],
+      "enabled": false
+    }
+  ]
+}
