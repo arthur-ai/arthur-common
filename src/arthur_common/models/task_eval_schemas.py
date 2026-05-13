@@ -2,12 +2,14 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .llm_model_providers import LLMBaseConfigSettings, ModelProvider
 
 
 class LLMEval(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     name: str = Field(description="Name of the llm eval")
     model_name: str = Field(
         description="Name of the LLM model (e.g., 'gpt-4o', 'claude-3-sonnet')",
@@ -37,9 +39,6 @@ class LLMEval(BaseModel):
         description="Time that this llm eval was deleted",
     )
     version: int = Field(default=1, description="Version of the llm eval")
-
-    class Config:
-        use_enum_values = True
 
     def has_been_deleted(self) -> bool:
         return self.deleted_at is not None

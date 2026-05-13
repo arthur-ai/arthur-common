@@ -37,6 +37,8 @@ class GCPAgentMetadataResponse(BaseModel):
 class AgentMetadataResponse(BaseModel):
     """Agent metadata for responses."""
 
+    model_config = ConfigDict(use_enum_values=True)
+
     provider: RegisteredAgentProvider = Field(
         description="Provider of the registered agent.",
     )
@@ -48,9 +50,6 @@ class AgentMetadataResponse(BaseModel):
         description="List of service names that send traces to this task",
         default=None,
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class HTTPError(BaseModel):
