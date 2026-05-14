@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Type, Union
 
 from litellm.types.llms.anthropic import AnthropicThinkingParam
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 warnings.filterwarnings(
     "ignore",
@@ -162,6 +162,8 @@ class InputAudio(BaseModel):
 
 
 class OpenAIMessageItem(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     type: OpenAIMessageType = Field(
         description="Type of the message (either 'text', 'image_url', or 'input_audio')",
     )
@@ -178,15 +180,14 @@ class OpenAIMessageItem(BaseModel):
         description="Input audio content of the message if type is 'input_audio'",
     )
 
-    class Config:
-        use_enum_values = True
-
 
 class OpenAIMessage(BaseModel):
     """
     The message schema class for the prompts playground.
     This class adheres to OpenAI's message schema.
     """
+
+    model_config = ConfigDict(use_enum_values=True)
 
     role: MessageRole = Field(description="Role of the message")
     name: Optional[str] = Field(
@@ -205,9 +206,6 @@ class OpenAIMessage(BaseModel):
         default=None,
         description="ID of the tool call this message is responding to",
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class ToolFunction(BaseModel):
@@ -250,6 +248,8 @@ class LLMResponseSchema(BaseModel):
 
 
 class LLMResponseFormat(BaseModel):
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
     type: LLMResponseFormatEnum = Field(
         description="Response format type: 'text', 'json_object', or 'json_schema'",
         examples=["json_schema"],
@@ -273,10 +273,6 @@ class LLMResponseFormat(BaseModel):
                 f'response format must only be {{"type": "{self.type}"}} when using type="{self.type}"',
             )
         return self
-
-    class Config:
-        use_enum_values = True
-        extra = "forbid"
 
 
 class ToolChoiceFunction(BaseModel):
