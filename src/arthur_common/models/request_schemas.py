@@ -331,6 +331,8 @@ class GCPAgentMetadata(BaseModel):
 
 
 class AgentMetadata(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     provider: RegisteredAgentProvider = Field(
         description="Provider of the registered agent.",
     )
@@ -338,9 +340,6 @@ class AgentMetadata(BaseModel):
         description="Metadata for the agent.",
         default=None,
     )
-
-    class Config:
-        use_enum_values = True
 
     @model_validator(mode="after")
     def validate_agent_metadata(self) -> Self:

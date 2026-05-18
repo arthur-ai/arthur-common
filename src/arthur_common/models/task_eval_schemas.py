@@ -2,13 +2,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import EvalType
 from .llm_model_providers import ModelProvider
 
 
 class LLMEval(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     name: str = Field(description="Name of the llm eval")
     eval_type: str = Field(
         default="llm_as_a_judge",
@@ -47,9 +49,6 @@ class LLMEval(BaseModel):
         description="Time that this llm eval was deleted",
     )
     version: int = Field(default=1, description="Version of the llm eval")
-
-    class Config:
-        use_enum_values = True
 
     def has_been_deleted(self) -> bool:
         return self.deleted_at is not None
@@ -132,6 +131,10 @@ class ContinuousEvalResponse(BaseModel):
         description="Version of the eval.",
     )
     transform_id: UUID = Field(description="ID of the transform.")
+    transform_version_id: Optional[UUID] = Field(
+        default=None,
+        description="ID of the pinned transform version. When set, the continuous eval will always execute using this version's configuration snapshot.",
+    )
     transform_variable_mapping: List[ContinuousEvalTransformVariableMappingResponse] = (
         Field(
             default_factory=list,
@@ -186,9 +189,6 @@ class TraceTransformResponse(BaseModel):
     description: Optional[str] = Field(
         default=None,
         description="Description of the transform.",
-    )
-    definition: TraceTransformDefinition = Field(
-        description="Transform definition specifying extraction rules.",
     )
     created_at: datetime = Field(
         description="Timestamp representing the time of transform creation",
