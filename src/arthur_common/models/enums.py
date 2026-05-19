@@ -5,6 +5,7 @@ from arthur_common.models.constants import (
     ORG_ADMIN,
     ORG_AUDITOR,
     TASK_ADMIN,
+    TENANT_USER,
     VALIDATION_USER,
 )
 
@@ -25,6 +26,7 @@ class APIKeysRolesEnum(BaseEnum):
     VALIDATION_USER = VALIDATION_USER
     ORG_AUDITOR = ORG_AUDITOR
     ORG_ADMIN = ORG_ADMIN
+    TENANT_USER = TENANT_USER
 
 
 class InferenceFeedbackTarget(BaseEnum):
