@@ -12,9 +12,9 @@ class LLMEval(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     name: str = Field(description="Name of the llm eval")
-    eval_type: str = Field(
+    eval_kind: str = Field(
         default="llm_as_a_judge",
-        description="Eval type discriminator (e.g. 'llm_as_a_judge', 'pii', 'toxicity')",
+        description="Eval kind discriminator (e.g. 'llm_as_a_judge', 'pii', 'toxicity')",
     )
     model_name: Optional[str] = Field(
         default=None,
