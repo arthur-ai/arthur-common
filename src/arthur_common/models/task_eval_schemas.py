@@ -190,6 +190,9 @@ class TraceTransformResponse(BaseModel):
         default=None,
         description="Description of the transform.",
     )
+    definition: TraceTransformDefinition = Field(
+        description="Latest version of the transform definition.",
+    )
     created_at: datetime = Field(
         description="Timestamp representing the time of transform creation",
     )
