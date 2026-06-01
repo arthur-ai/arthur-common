@@ -1,6 +1,6 @@
 [project]
 name = "arthur-common"
-version = "0.0.14.post0"
+version = "0.0.14.post1"
 description = "Utility code common to Arthur platform components."
 authors = [{name = "Arthur", email = "engineering@arthur.ai"}]
 license = {text = "MIT"}
