@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -49,41 +49,6 @@ class LLMEval(BaseModel):
         description="Time that this llm eval was deleted",
     )
     version: int = Field(default=1, description="Version of the llm eval")
-
-    def has_been_deleted(self) -> bool:
-        return self.deleted_at is not None
-
-
-class MLEval(BaseModel):
-    name: str = Field(description="Name of the ml eval")
-    ml_eval_type: str = Field(
-        description="Type of ML evaluator (e.g. pii, toxicity, prompt_injection)",
-    )
-    model_provider: str = Field(
-        default="arthur_builtin",
-        description="Model provider — always 'arthur_builtin' for ML evals",
-    )
-    variables: List[str] = Field(
-        default_factory=lambda: ["text"],
-        description="List of variable names for the ml eval",
-    )
-    tags: List[str] = Field(
-        default_factory=list,
-        description="List of tags for this ml eval version",
-    )
-    config: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Evaluator-specific configuration (thresholds, entity lists, etc.)",
-    )
-    created_at: datetime = Field(
-        ...,
-        description="Timestamp when the ml eval was created.",
-    )
-    deleted_at: Optional[datetime] = Field(
-        None,
-        description="Time that this ml eval was deleted",
-    )
-    version: int = Field(default=1, description="Version of the ml eval")
 
     def has_been_deleted(self) -> bool:
         return self.deleted_at is not None
