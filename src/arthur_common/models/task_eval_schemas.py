@@ -1,14 +1,14 @@
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import EvalType
-from .llm_model_providers import ModelProvider
+from .llm_model_providers import LLMBaseConfigSettings, ModelProvider
 
 
-class LLMEval(BaseModel):
+class Eval(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     name: str = Field(description="Name of the llm eval")
@@ -36,7 +36,7 @@ class LLMEval(BaseModel):
         default_factory=list,
         description="List of tags for this llm eval version",
     )
-    config: Optional[Any] = Field(
+    config: Optional[Union[LLMBaseConfigSettings, Dict[str, Any]]] = Field(
         default=None,
         description="Eval configuration. LLMBaseConfigSettings for LLM evals; type-specific dict for ML evals.",
     )
