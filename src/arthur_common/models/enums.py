@@ -192,6 +192,11 @@ class AgenticAnnotationType(BaseEnum):
     CONTINUOUS_EVAL = "continuous_eval"
 
 
+class EvalType(BaseEnum):
+    LLM_EVAL = "llm_eval"
+    ML_EVAL = "ml_eval"
+
+
 class RegisteredAgentProvider(BaseEnum):
     GCP = "gcp"
     EXTERNAL = "external"
