@@ -38,6 +38,7 @@ class Eval(BaseModel):
     )
     config: Optional[Union[LLMBaseConfigSettings, Dict[str, Any]]] = Field(
         default=None,
+        title="EvalConfig",
         description="Eval configuration. LLMBaseConfigSettings for LLM evals; type-specific dict for ML evals.",
     )
     created_at: datetime = Field(
