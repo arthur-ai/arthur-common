@@ -75,7 +75,9 @@ class AggregationFunction(ABC):
 
     @staticmethod
     def string_to_dimension(name: str, value: str | None) -> Dimension:
-        if value is None:
+        # pandas <3 returned None for a missing value; pandas >=3 (default string
+        # dtype) returns NaN/NA, so check for both to keep the "null" sentinel.
+        if value is None or pd.isna(value):
             value = "null"
         return Dimension(name=name, value=str(value))
 
