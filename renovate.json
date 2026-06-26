@@ -10,6 +10,10 @@
     "**/pyproject.toml",
     "**/uv.lock"
   ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 0-4 * * 1"]
+  },
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],
