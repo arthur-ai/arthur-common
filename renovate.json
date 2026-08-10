@@ -17,8 +17,8 @@
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],
-      "automerge": false,
-      "autoApprove": false
+      "automerge": true,
+      "autoApprove": true
     },
     {
       "matchPackageNames": ["python"],
