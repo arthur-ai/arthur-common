@@ -2,23 +2,55 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "minimumReleaseAge": "3 days",
-  "schedule": ["* 0-4 * * *"],
-  "automergeSchedule": ["* 0-4 * * *"],
+  "rebaseWhen": "conflicted",
   "timezone": "America/New_York",
   "enabledManagers": ["pep621"],
   "includePaths": [
     "**/pyproject.toml",
     "**/uv.lock"
   ],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 6,
+  "platformAutomerge": true,
+  "automergeStrategy": "merge",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "minimumReleaseAge": null
+  },
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["* 0-4 * * 1"]
+    "schedule": ["* 0-4 * * *"]
   },
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch"],
+      "description": "Low-risk update types merge without a human. `autoApprove` is deliberately NOT set: Renovate is always the last pusher on its own branch, so main-ruleset's require_last_push_approval voids any review it submits itself. The approving review comes from .github/workflows/renovate-auto-approve.yml, which acts as github-actions[bot] once run-linter and run-unit-tests pass. The `automerge-safe` label is the gate that workflow checks — it approves nothing without it, so removing this rule disables auto-approval rather than widening it.",
+      "matchUpdateTypes": ["minor", "patch", "lockFileMaintenance"],
       "automerge": true,
-      "autoApprove": true
+      "addLabels": ["automerge-safe"]
+    },
+    {
+      "description": "Major bumps are never auto-approved. Labelling them keeps them out of the automerge-safe set, lets renovate-auto-approve.yml skip them, and makes the human-review queue easy to filter.",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major"]
+    },
+    {
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "python minor and patch"
+    },
+    {
+      "description": "Non-major Python updates get one randomly-sampled reviewer for visibility. These auto-merge once CI is green (see renovate-auto-approve.yml), so the assignment is a notification, not a gate. Mirrors arthur-engine's pep621 minor/patch rule; all three are active arthur-common contributors.",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "reviewers": ["notthattal", "videetparekh", "mcgrawia"],
+      "reviewersSampleSize": 1
+    },
+    {
+      "description": "Route major Python bumps to the backend experts for human review. No reviewersSampleSize, so both are always requested — majors are never auto-approved, so this assignment IS the gate.",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["major"],
+      "reviewers": ["ntatsumi", "notthattal"]
     },
     {
       "matchPackageNames": ["python"],
