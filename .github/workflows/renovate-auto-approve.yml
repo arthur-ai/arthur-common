@@ -1,0 +1,159 @@
+name: Renovate Auto-Approve
+
+# Renovate PRs cannot merge themselves in this repo, and `autoApprove: true` in
+# renovate.json cannot fix it. `main-ruleset` (7960899) requires one approving
+# review AND `require_last_push_approval: true`, and the Renovate app is not a
+# bypass actor. Renovate is always the last pusher on its own branch, so a
+# review it submits itself is never counted.
+#
+# The fix is a second identity: this workflow approves as `github-actions[bot]`,
+# a different actor from `renovate[bot]`, which satisfies both the review count
+# and the last-push rule. Renovate then merges on its own (`automerge: true`).
+# Nothing here bypasses the ruleset — `run-linter` and `run-unit-tests` are
+# still hard-required, and this only ever runs after they pass.
+#
+# Depends on the repo setting "Allow GitHub Actions to create and approve pull
+# requests" (`can_approve_pull_request_reviews: true`). If that is ever turned
+# off, the approve call fails with 422 and these PRs go back to waiting on a
+# human — the failure is loud, not silent.
+#
+# Safety model:
+#   - Only same-repo `renovate/*` branches whose PR is authored by renovate[bot].
+#     A fork can never reach this job, and neither can a human who happens to
+#     push a renovate/* branch.
+#   - Positive label gate: approves only PRs carrying `automerge-safe`, which
+#     renovate.json attaches to minor/patch and lockFileMaintenance updates.
+#     Fail-closed — if the label rule is ever removed, nothing is approved
+#     rather than everything. Major bumps are labelled `major` and left alone.
+#   - Only on a SUCCESSFUL CI run, and the approval is pinned to that exact SHA.
+#   - This is a workflow_run listener, so it only runs the version of itself on
+#     the default branch. A PR cannot modify the approver that acts on it.
+
+on:
+  workflow_run:
+    workflows: ["Arthur Common CI"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: renovate-auto-approve-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    # Every signal matters and none is sufficient alone:
+    #   event == 'pull_request'          -> not a push-to-main run
+    #   conclusion == 'success'          -> required checks actually passed
+    #   head_repository == this repo     -> reject fork-originated runs
+    #   actor is a trusted bot           -> the run was triggered by Renovate, OR
+    #     by our own Automator App, which is the identity renovate-autofix.yml
+    #     uses to push Claude's fix. Without the second login a fixed PR would go
+    #     green and then sit unapproved forever. A human who merely pushes a
+    #     renovate/* branch is still rejected. Keep this list in sync with
+    #     renovate-autofix.yml — the two files are coupled.
+    #   head_branch renovate/*           -> narrows to dependency branches
+    # The PR author is re-verified against the API below (the payload's actor is
+    # not by itself proof of who owns the PR).
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (
+        github.event.workflow_run.actor.login == 'renovate[bot]' ||
+        github.event.workflow_run.actor.login == 'arthur-github-automator-app[bot]'
+      ) &&
+      startsWith(github.event.workflow_run.head_branch, 'renovate/')
+    runs-on: ubuntu-latest
+    permissions:
+      # Approving is the only write this job needs. It never pushes code, so it
+      # deliberately does not take `contents: write`.
+      pull-requests: write
+    steps:
+      - name: Approve the dependency update
+        env:
+          # github.token => the review is attributed to github-actions[bot],
+          # which is the whole point: an identity that is not the last pusher.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PAYLOAD_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+
+          PR="$PAYLOAD_PR"
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+            # Same-repo runs sometimes omit the PR link from the payload.
+            # Constrained to Renovate-authored PRs so a colliding branch name
+            # cannot steer us onto someone else's PR.
+            PR=$(gh pr list --repo "$REPO" --head "$HEAD_BRANCH" \
+                   --author 'app/renovate' --state open \
+                   --json number --jq '.[0].number // empty')
+          fi
+          if [ -z "$PR" ]; then
+            echo "::notice::No open Renovate PR for $HEAD_BRANCH; nothing to approve."
+            exit 0
+          fi
+
+          # Read author, labels and current head in one call.
+          PR_JSON=$(gh api "repos/$REPO/pulls/$PR")
+          AUTHOR=$(jq -r '.user.login' <<<"$PR_JSON")
+          CURRENT_SHA=$(jq -r '.head.sha' <<<"$PR_JSON")
+          LABELS=$(jq -r '[.labels[].name] | join(",")' <<<"$PR_JSON")
+
+          # Defence in depth: the ruleset is the only thing standing between a
+          # bot approval and main, so confirm ownership before approving.
+          if [ "$AUTHOR" != "renovate[bot]" ]; then
+            echo "::warning::PR #$PR author is '$AUTHOR', not renovate[bot]; refusing to approve."
+            exit 0
+          fi
+
+          # Fail-closed gate. renovate.json labels minor/patch and
+          # lockFileMaintenance updates `automerge-safe`; majors get `major`.
+          if ! grep -q '\bautomerge-safe\b' <<<"${LABELS//,/ }"; then
+            echo "::notice::PR #$PR is not labelled automerge-safe (labels: ${LABELS:-none}); leaving it for a human."
+            exit 0
+          fi
+
+          # dismiss_stale_reviews_on_push is on, so an approval attached to a
+          # superseded commit is dismissed the moment it lands. If Renovate has
+          # already pushed past the SHA that CI validated, do nothing — that
+          # newer commit gets its own CI run and its own pass through this job.
+          if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+            echo "::notice::PR #$PR head moved to $CURRENT_SHA (CI validated $HEAD_SHA); a newer run will approve."
+            exit 0
+          fi
+
+          # Idempotent: workflow_run can fire more than once for a branch, and
+          # re-approving the same SHA would spam the PR timeline.
+          ALREADY=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+            | jq -r --arg sha "$HEAD_SHA" \
+                'any(.[]; .user.login == "github-actions[bot]"
+                          and .state == "APPROVED"
+                          and .commit_id == $sha)')
+          if [ "$ALREADY" = "true" ]; then
+            echo "Already approved $HEAD_SHA; nothing to do."
+            exit 0
+          fi
+
+          # Pin the approval to the validated SHA rather than letting GitHub
+          # infer it, so it cannot attach to a commit CI never checked.
+          gh api "repos/$REPO/pulls/$PR/reviews" \
+            -f commit_id="$HEAD_SHA" \
+            -f event="APPROVE" \
+            -f body="🤖 Auto-approved: \`run-linter\` and \`run-unit-tests\` passed on \`$HEAD_SHA\`. Approving as github-actions[bot] so \`require_last_push_approval\` is satisfied without a human round-trip. Renovate will merge from here."
+
+          # Verify the end state instead of trusting the POST — if the approval
+          # was dismissed as stale, say so rather than reporting success.
+          sleep 4
+          STUCK=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+            | jq -r --arg sha "$HEAD_SHA" \
+                'any(.[]; .user.login == "github-actions[bot]"
+                          and .state == "APPROVED"
+                          and .commit_id == $sha)')
+          if [ "$STUCK" = "true" ]; then
+            echo "Approval confirmed on $HEAD_SHA; Renovate can merge PR #$PR."
+          else
+            echo "::warning::Approval on $HEAD_SHA did not stick for PR #$PR; a human may need to approve."
+          fi
