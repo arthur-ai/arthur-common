@@ -1,6 +1,27 @@
 name: Arthur Common Version Bump
 
 on:
+  # Auto-release: a merge to main runs "Arthur Common CI"; when that run
+  # succeeds we patch-bump the version. The resulting "Bump version" commit is
+  # what "Arthur Common Release" keys off to build, publish to PyPI, and tag.
+  # Gating on the CI run (rather than the push itself) is what keeps a red build
+  # from reaching PyPI: no green run, no bump, no publish. The "Confirm main
+  # matches the validated commit" step below is what makes that airtight —
+  # without it we would bump the tip of main even when the tip has moved past
+  # the commit CI actually checked.
+  workflow_run:
+    workflows: ["Arthur Common CI"]
+    types:
+      - completed
+  # Dependency-only sweep. The job's message denylist keeps Renovate merges from
+  # each cutting a release, which otherwise means a dependency change can sit on
+  # main unreleased indefinitely — and for a published library the dependency
+  # constraints ARE part of what consumers install. This weekly run bumps only
+  # if main has commits the last release tag does not, so dependency updates
+  # ship within a bounded window without a release per PR.
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC (05:00 ET)
+  # Still available for major/minor bumps, which are never automatic.
   workflow_dispatch:
     inputs:
       intent:
@@ -18,10 +39,50 @@ on:
           - minor
           - major
 
+# Two merges landing close together produce two CI runs and therefore two
+# bumps. Serialize them so the second bumps from an up-to-date main instead of
+# racing the first on `git push`.
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
 jobs:
   bump-version:
     environment: shared-protected-branch-secrets
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.intent == 'bump_version'
+    # Manual dispatch, or a green CI run on main whose commit is worth
+    # releasing. The message denylist mirrors arthur-engine's
+    # version-workflow.yml:
+    #   - "Bump version"  our own bump commit. Without this the bump push
+    #                     triggers CI, which triggers another bump, forever.
+    #   - renovate/*      dependency and lock-file churn. Renovate merges its own
+    #                     PRs unattended now (see renovate-auto-approve.yml), so
+    #                     this list is load-bearing: anything it misses ships a
+    #                     release with no human in the loop.
+    #                     `contains 'renovate/'` is the primary check — it matches
+    #                     the branch ref in a merge commit's first line, which is
+    #                     why renovate.json pins automergeStrategy to "merge".
+    #                     The startsWith entries are defence in depth for squash
+    #                     and rebase merges, where the message is the PR title
+    #                     instead. Note the grouped title ("Update python minor
+    #                     and patch") is NOT of the form "Update dependency X",
+    #                     so it needs its own entry.
+    # Dependency bumps still ship — either batched into the next release that
+    # carries a source change, or by the weekly `schedule` sweep above if no such
+    # change arrives first.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.intent == 'bump_version') ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'Bump version') &&
+       !contains(github.event.workflow_run.head_commit.message, 'renovate/') &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'Update dependency') &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'Update python minor and patch') &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'Lock file maintenance') &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'chore(deps)') &&
+       !startsWith(github.event.workflow_run.head_commit.message, 'fix(deps)'))
     runs-on: ubuntu-latest
     steps:
       - name: Generate Arthur GitHub Automator App Token
@@ -32,7 +93,13 @@ jobs:
           private-key: ${{ secrets.ARTHUR_GH_AUTOMATOR_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v5
         with:
+          # Full history + tags: the schedule gate below compares main against
+          # the most recent release tag.
           fetch-depth: 0
+          # workflow_run checks out the triggering SHA by default; bump from the
+          # tip of main so the push is a fast-forward. The gate step then
+          # confirms that tip is the commit CI actually validated.
+          ref: main
           token: ${{ steps.generate-token.outputs.token }}
       - uses: ./.github/workflows/composite-actions/setup-git
         with:
@@ -40,10 +107,75 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           version: "0.6.x"
-      - name: Bump version
+      - name: Confirm main matches the validated commit
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          uvx bump2version ${{ github.event.inputs.bump_type }}
+          set -euo pipefail
+
+          case "$EVENT" in
+            workflow_dispatch)
+              # A human asked for this bump explicitly; releasing whatever is on
+              # main is the intent.
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_run)
+              # We check out the tip of main, but CI only vouched for
+              # VALIDATED_SHA. If another merge landed in between, the tip
+              # contains code no green run has covered, and publishing it would
+              # break the "no unvalidated build reaches PyPI" guarantee.
+              # Skipping loses nothing: the newer commit has its own CI run,
+              # which reaches this job with the tip and its SHA in agreement.
+              TIP=$(git rev-parse HEAD)
+              if [ "$TIP" != "$VALIDATED_SHA" ]; then
+                echo "proceed=false" >> "$GITHUB_OUTPUT"
+                echo "::notice::main is at $TIP but CI validated $VALIDATED_SHA; a later run will bump."
+              else
+                echo "proceed=true" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            schedule)
+              # Release only if there is something unreleased. Release tags are
+              # bare versions ("2.4.68"); the -lts / -lts-patch-* tags that
+              # arthur-common-release.yml also publishes are excluded so an LTS
+              # tag cannot be mistaken for the mainline release point.
+              LAST_TAG=$(git tag --list --sort=-v:refname \
+                         | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+              if [ -z "$LAST_TAG" ]; then
+                echo "proceed=true" >> "$GITHUB_OUTPUT"
+                echo "::notice::No release tag found; bumping."
+              else
+                UNRELEASED=$(git rev-list --count "$LAST_TAG"..HEAD)
+                echo "$UNRELEASED commit(s) on main since $LAST_TAG."
+                if [ "$UNRELEASED" -gt 0 ]; then
+                  echo "proceed=true" >> "$GITHUB_OUTPUT"
+                else
+                  echo "proceed=false" >> "$GITHUB_OUTPUT"
+                  echo "::notice::main is already released at $LAST_TAG; nothing to do."
+                fi
+              fi
+              ;;
+            *)
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::Unexpected event '$EVENT'; refusing to bump."
+              ;;
+          esac
+      - name: Bump version
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          BUMP_TYPE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.bump_type || 'patch' }}
+        run: |
+          echo "Bump type: $BUMP_TYPE"
+
+          # Rewrites pyproject.toml AND uv.lock's own version entry, then
+          # commits both — see .bumpversion.cfg. It fails loudly if either file
+          # no longer contains the expected current version.
+          uvx bump2version "$BUMP_TYPE"
 
           git status
 
-          git push origin
+          # Only the branch — the release tag is pushed by the Release
+          # workflow's create-git-tag job, after PyPI publish succeeds.
+          git push origin HEAD:main
