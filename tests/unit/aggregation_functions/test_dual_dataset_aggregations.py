@@ -5,6 +5,15 @@ import pytest
 
 from arthur_common.aggregations.aggregator import AggregationFunction
 from arthur_common.models.enums import ModelProblemType
+from arthur_common.aggregations.functions.agentic_aggregations import (
+    AgenticTraceCountAggregation,
+)
+from arthur_common.aggregations.functions.inference_count import (
+    InferenceCountAggregationFunction,
+)
+from arthur_common.aggregations.functions.shield_aggregations import (
+    ShieldInferencePassFailCountAggregation,
+)
 from arthur_common.models.metrics import (
     AggregationSpecSchema,
     MetricsDatasetParameterSchema,
@@ -101,13 +110,6 @@ class TestMetricNameCollisionsAcrossCoOccurringProblemTypes:
         """Spot-check of the concrete pair called out in the design: Shield's
         inference_count vs Agentic's trace_count.
         """
-        from arthur_common.aggregations.functions.agentic_aggregations import (
-            AgenticTraceCountAggregation,
-        )
-        from arthur_common.aggregations.functions.shield_aggregations import (
-            ShieldInferencePassFailCountAggregation,
-        )
-
         assert (
             ShieldInferencePassFailCountAggregation.METRIC_NAME
             != AgenticTraceCountAggregation.METRIC_NAME
@@ -128,13 +130,6 @@ class TestGenericAggregationsAreExcludedFromTheCollisionCheck:
     """
 
     def test_generic_and_shield_inference_count_overlap_is_known(self):
-        from arthur_common.aggregations.functions.inference_count import (
-            InferenceCountAggregationFunction,
-        )
-        from arthur_common.aggregations.functions.shield_aggregations import (
-            ShieldInferencePassFailCountAggregation,
-        )
-
         assert (
             InferenceCountAggregationFunction.METRIC_NAME
             == ShieldInferencePassFailCountAggregation.METRIC_NAME
@@ -142,10 +137,6 @@ class TestGenericAggregationsAreExcludedFromTheCollisionCheck:
         )
 
     def test_generic_aggregations_declare_no_problem_type(self, loaded_specs):
-        from arthur_common.aggregations.functions.inference_count import (
-            InferenceCountAggregationFunction,
-        )
-
         generic_spec = next(
             spec
             for spec, cls in loaded_specs
@@ -205,13 +196,6 @@ class TestAggregationLoadingForDualDatasetModel:
         assert union <= loaded_ids
 
     def test_landmark_aggregations_from_both_sets_are_loaded(self, loaded_specs):
-        from arthur_common.aggregations.functions.agentic_aggregations import (
-            AgenticTraceCountAggregation,
-        )
-        from arthur_common.aggregations.functions.shield_aggregations import (
-            ShieldInferencePassFailCountAggregation,
-        )
-
         loaded_ids = {spec.id for spec, _ in loaded_specs}
 
         assert AgenticTraceCountAggregation.id() in loaded_ids
