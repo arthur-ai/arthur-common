@@ -287,6 +287,11 @@ class SearchTasksRequest(BaseModel):
         description="Task name substring search string.",
         default=None,
     )
+    is_agentic: Optional[bool] = Field(
+        description="DEPRECATED: formerly filtered tasks by agentic status; now does nothing.",
+        default=None,
+        json_schema_extra={"deprecated": True}
+    )
     include_archived: Optional[bool] = Field(
         description="Include archived tasks in results. True returns both active and archived tasks, False or None returns only active tasks. If only_archived is True, this flag is ignored.",
         default=None,
@@ -347,6 +352,11 @@ class AgentMetadata(BaseModel):
 
 class NewTaskRequest(BaseModel):
     name: str = Field(description="Name of the task.", min_length=1)
+    is_agentic: Optional[bool] = Field(
+        description="DEPRECATED: formerly marked tasks as agentic or not; now does nothing.",
+        default=None,
+        json_schema_extra={"deprecated": True}
+    )
     agent_metadata: Optional[AgentMetadata] = Field(
         description="Metadata to describe the creation source/provider for registered agents.",
         default=None,
