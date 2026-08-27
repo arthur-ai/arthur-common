@@ -178,6 +178,30 @@ class EndpointAgentCreationSource(BaseModel):
         "rather than event-shaped.",
     )
 
+    # --- how the finding presents ------------------------------------------------
+    # These travel here rather than being derived UI-side because the Discovery page
+    # speaks only to the app-plane. Putting them in the payload is what keeps the
+    # frontend free of a second API client.
+    evidence_band: Literal["thin"] = Field(
+        default="thin",
+        description="Strength of the evidence behind this finding. A LITERAL, not an "
+        "enum, because an endpoint sensor can only ever produce thin evidence: it sees "
+        "a device, a process and a destination, never spans, tools or sub-agents. "
+        "Typing it as a constant makes that a property of the schema rather than a "
+        "convention the collector has to remember. The wider vocabulary other sensors "
+        "use -- traced, partial, inferred, unattributed -- is deliberately not modelled "
+        "here, because this class cannot emit those values.",
+    )
+    classification: Optional[str] = Field(
+        default=None,
+        description="Short catalog-assigned label shown beside the name, e.g. "
+        "'Personal agent' or 'Local model'. Free-form rather than an enum so the "
+        "catalog can add one without a schema release and a client regeneration -- the "
+        "same reason the catalog itself lives in the collector. Keep the vocabulary "
+        "small; it is a glanceable pill, not a taxonomy. Absent for uncatalogued "
+        "software, which is a finding in its own right and must still render.",
+    )
+
 
 # Union type for creation source (discriminated by 'type' field)
 class AgentCreationSource(

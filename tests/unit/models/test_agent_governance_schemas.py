@@ -268,6 +268,7 @@ class TestEndpointAgentCreationSource:
             parent_process="/bin/zsh",
             install_path="~/.local/bin/openclaw",
             version="0.14.2",
+            classification="Personal agent",
             first_seen=datetime(2026, 8, 24, 14, 32, 7, tzinfo=timezone.utc),
         )
         restored = EndpointAgentCreationSource.model_validate(
@@ -294,6 +295,29 @@ class TestEndpointAgentCreationSource:
         )
         assert source.process_cmdline is None
         assert source.install_path == "~/.local/bin/openclaw"
+
+    def test_evidence_band_is_always_thin(self):
+        """An endpoint sensor cannot produce anything but thin evidence, so the schema
+        says so rather than trusting the collector to remember. The panel makes the same
+        admission to the user under 'Detected shape: not available from this sensor'."""
+        source = EndpointAgentCreationSource(software_key="k", device_key="serial:X")
+        assert source.evidence_band == "thin"
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource(
+                software_key="k", device_key="serial:X", evidence_band="traced"
+            )
+
+    def test_uncatalogued_software_still_renders(self):
+        """classification is absent for software the catalog does not know, and that is
+        precisely the finding that matters most. It must not be required."""
+        source = EndpointAgentCreationSource(software_key="k", device_key="serial:X")
+        assert source.classification is None
+
+    def test_classification_carries_a_catalog_label(self):
+        source = EndpointAgentCreationSource(
+            software_key="k", device_key="serial:X", classification="Personal agent"
+        )
+        assert source.classification == "Personal agent"
 
     def test_uncollectable_evidence_is_absent_not_null(self):
         """Destination hostname and connection counts are NOT modelled.
