@@ -87,6 +87,39 @@ class ManualAgentCreationSource(BaseModel):
     type: Literal["MANUAL"] = "MANUAL"
 
 
+class EndpointAgentCreationSource(BaseModel):
+    """Creation source for agents discovered on managed endpoints via an MDM.
+
+    Unlike the GCP and OTEL sources, which record immutable origin facts, this one
+    carries a mutable ``device_count``. That is a deliberate and bounded compromise:
+    the Discovery UI speaks only to the app-plane, so any number it displays has to
+    arrive through ``put_agents``. Everything genuinely per-device -- which machines,
+    which users, which versions, first and last seen -- stays in the collector behind
+    its own read API and must not be added here.
+    """
+
+    type: Literal["ENDPOINT"] = "ENDPOINT"
+    mdm: Literal["jamf_pro"] = Field(
+        default="jamf_pro",
+        description="The device management system that reported this agent.",
+    )
+    software_key: str = Field(
+        description="Stable, version-free identifier for the discovered software. "
+        "Frozen wire contract: changing its derivation orphans every existing agent "
+        "and duplicates it, and the Agents API has no delete.",
+    )
+    device_count: int = Field(
+        default=0,
+        ge=0,
+        description="Devices where the software was present as of the last successful "
+        "evaluation, excluding devices in 'stale' state. A snapshot, not a series -- "
+        "put_agents fully replaces creation_source on every sync, so no history is "
+        "retained here. Trend lives in the collector. Publish 0 rather than omitting "
+        "an agent that has dropped to zero devices: omission leaves the previous count "
+        "frozen in place forever, because there is no delete on this API.",
+    )
+
+
 # Union type for creation source (discriminated by 'type' field)
 class AgentCreationSource(
     RootModel[
@@ -94,6 +127,7 @@ class AgentCreationSource(
             GCPAgentCreationSource,
             OTELAgentCreationSource,
             ManualAgentCreationSource,
+            EndpointAgentCreationSource,
         ]
     ]
 ):

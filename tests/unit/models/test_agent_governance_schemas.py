@@ -1,20 +1,22 @@
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from arthur_common.models.agent_governance_schemas import (
+    AgentCreationSource,
     DataSource,
+    EndpointAgentCreationSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
-    ManualAgentCreationSource,
     LLMModel,
+    ManualAgentCreationSource,
     OTELAgentCreationSource,
     SubAgent,
     TaskMetadata,
     Tool,
     ToolArgument,
-    AgentCreationSource,
 )
 
 
@@ -232,3 +234,92 @@ class TestEnrichedTaskResponse:
         assert isinstance(restored.creation_source.root, OTELAgentCreationSource)
         assert restored.creation_source.root.service_names == ["my-svc"]
         assert restored.num_spans == 5
+
+
+class TestEndpointAgentCreationSource:
+    """Agents discovered on managed endpoints (UP-4884)."""
+
+    def test_defaults(self):
+        source = EndpointAgentCreationSource(software_key="a3f1c0d2")
+        assert source.type == "ENDPOINT"
+        assert source.mdm == "jamf_pro"
+        assert source.device_count == 0
+
+    def test_round_trips_through_json(self):
+        """The collector writes this shape and the app-plane reads it back. It goes
+        through a sa.JSON() column, so dict round-tripping is the actual contract."""
+        original = EndpointAgentCreationSource(software_key="a3f1c0d2", device_count=47)
+        restored = EndpointAgentCreationSource.model_validate(
+            original.model_dump(mode="json")
+        )
+        assert restored == original
+
+    def test_device_count_cannot_be_negative(self):
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource(software_key="k", device_count=-1)
+
+    def test_software_key_is_required(self):
+        """Without it there is no stable identity to roll agents up by."""
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource()
+
+    def test_zero_device_count_is_representable(self):
+        """The publish-zero rule depends on this. There is no delete on the Agents API,
+        so an agent that drops to zero devices must be published as 0 rather than
+        omitted -- omission freezes the last non-zero count in place forever."""
+        source = EndpointAgentCreationSource(software_key="k", device_count=0)
+        assert source.model_dump(mode="json")["device_count"] == 0
+
+
+class TestAgentCreationSourceUnionWithEndpoint:
+    def test_endpoint_payload_resolves_to_endpoint_not_manual(self):
+        """The whole point of UP-4884. Before the union member existed this payload
+        read back as MANUAL with software_key and device_count silently gone."""
+        union = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "mdm": "jamf_pro",
+                "software_key": "a3f1c0d2",
+                "device_count": 47,
+            }
+        )
+        assert isinstance(union.root, EndpointAgentCreationSource)
+        assert union.root.software_key == "a3f1c0d2"
+        assert union.root.device_count == 47
+
+    def test_existing_members_still_resolve(self):
+        """Adding a union member must not perturb how the others discriminate."""
+        manual = AgentCreationSource.model_validate({"type": "MANUAL"})
+        assert isinstance(manual.root, ManualAgentCreationSource)
+
+        otel = AgentCreationSource.model_validate(
+            {"type": "OTEL", "service_names": ["svc"]}
+        )
+        assert isinstance(otel.root, OTELAgentCreationSource)
+        assert otel.root.service_names == ["svc"]
+
+        gcp = AgentCreationSource.model_validate(
+            {
+                "type": "GCP",
+                "gcp_project_id": "p",
+                "gcp_region": "r",
+                "gcp_reasoning_engine_id": "e",
+                "service_names": [],
+            }
+        )
+        assert isinstance(gcp.root, GCPAgentCreationSource)
+        assert gcp.root.gcp_project_id == "p"
+
+    def test_task_metadata_carries_an_endpoint_source(self):
+        """TaskMetadata is what actually lands in the tasks.task_metadata column."""
+        meta = TaskMetadata.model_validate(
+            {
+                "creation_source": {
+                    "type": "ENDPOINT",
+                    "software_key": "k",
+                    "device_count": 3,
+                }
+            }
+        )
+        assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
+        assert meta.creation_source.root.device_count == 3
