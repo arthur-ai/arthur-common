@@ -1,20 +1,22 @@
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from arthur_common.models.agent_governance_schemas import (
+    AgentCreationSource,
     DataSource,
+    EndpointAgentCreationSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
-    ManualAgentCreationSource,
     LLMModel,
+    ManualAgentCreationSource,
     OTELAgentCreationSource,
     SubAgent,
     TaskMetadata,
     Tool,
     ToolArgument,
-    AgentCreationSource,
 )
 
 
@@ -232,3 +234,149 @@ class TestEnrichedTaskResponse:
         assert isinstance(restored.creation_source.root, OTELAgentCreationSource)
         assert restored.creation_source.root.service_names == ["my-svc"]
         assert restored.num_spans == 5
+
+
+class TestEndpointAgentCreationSource:
+    """Agents discovered on managed endpoints (UP-4884).
+
+    Grain is per (software, device): the Discovery list shows a row per machine, so the
+    device is part of the finding's identity rather than a count attached to it.
+    """
+
+    def test_minimum_viable_finding(self):
+        """Only the two identity fields are required. A device can report software it
+        cannot say much else about, and that is still a finding worth surfacing."""
+        source = EndpointAgentCreationSource(
+            software_key="a3f1c0d2", device_key="serial:C02XL4KHQ6NV"
+        )
+        assert source.type == "ENDPOINT"
+        assert source.mdm == "jamf_pro"
+        assert source.device_name is None
+        assert source.process_cmdline is None
+
+    def test_full_finding_round_trips_through_json(self):
+        """The collector writes this and the app-plane reads it back out of a sa.JSON()
+        column, so dict round-tripping is the actual contract."""
+        original = EndpointAgentCreationSource(
+            software_key="a3f1c0d2",
+            device_key="serial:C02XL4KHQ6NV",
+            device_name="MBP-4471",
+            device_group="Corp-Managed macOS / Retail Analytics",
+            assigned_user="dana.whitfield@acme.com",
+            os_version="macOS 15.3 (24D60)",
+            process_cmdline="openclaw --serve --port 8788",
+            parent_process="/bin/zsh",
+            install_path="~/.local/bin/openclaw",
+            version="0.14.2",
+            classification="Personal agent",
+            first_seen=datetime(2026, 8, 24, 14, 32, 7, tzinfo=timezone.utc),
+        )
+        restored = EndpointAgentCreationSource.model_validate(
+            original.model_dump(mode="json")
+        )
+        assert restored == original
+
+    def test_identity_fields_are_required(self):
+        """software_key and device_key together are the frozen wire contract. Without
+        both there is nothing stable to key a finding on, and the Agents API has no
+        delete to clean up whatever gets written instead."""
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource(software_key="k")
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource(device_key="serial:X")
+
+    def test_installed_but_not_running_is_representable(self):
+        """An absent process_cmdline means the software is installed and idle -- a real
+        and different state from 'running', not a collection failure."""
+        source = EndpointAgentCreationSource(
+            software_key="k",
+            device_key="serial:X",
+            install_path="~/.local/bin/openclaw",
+        )
+        assert source.process_cmdline is None
+        assert source.install_path == "~/.local/bin/openclaw"
+
+    def test_uncatalogued_software_still_renders(self):
+        """classification is absent for software the catalog does not know, and that is
+        precisely the finding that matters most. It must not be required."""
+        source = EndpointAgentCreationSource(software_key="k", device_key="serial:X")
+        assert source.classification is None
+
+    def test_classification_carries_a_catalog_label(self):
+        source = EndpointAgentCreationSource(
+            software_key="k", device_key="serial:X", classification="Personal agent"
+        )
+        assert source.classification == "Personal agent"
+
+    def test_uncollectable_evidence_is_absent_not_null(self):
+        """Destination hostname and connection counts are NOT modelled.
+
+        remote_address is an IP, and counts over a window need socket_events, which is
+        event-based and reports 'events are disabled' in a one-shot run -- it needs a
+        persistent osqueryd with the audit subsystem. A nullable field would read as
+        'not collected yet' rather than 'this sensor cannot see it', so there is none.
+        Pydantic ignores extras, so assert against the schema itself.
+        """
+        fields = set(EndpointAgentCreationSource.model_fields)
+        for absent in ("destination", "connection_count", "remote_address", "egress"):
+            assert absent not in fields, (
+                f"{absent!r} is not obtainable from a one-shot EA -- adding it as a "
+                "nullable field would misrepresent a sensor limit as missing data"
+            )
+
+
+class TestAgentCreationSourceUnionWithEndpoint:
+    def test_endpoint_payload_resolves_to_endpoint_not_manual(self):
+        """The whole point of UP-4884. Before the union member existed this payload
+        read back as MANUAL with software_key and device_key silently gone."""
+        union = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "mdm": "jamf_pro",
+                "software_key": "a3f1c0d2",
+                "device_key": "serial:C02XL4KHQ6NV",
+                "device_name": "MBP-4471",
+                "process_cmdline": "openclaw --serve --port 8788",
+            }
+        )
+        assert isinstance(union.root, EndpointAgentCreationSource)
+        assert union.root.software_key == "a3f1c0d2"
+        assert union.root.device_key == "serial:C02XL4KHQ6NV"
+        assert union.root.process_cmdline == "openclaw --serve --port 8788"
+
+    def test_existing_members_still_resolve(self):
+        """Adding a union member must not perturb how the others discriminate."""
+        manual = AgentCreationSource.model_validate({"type": "MANUAL"})
+        assert isinstance(manual.root, ManualAgentCreationSource)
+
+        otel = AgentCreationSource.model_validate(
+            {"type": "OTEL", "service_names": ["svc"]}
+        )
+        assert isinstance(otel.root, OTELAgentCreationSource)
+        assert otel.root.service_names == ["svc"]
+
+        gcp = AgentCreationSource.model_validate(
+            {
+                "type": "GCP",
+                "gcp_project_id": "p",
+                "gcp_region": "r",
+                "gcp_reasoning_engine_id": "e",
+                "service_names": [],
+            }
+        )
+        assert isinstance(gcp.root, GCPAgentCreationSource)
+        assert gcp.root.gcp_project_id == "p"
+
+    def test_task_metadata_carries_an_endpoint_source(self):
+        """TaskMetadata is what actually lands in the tasks.task_metadata column."""
+        meta = TaskMetadata.model_validate(
+            {
+                "creation_source": {
+                    "type": "ENDPOINT",
+                    "software_key": "k",
+                    "device_key": "serial:X",
+                }
+            }
+        )
+        assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
+        assert meta.creation_source.root.device_key == "serial:X"
