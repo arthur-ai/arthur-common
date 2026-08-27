@@ -88,14 +88,27 @@ class ManualAgentCreationSource(BaseModel):
 
 
 class EndpointAgentCreationSource(BaseModel):
-    """Creation source for agents discovered on managed endpoints via an MDM.
+    """One agent discovered on one managed endpoint.
 
-    Unlike the GCP and OTEL sources, which record immutable origin facts, this one
-    carries a mutable ``device_count``. That is a deliberate and bounded compromise:
-    the Discovery UI speaks only to the app-plane, so any number it displays has to
-    arrive through ``put_agents``. Everything genuinely per-device -- which machines,
-    which users, which versions, first and last seen -- stays in the collector behind
-    its own read API and must not be added here.
+    GRAIN IS PER (SOFTWARE, DEVICE), not per software. The Discovery list shows a row
+    per machine -- "OpenClaw / MBP-4471 / openclaw --serve" -- so the device is part of
+    the finding's identity rather than a count attached to it. An earlier draft carried
+    ``device_count`` instead and was the wrong shape: it could not name the machine, the
+    user, or what the process was actually doing.
+
+    Every field here is obtainable from a ONE-SHOT osquery invocation plus MDM inventory.
+    Deliberately absent, because they are not:
+
+    * **Destination hostname.** ``process_open_sockets`` returns ``remote_address`` as an
+      IP. Recovering ``api.anthropic.com`` needs reverse DNS, which is unreliable against
+      CDN and anycast ranges, or SNI capture.
+    * **Connection counts over a window.** Only ``socket_events`` yields those, and it is
+      event-based: a one-shot run reports "events are disabled". It requires osqueryd
+      running persistently with the audit subsystem -- which is the decision that would
+      put code signing, notarization and PPPC back on the critical path.
+
+    Neither is modelled as a nullable field, on purpose. A column that is always null
+    reads as "not collected yet" rather than "this sensor cannot see it."
     """
 
     type: Literal["ENDPOINT"] = "ENDPOINT"
@@ -103,20 +116,66 @@ class EndpointAgentCreationSource(BaseModel):
         default="jamf_pro",
         description="The device management system that reported this agent.",
     )
+
+    # --- identity of the finding -------------------------------------------------
     software_key: str = Field(
         description="Stable, version-free identifier for the discovered software. "
-        "Frozen wire contract: changing its derivation orphans every existing agent "
-        "and duplicates it, and the Agents API has no delete.",
+        "Frozen wire contract: with device_key it forms the finding's identity, and "
+        "changing either derivation orphans every existing agent AND duplicates it, "
+        "because the Agents API has no delete.",
     )
-    device_count: int = Field(
-        default=0,
-        ge=0,
-        description="Devices where the software was present as of the last successful "
-        "evaluation, excluding devices in 'stale' state. A snapshot, not a series -- "
-        "put_agents fully replaces creation_source on every sync, so no history is "
-        "retained here. Trend lives in the collector. Publish 0 rather than omitting "
-        "an agent that has dropped to zero devices: omission leaves the previous count "
-        "frozen in place forever, because there is no delete on this API.",
+    device_key: str = Field(
+        description="Stable device identity, e.g. 'serial:C02XL4KHQ6NV'. Part of the "
+        "frozen wire contract alongside software_key.",
+    )
+
+    # --- device facts, from MDM inventory ----------------------------------------
+    device_name: Optional[str] = Field(
+        default=None, description="MDM device name, e.g. 'MBP-4471'."
+    )
+    device_group: Optional[str] = Field(
+        default=None,
+        description="MDM grouping the device belongs to, e.g. a Jamf site or smart group.",
+    )
+    assigned_user: Optional[str] = Field(
+        default=None,
+        description="User the MDM assigns the device to. PERSONAL DATA -- this is the "
+        "field that makes an endpoint finding attributable to an individual, and it is "
+        "subject to the works-council and DPIA review the design calls for before EU "
+        "deployment. Omit it where that review has not happened.",
+    )
+    os_version: Optional[str] = Field(
+        default=None, description="Guest OS version, e.g. 'macOS 15.3 (24D60)'."
+    )
+
+    # --- what the sensor actually observed ---------------------------------------
+    process_cmdline: Optional[str] = Field(
+        default=None,
+        description="Full command line of the running process, e.g. "
+        "'openclaw --serve --port 8788'. Absent when the agent is installed but not "
+        "running, which is a meaningful difference and not a collection failure.",
+    )
+    parent_process: Optional[str] = Field(
+        default=None,
+        description="Parent of the observed process, e.g. '/bin/zsh'. Distinguishes an "
+        "agent a human launched from a terminal from one a LaunchAgent starts unattended.",
+    )
+    install_path: Optional[str] = Field(
+        default=None,
+        description="Where the software is installed, PATH-SHAPED to '~/...' rather than "
+        "'/Users/<name>/...'. The collector shapes it; usernames must not travel here in "
+        "a path when assigned_user already carries identity explicitly.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description="Version read statically from the install path. Never obtained by "
+        "executing the discovered binary.",
+    )
+    first_seen: Optional[datetime] = Field(
+        default=None,
+        description="When the collector first observed this software on this device. "
+        "Reconstructed by diffing inventory snapshots, since MDM relay is snapshot- "
+        "rather than event-shaped.",
     )
 
 

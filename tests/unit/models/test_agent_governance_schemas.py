@@ -237,55 +237,99 @@ class TestEnrichedTaskResponse:
 
 
 class TestEndpointAgentCreationSource:
-    """Agents discovered on managed endpoints (UP-4884)."""
+    """Agents discovered on managed endpoints (UP-4884).
 
-    def test_defaults(self):
-        source = EndpointAgentCreationSource(software_key="a3f1c0d2")
+    Grain is per (software, device): the Discovery list shows a row per machine, so the
+    device is part of the finding's identity rather than a count attached to it.
+    """
+
+    def test_minimum_viable_finding(self):
+        """Only the two identity fields are required. A device can report software it
+        cannot say much else about, and that is still a finding worth surfacing."""
+        source = EndpointAgentCreationSource(
+            software_key="a3f1c0d2", device_key="serial:C02XL4KHQ6NV"
+        )
         assert source.type == "ENDPOINT"
         assert source.mdm == "jamf_pro"
-        assert source.device_count == 0
+        assert source.device_name is None
+        assert source.process_cmdline is None
 
-    def test_round_trips_through_json(self):
-        """The collector writes this shape and the app-plane reads it back. It goes
-        through a sa.JSON() column, so dict round-tripping is the actual contract."""
-        original = EndpointAgentCreationSource(software_key="a3f1c0d2", device_count=47)
+    def test_full_finding_round_trips_through_json(self):
+        """The collector writes this and the app-plane reads it back out of a sa.JSON()
+        column, so dict round-tripping is the actual contract."""
+        original = EndpointAgentCreationSource(
+            software_key="a3f1c0d2",
+            device_key="serial:C02XL4KHQ6NV",
+            device_name="MBP-4471",
+            device_group="Corp-Managed macOS / Retail Analytics",
+            assigned_user="dana.whitfield@acme.com",
+            os_version="macOS 15.3 (24D60)",
+            process_cmdline="openclaw --serve --port 8788",
+            parent_process="/bin/zsh",
+            install_path="~/.local/bin/openclaw",
+            version="0.14.2",
+            first_seen=datetime(2026, 8, 24, 14, 32, 7, tzinfo=timezone.utc),
+        )
         restored = EndpointAgentCreationSource.model_validate(
             original.model_dump(mode="json")
         )
         assert restored == original
 
-    def test_device_count_cannot_be_negative(self):
+    def test_identity_fields_are_required(self):
+        """software_key and device_key together are the frozen wire contract. Without
+        both there is nothing stable to key a finding on, and the Agents API has no
+        delete to clean up whatever gets written instead."""
         with pytest.raises(ValidationError):
-            EndpointAgentCreationSource(software_key="k", device_count=-1)
-
-    def test_software_key_is_required(self):
-        """Without it there is no stable identity to roll agents up by."""
+            EndpointAgentCreationSource(software_key="k")
         with pytest.raises(ValidationError):
-            EndpointAgentCreationSource()
+            EndpointAgentCreationSource(device_key="serial:X")
 
-    def test_zero_device_count_is_representable(self):
-        """The publish-zero rule depends on this. There is no delete on the Agents API,
-        so an agent that drops to zero devices must be published as 0 rather than
-        omitted -- omission freezes the last non-zero count in place forever."""
-        source = EndpointAgentCreationSource(software_key="k", device_count=0)
-        assert source.model_dump(mode="json")["device_count"] == 0
+    def test_installed_but_not_running_is_representable(self):
+        """An absent process_cmdline means the software is installed and idle -- a real
+        and different state from 'running', not a collection failure."""
+        source = EndpointAgentCreationSource(
+            software_key="k",
+            device_key="serial:X",
+            install_path="~/.local/bin/openclaw",
+        )
+        assert source.process_cmdline is None
+        assert source.install_path == "~/.local/bin/openclaw"
+
+    def test_uncollectable_evidence_is_absent_not_null(self):
+        """Destination hostname and connection counts are NOT modelled.
+
+        remote_address is an IP, and counts over a window need socket_events, which is
+        event-based and reports 'events are disabled' in a one-shot run -- it needs a
+        persistent osqueryd with the audit subsystem. A nullable field would read as
+        'not collected yet' rather than 'this sensor cannot see it', so there is none.
+        Pydantic ignores extras, so assert against the schema itself.
+        """
+        fields = set(EndpointAgentCreationSource.model_fields)
+        for absent in ("destination", "connection_count", "remote_address", "egress"):
+            assert absent not in fields, (
+                f"{absent!r} is not obtainable from a one-shot EA -- adding it as a "
+                "nullable field would misrepresent a sensor limit as missing data"
+            )
 
 
 class TestAgentCreationSourceUnionWithEndpoint:
     def test_endpoint_payload_resolves_to_endpoint_not_manual(self):
         """The whole point of UP-4884. Before the union member existed this payload
-        read back as MANUAL with software_key and device_count silently gone."""
+        read back as MANUAL with software_key and device_key silently gone."""
         union = AgentCreationSource.model_validate(
             {
                 "type": "ENDPOINT",
                 "mdm": "jamf_pro",
                 "software_key": "a3f1c0d2",
-                "device_count": 47,
+                "device_key": "serial:C02XL4KHQ6NV",
+                "device_name": "MBP-4471",
+                "process_cmdline": "openclaw --serve --port 8788",
             }
         )
         assert isinstance(union.root, EndpointAgentCreationSource)
         assert union.root.software_key == "a3f1c0d2"
-        assert union.root.device_count == 47
+        assert union.root.device_key == "serial:C02XL4KHQ6NV"
+        assert union.root.process_cmdline == "openclaw --serve --port 8788"
 
     def test_existing_members_still_resolve(self):
         """Adding a union member must not perturb how the others discriminate."""
@@ -317,9 +361,9 @@ class TestAgentCreationSourceUnionWithEndpoint:
                 "creation_source": {
                     "type": "ENDPOINT",
                     "software_key": "k",
-                    "device_count": 3,
+                    "device_key": "serial:X",
                 }
             }
         )
         assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
-        assert meta.creation_source.root.device_count == 3
+        assert meta.creation_source.root.device_key == "serial:X"
