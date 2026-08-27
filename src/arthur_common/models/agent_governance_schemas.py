@@ -4,11 +4,58 @@ These schemas are shared across services for the /api/v2/agent-tasks endpoint.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import List, Literal, Optional, TypedDict, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from arthur_common.models.response_schemas import RuleResponse
+
+
+class EvidenceBand(str, Enum):
+    """How much a discovery source actually knows about an agent.
+
+    Shared vocabulary across every discovery source, not just endpoints, so the
+    Discovery list can rank findings from different sensors against each other. The
+    band answers "how far should I trust this row", which is a different question from
+    "how risky is this agent" -- a thinly-evidenced finding can be the most alarming
+    thing on the page.
+
+    Ordered strongest to weakest.
+    """
+
+    TRACED = "traced"
+    """Full instrumentation. Spans, tools, sub-agents and models are all observed."""
+
+    PARTIAL = "partial"
+    """The agent is known and identified, but its telemetry is incomplete or absent.
+
+    A registered agent that has not emitted spans yet, or one deployed and idle. The
+    identity is trustworthy; the behavioural picture is not there yet.
+    """
+
+    INFERRED = "inferred"
+    """Identity derived rather than observed -- e.g. a name lifted from a log field."""
+
+    UNATTRIBUTED = "unattributed"
+    """Activity is real but cannot be tied to a known agent or owner."""
+
+    THIN = "thin"
+    """A device, a process and a destination. No spans, tools, sub-agents or models.
+
+    The ceiling for an endpoint sensor: it watches a machine, not a program's
+    behaviour. The finding panel says so directly under "Detected shape".
+    """
+
+    STALE = "stale"
+    """The source stopped reporting, so this finding describes the past.
+
+    Distinct from every band above, which describe evidence *quality*: this one
+    describes evidence *age*. It is the band that stops a dead sensor's last-known
+    findings from reading as current truth -- and it is reachable from any source,
+    including endpoints, whenever a device's inventory has aged out.
+    """
+
 
 # Component schemas for agent tools and sub-agents
 
@@ -182,15 +229,16 @@ class EndpointAgentCreationSource(BaseModel):
     # These travel here rather than being derived UI-side because the Discovery page
     # speaks only to the app-plane. Putting them in the payload is what keeps the
     # frontend free of a second API client.
-    evidence_band: Literal["thin"] = Field(
-        default="thin",
-        description="Strength of the evidence behind this finding. A LITERAL, not an "
-        "enum, because an endpoint sensor can only ever produce thin evidence: it sees "
-        "a device, a process and a destination, never spans, tools or sub-agents. "
-        "Typing it as a constant makes that a property of the schema rather than a "
-        "convention the collector has to remember. The wider vocabulary other sensors "
-        "use -- traced, partial, inferred, unattributed -- is deliberately not modelled "
-        "here, because this class cannot emit those values.",
+    evidence_band: EvidenceBand = Field(
+        default=EvidenceBand.THIN,
+        description="How much this source actually knows about the agent. Shared "
+        "vocabulary across all discovery sources so findings from different sensors "
+        "can be ranked against each other. Two values are reachable from an endpoint "
+        "sensor: THIN normally, because it sees a device, a process and a destination "
+        "and never spans, tools or sub-agents; and STALE once the device's inventory "
+        "has aged out, which is what stops a dead sensor's last-known findings from "
+        "reading as current truth. TRACED, INFERRED and UNATTRIBUTED belong to other "
+        "sources and an endpoint payload should never carry them.",
     )
     classification: Optional[str] = Field(
         default=None,

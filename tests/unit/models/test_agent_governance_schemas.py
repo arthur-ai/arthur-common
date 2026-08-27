@@ -9,6 +9,7 @@ from arthur_common.models.agent_governance_schemas import (
     EndpointAgentCreationSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
+    EvidenceBand,
     GCPAgentCreationSource,
     LLMModel,
     ManualAgentCreationSource,
@@ -296,15 +297,44 @@ class TestEndpointAgentCreationSource:
         assert source.process_cmdline is None
         assert source.install_path == "~/.local/bin/openclaw"
 
-    def test_evidence_band_is_always_thin(self):
-        """An endpoint sensor cannot produce anything but thin evidence, so the schema
-        says so rather than trusting the collector to remember. The panel makes the same
-        admission to the user under 'Detected shape: not available from this sensor'."""
+    def test_evidence_band_defaults_to_thin(self):
+        """An endpoint sensor sees a device, a process and a destination -- never spans,
+        tools or sub-agents. The panel makes the same admission to the user under
+        'Detected shape: not available from this sensor'."""
         source = EndpointAgentCreationSource(software_key="k", device_key="serial:X")
-        assert source.evidence_band == "thin"
+        assert source.evidence_band is EvidenceBand.THIN
+
+    def test_stale_is_reachable_from_an_endpoint(self):
+        """The band that stops a dead sensor's last-known findings from reading as
+        current truth. Every other mechanism in this design exists to prevent a broken
+        sensor looking like a clean fleet; this is where a user sees it."""
+        source = EndpointAgentCreationSource(
+            software_key="k", device_key="serial:X", evidence_band=EvidenceBand.STALE
+        )
+        assert source.evidence_band is EvidenceBand.STALE
+
+    def test_band_round_trips_as_its_string_value(self):
+        """It crosses a sa.JSON() column and a generated client, so the wire form is
+        the contract, not the Python member."""
+        source = EndpointAgentCreationSource(
+            software_key="k", device_key="serial:X", evidence_band=EvidenceBand.STALE
+        )
+        assert source.model_dump(mode="json")["evidence_band"] == "stale"
+        assert (
+            EndpointAgentCreationSource.model_validate(
+                {
+                    "software_key": "k",
+                    "device_key": "serial:X",
+                    "evidence_band": "stale",
+                }
+            ).evidence_band
+            is EvidenceBand.STALE
+        )
+
+    def test_unknown_band_is_rejected(self):
         with pytest.raises(ValidationError):
             EndpointAgentCreationSource(
-                software_key="k", device_key="serial:X", evidence_band="traced"
+                software_key="k", device_key="serial:X", evidence_band="excellent"
             )
 
     def test_uncatalogued_software_still_renders(self):
@@ -391,3 +421,34 @@ class TestAgentCreationSourceUnionWithEndpoint:
         )
         assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
         assert meta.creation_source.root.device_key == "serial:X"
+
+
+class TestEvidenceBand:
+    """Shared vocabulary across discovery sources (UP-4884)."""
+
+    def test_vocabulary_is_complete(self):
+        """Pinned deliberately. The band crosses a JSON column and a generated client,
+        so adding or renaming a member is a wire change, not a refactor."""
+        assert {b.value for b in EvidenceBand} == {
+            "traced",
+            "partial",
+            "inferred",
+            "unattributed",
+            "thin",
+            "stale",
+        }
+
+    def test_ordering_runs_strongest_to_weakest(self):
+        """Declaration order is the display order for the segmented meter, so it is
+        part of the contract rather than a stylistic choice."""
+        assert [b.value for b in EvidenceBand] == [
+            "traced",
+            "partial",
+            "inferred",
+            "unattributed",
+            "thin",
+            "stale",
+        ]
+
+    def test_members_serialize_as_plain_strings(self):
+        assert EvidenceBand.THIN == "thin"
