@@ -478,8 +478,9 @@ class TaskResponse(BaseModel):
         description="Time the task was created in unix milliseconds",
     )
     is_agentic: Optional[bool] = Field(
-        description="Whether the task is agentic or not",
+        description="Deprecated — every task is agentic post-consolidation; genai-engine returns True. Will be removed in a future release.",
         default=None,
+        json_schema_extra={"deprecated": True},
     )
     is_system_task: Optional[bool] = Field(
         description="Whether this is a system-managed task (e.g., for traces without a task_id or service name, or for Arthur-created traces)",

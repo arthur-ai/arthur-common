@@ -95,6 +95,8 @@ Pydantic-based data models for API contracts and internal schemas.
 - **Data Types**: INT, FLOAT, BOOL, STRING, UUID, TIMESTAMP, DATE, JSON, IMAGE
 - **Schema Tags**: LLM_CONTEXT, LLM_PROMPT, LLM_RESPONSE, PRIMARY_TIMESTAMP, CATEGORICAL, CONTINUOUS, PREDICTION, GROUND_TRUTH
 - **Problem Types**: REGRESSION, BINARY_CLASSIFICATION, MULTICLASS_CLASSIFICATION, ARTHUR_SHIELD, CUSTOM, AGENTIC_TRACE
+- **Task Consolidation**: There is no longer a distinction between traditional and agentic tasks. The `TaskType` enum (`traditional`/`agentic`) has been removed from [enums.py](src/arthur_common/models/enums.py), and `CreateModelTaskJobSpec` in [task_job_specs.py](src/arthur_common/models/task_job_specs.py) no longer carries `task_type` — `initial_metrics` now defaults to an empty list and applies to every created task.
+- **Deprecated `is_agentic`**: The `is_agentic` field is retained on `NewTaskRequest`, `SearchTasksRequest`, and `TaskResponse` only for API backward compatibility. It is optional, defaults to `None`, does nothing (the request fields no longer mark or filter anything; genai-engine returns `True` on responses), and is flagged with `json_schema_extra={"deprecated": True}` so it surfaces as deprecated in the OpenAPI schema. Do not add new behavior keyed off it, and do not remove it without a coordinated breaking-change release.
 
 ### 2. Aggregations (`src/arthur_common/aggregations/`)
 
@@ -111,6 +113,12 @@ Pluggable aggregation functions for computing metrics from datasets using a **pl
 - **Numeric Stats**: numeric_stats, numeric_sum
 - **Shield-Specific**: shield_aggregations (toxicity, PII, hallucination)
 - **Agentic Systems**: agentic_aggregations
+
+**Dual-Dataset Model:**
+Post-consolidation, a single application can carry both an `AGENTIC_TRACE` dataset and an `ARTHUR_SHIELD` dataset at the same time. The aggregations for an application are the **union** of both problem types' definition sets — nothing is deduped or dropped — and both sets' metrics land on the same application. Consequences when adding or renaming an aggregation:
+
+- Metric names must not collide between the `AGENTIC_TRACE` and `ARTHUR_SHIELD` sets; a collision silently corrupts the metric series. Enforced by `tests/unit/aggregation_functions/test_dual_dataset_aggregations.py`.
+- One known, intentional overlap remains: the generic `InferenceCountAggregationFunction` (no declared problem type, so it binds to a dataset of any type) and `ShieldInferencePassFailCountAggregation` both emit `inference_count`. They never run on the same dataset because the Shield-typed aggregation claims Shield datasets, so the collision check is scoped per co-occurring problem-type pair rather than applied globally. Do not globalize that assertion.
 
 **Plugin Pattern:**
 Each aggregation function implements:
@@ -193,7 +201,7 @@ schema = inferer.infer_schema(dataframe)
 ## Testing
 
 **Test Organization:**
-- Location: `tests/unit/` with subdirectories mirroring source structure
+- Location: `tests/unit/` with subdirectories mirroring source structure (`aggregation_functions/`, `models/`, `tools/`)
 - Test Data: `tests/test_data/` with sample datasets (balloons, electricity, emails, etc.)
 - Fixtures: `conftest.py` provides shared utilities
 
@@ -201,6 +209,10 @@ schema = inferer.infer_schema(dataframe)
 - `_get_dataset()` - Load test datasets by name
 - `create_duckdb_test_data()` - Create test DuckDB connections
 - `make_agentic_test_data()` - Generate agentic trace test data
+
+**Invariant Tests:**
+- `tests/unit/aggregation_functions/test_dual_dataset_aggregations.py` - Guards the dual-dataset model: metric-name uniqueness across co-occurring problem types and union loading of both aggregation sets
+- `tests/unit/models/test_task_job_specs.py`, `test_task_request_schemas.py`, `test_task_response_schemas.py`, `test_enums.py` - Pin the task-consolidation contract: `TaskType` is gone, `is_agentic` is an optional deprecated no-op, and `initial_metrics` is accepted for any task
 
 **Coverage Requirements:**
 - Minimum 45% code coverage enforced by pre-commit hooks
@@ -272,6 +284,7 @@ Extensive use of Pydantic models and Python type hints enforced by mypy.
 - Pre-commit hooks enforce 45% minimum coverage
 - mypy strict mode enabled
 - Black formatting enforced
+- All imports at the top of the file — no function-local or inline imports
 - All tests run in CI on every push
 
 ## Git Workflow

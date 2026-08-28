@@ -1,9 +1,8 @@
-from typing import Literal, Optional, Self
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
-from arthur_common.models.enums import TaskType
 from arthur_common.models.request_schemas import (
     AgentMetadata,
     NewMetricRequest,
@@ -26,24 +25,14 @@ class CreateModelTaskJobSpec(BaseModel):
     initial_rules: list[NewRuleRequest] = Field(
         description="The initial rules to apply to the created model.",
     )
-    task_type: TaskType = Field(
-        default=TaskType.TRADITIONAL,
-        description="The type of task to create.",
-    )
     initial_metrics: list[NewMetricRequest] = Field(
-        description="The initial metrics to apply to agentic tasks.",
+        default_factory=list,
+        description="The initial metrics to apply to the created task.",
     )
     agent_metadata: Optional[AgentMetadata] = Field(
         default=None,
         description="Metadata for registered agents.",
     )
-
-    @model_validator(mode="after")
-    def initial_metric_required(self) -> Self:
-        if self.task_type == TaskType.TRADITIONAL:
-            if not len(self.initial_metrics) == 0:
-                raise ValueError("No initial_metrics when task_type is TRADITIONAL")
-        return self
 
 
 class CreateModelLinkTaskJobSpec(BaseModel):
