@@ -172,7 +172,7 @@ wheels = [
 
 [[package]]
 name = "arthur-common"
-version = "2.4.73"
+version = "2.4.74"
 source = { editable = "." }
 dependencies = [
     { name = "datasketches" },
