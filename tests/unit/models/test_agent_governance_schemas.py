@@ -14,6 +14,7 @@ from arthur_common.models.agent_governance_schemas import (
     EndpointSensor,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
+    EvidenceLevel,
     GCPAgentCreationSource,
     LLMModel,
     ManualAgentCreationSource,
@@ -407,20 +408,25 @@ class TestObservationCapabilities:
         assert category.observable_fields() <= set(AgentObservations.model_fields)
 
     def test_capabilities_differ_by_category_not_by_vendor(self):
-        """Adding CrowdStrike must not require a new capability set.
+        """Every vendor in a category shares one capability set.
 
-        This is the property that makes the contract extensible: a second endpoint
-        sensor is an EndpointSensor member, and it inherits what endpoints can see.
+        This is the property that makes the contract extensible: a new endpoint sensor
+        is an EndpointSensor member and inherits what endpoints can see, rather than
+        needing a class, a client regeneration and its own grading branch.
         """
-        jamf = EndpointAgentCreationSource(
-            sensor=EndpointSensor.JAMF_PRO,
-            address=ENDPOINT_ADDRESS,
+        assert (
+            len(
+                {
+                    frozenset(
+                        EndpointAgentCreationSource(
+                            sensor=sensor, address=ENDPOINT_ADDRESS
+                        ).observable_fields()
+                    )
+                    for sensor in EndpointSensor
+                }
+            )
+            == 1
         )
-        falcon = EndpointAgentCreationSource(
-            sensor=EndpointSensor.CROWDSTRIKE_FALCON,
-            address=ENDPOINT_ADDRESS,
-        )
-        assert jamf.observable_fields() == falcon.observable_fields()
 
 
 class TestDiscoveryCreationSources:
@@ -766,3 +772,24 @@ class TestDeprecations:
             "ManualAgentCreationSource",
         ):
             assert defs[variant].get("deprecated", False) is False
+
+
+class TestScopeGates:
+    """Vendors that are not in v1 must not reach the generated clients (UP-4974)."""
+
+    def test_crowdstrike_awaits_its_scope_decision(self):
+        """D-20 is a spike; an enum value would let the config UI offer it early."""
+        assert "CROWDSTRIKE_FALCON" not in EndpointSensor.__members__
+
+    def test_azure_ai_foundry_is_out_of_scope_for_v1(self):
+        """A selectable target only, per the epic's out-of-scope list."""
+        assert "AZURE_AI_FOUNDRY" not in CloudPlatform.__members__
+
+    def test_adding_one_later_is_a_single_enum_member(self):
+        """The extensibility claim, stated where the gate is.
+
+        Each category's capability set is declared on the class, so a new vendor
+        inherits it -- nothing else in this package changes.
+        """
+        assert EndpointAgentCreationSource.observable_fields()
+        assert all(isinstance(sensor.value, str) for sensor in EndpointSensor)

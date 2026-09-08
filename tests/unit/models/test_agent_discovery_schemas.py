@@ -1,24 +1,29 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
+from arthur_common.models import (
+    agent_discovery_schemas,
+    agent_governance_schemas,
+)
 from arthur_common.models.agent_discovery_schemas import (
-    SOURCE_CLASSIFICATION,
     DiscoveryOutputRecord,
     Evidence,
-    EvidenceLevel,
-    FoundBy,
-    Provenance,
-    RunsOn,
-    evidence_ceiling,
 )
 from arthur_common.models.agent_governance_schemas import (
+    SOURCE_CLASSIFICATION,
     AgentCreationSource,
+    EvidenceLevel,
+    FoundBy,
     LLMModel,
+    Provenance,
+    RunsOn,
     SourceAddress,
     Tool,
+    evidence_ceiling,
 )
 
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
@@ -412,3 +417,30 @@ class TestEvidenceCeiling:
     def test_every_level_in_the_table_is_a_real_level(self):
         ceilings = {c.evidence_ceiling for c in SOURCE_CLASSIFICATION.values()}
         assert ceilings - {None} <= set(EvidenceLevel)
+
+
+class TestModuleBoundary:
+    """This module must stay a leaf (UP-4974).
+
+    D-09 has to expose `provenance` on the task response, and the task response models
+    live in agent_governance_schemas. If provenance lived here, that import would be
+    circular and D-09 would be blocked on a refactor it did not ask for. Asserted
+    rather than left to a docstring because the failure only appears in the ticket
+    three steps downstream.
+    """
+
+    def test_governance_does_not_import_discovery(self):
+        source = Path(agent_governance_schemas.__file__).read_text()
+        assert "agent_discovery_schemas" not in source
+
+    def test_task_facing_types_are_reachable_from_governance(self):
+        """What D-09 needs in scope to put provenance on the task response."""
+        for name in ("Provenance", "FoundBy", "RunsOn", "EvidenceLevel"):
+            assert hasattr(agent_governance_schemas, name), name
+
+    def test_this_module_holds_only_platform_side_types(self):
+        """Evidence and the output contract; no engine reads either."""
+        assert hasattr(agent_discovery_schemas, "Evidence")
+        assert hasattr(agent_discovery_schemas, "DiscoveryOutputRecord")
+        for moved in ("Provenance", "RunsOn", "FoundBy"):
+            assert not hasattr(agent_discovery_schemas, moved), moved
