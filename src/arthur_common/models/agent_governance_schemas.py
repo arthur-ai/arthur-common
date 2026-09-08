@@ -187,6 +187,21 @@ class SourceAddress(BaseModel):
         "(software, device), so the machine is part of the identity rather than a "
         "count attached to it.",
     )
+    resource_kind: Optional[str] = Field(
+        default=None,
+        description="Which namespace ``resource_id`` lives in: a bundle id, an npm "
+        "package name, a launchd label, a listening port, a browser extension id. "
+        "Part of the identity, not an observation -- the endpoint collector's own "
+        "registry defines a route as 'a way an agent's identity reaches us: a package "
+        "name, a bundle id, a path shape', and without it '8788' and 'openclaw' and "
+        "'com.openclaw.app' are indistinguishable strings from colliding namespaces. "
+        "Absent where a source has exactly one kind of resource, which is every cloud "
+        "and SIEM vendor; required in practice only for endpoints, which have a dozen. "
+        "FREE TEXT on purpose: the vocabulary is owned by the collector's "
+        "catalog/routes.yaml, which exists precisely because copying it into five "
+        "places let one route go missing for months. An enum here would be the sixth "
+        "copy and would break that file's property that adding a route is one edit.",
+    )
     scope: Optional[str] = Field(
         default=None,
         description="The subdivision queried, where the source has one: a cloud "
@@ -258,6 +273,20 @@ class AgentObservations(BaseModel):
         "works-council and DPIA review the design calls for before EU deployment. Omit "
         "it where that review has not happened. Declared once here rather than "
         "per-vendor so the obligation travels with the field.",
+    )
+
+    # --- what it is allowed to do -------------------------------------------------
+    permissions: List[str] = Field(
+        default_factory=list,
+        description="Capabilities the agent declared for itself, e.g. a browser "
+        "extension's manifest permissions ('tabs', 'nativeMessaging', '<all_urls>'). "
+        "Generalises beyond endpoints -- a cloud agent's action groups or the scopes on "
+        "its service account answer the same question -- which is why it is here rather "
+        "than on the endpoint variant. High-value signal for governance: an extension "
+        "holding <all_urls> and nativeMessaging is a different proposition from one "
+        "holding storage, and nothing else in this contract distinguishes them. A list "
+        "rather than the collector's comma-joined string: splitting it is the "
+        "connector's job, not the contract's.",
     )
 
     # --- telemetry linkage --------------------------------------------------------
@@ -552,6 +581,10 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     FOUND_BY: ClassVar[FoundBy] = FoundBy.CLOUD
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        # `permissions` is where this category extends next -- a Bedrock agent's action
+        # groups and a Vertex service account's scopes answer the same question. It is
+        # absent until a connector is verified to fetch them: claiming a capability the
+        # collector does not have is the bug this declaration exists to prevent.
         {"version", "service_names", "host_group"},
     )
 
@@ -609,11 +642,22 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
       running persistently with the audit subsystem -- the decision that would put code
       signing, notarization and PPPC back on the critical path.
 
-    Also not modelled, though the collector does emit them: ``kind`` (how the agent
-    manifests -- app, daemon, listening port, browser extension, npm package) and
-    ``perms`` (declared permissions, browser extensions only). Both are real signal and
-    neither is in this ticket's output contract; carrying them is a deliberate
-    follow-up rather than an oversight.
+    The collector's ``kind`` and ``perms`` ARE carried: ``kind`` as
+    ``address.resource_kind``, since it names the identity's namespace rather than
+    describing the agent, and ``perms`` as ``observations.permissions``. Only a browser
+    extension declares permissions, so most endpoint findings leave that empty -- the
+    third level of the same ceiling idea, below category and vendor.
+
+    Its ``extra`` column is deliberately NOT carried. It means a different thing per
+    kind -- browser_type, image size, deb arch, systemd unit state, VSCode edition,
+    listening address -- and this contract's discipline is that a field means one thing
+    for every sensor. The listening address is the one value in there worth promoting
+    to a field of its own eventually: an agent bound to 0.0.0.0 is a materially
+    different finding from one bound to 127.0.0.1.
+
+    Its ``scan`` rows must never reach here at all. That kind is a marker saying a
+    branch COULD NOT LOOK, not an agent that was found; those belong to a run's
+    diagnostics, not to an agent record.
     """
 
     FOUND_BY: ClassVar[FoundBy] = FoundBy.ENDPOINT
@@ -628,6 +672,8 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
             "host_group",
             "os_version",
             "assigned_user",
+            # declared by the artifact itself, browser extensions today
+            "permissions",
             # from the collector's catalog
             "classification",
         },

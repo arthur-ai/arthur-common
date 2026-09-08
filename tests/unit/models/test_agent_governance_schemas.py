@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 import pytest
 from pydantic import ValidationError
@@ -238,14 +239,19 @@ class TestTaskMetadata:
         assert restored.creation_source.root.gcp_reasoning_engine_id == "engine-1"
 
     def test_exclude_none(self):
+        """Asserted by property rather than against a literal dump.
+
+        A literal breaks every time an observation field is added, which says nothing
+        about whether exclude_none works. What matters is that None-valued fields drop
+        and everything else survives.
+        """
         metadata = TaskMetadata(creation_source=ManualAgentCreationSource())
         dumped = metadata.model_dump(exclude_none=True)
-        assert dumped == {
-            "creation_source": {
-                "type": "MANUAL",
-                "observations": {"service_names": []},
-            },
-        }
+
+        source = dumped["creation_source"]
+        assert source["type"] == "MANUAL"
+        assert "address" not in source  # computed as None for a manual task
+        assert all(value is not None for value in source["observations"].values())
 
 
 class TestEnrichedAgentMetadata:
@@ -325,6 +331,7 @@ class TestEnrichedTaskResponse:
 ENDPOINT_ADDRESS = SourceAddress(
     instance="serial:C02XL4KHQ6NV",
     resource_id="openclaw",
+    resource_kind="npm",
 )
 SPLUNK_ADDRESS = SourceAddress(
     instance="splunk-prod",
@@ -341,6 +348,41 @@ BEDROCK_ADDRESS = SourceAddress(
 
 class TestSourceAddress:
     """One address shape for every sensor (UP-4974)."""
+
+    def test_resource_kind_disambiguates_the_identity_namespace(self):
+        """Without it, endpoint resource_ids are strings from colliding namespaces.
+
+        '8788' is a listening port, 'openclaw' an npm package, 'com.openclaw.app' a
+        bundle id. The collector's own registry calls a route "a way an agent's
+        identity reaches us", so this is identity, not observation -- which is why it
+        sits on the address beside resource_id rather than in observations.
+        """
+        port = SourceAddress(
+            instance="serial:X",
+            resource_id="8788",
+            resource_kind="port",
+        )
+        npm = SourceAddress(
+            instance="serial:X",
+            resource_id="openclaw",
+            resource_kind="npm",
+        )
+        assert port.resource_kind != npm.resource_kind
+
+    def test_resource_kind_is_absent_for_single_kind_sources(self):
+        """Every cloud and SIEM vendor addresses exactly one kind of resource."""
+        assert BEDROCK_ADDRESS.resource_kind is None
+        assert SPLUNK_ADDRESS.resource_kind is None
+
+    def test_resource_kind_is_free_text_not_an_enum(self):
+        """The vocabulary belongs to the collector's catalog/routes.yaml.
+
+        That file exists because the kind list previously lived in five places that had
+        to agree, and one route went missing from one of them for months. An enum here
+        would be the sixth copy and would break its property that adding a route is a
+        single edit.
+        """
+        assert SourceAddress.model_fields["resource_kind"].annotation == Optional[str]
 
     def test_endpoint_addresses_software_on_a_device(self):
         """Grain is per (software, device): the device is the instance.
@@ -376,6 +418,40 @@ class TestSourceAddress:
 
 class TestObservationCapabilities:
     """Each category declares what it can see, rather than proving it by omission."""
+
+    def test_endpoint_sees_declared_permissions(self):
+        """The collector's `perms` column, carried as a cross-category observation.
+
+        Only browser extensions declare them, so most endpoint findings leave it empty
+        -- the third level of the same ceiling idea, below category and vendor.
+        """
+        assert "permissions" in EndpointAgentCreationSource.observable_fields()
+
+    def test_permissions_are_not_claimed_where_unverified(self):
+        """Cloud is where the concept extends next, but not until a connector fetches.
+
+        A Bedrock agent's action groups answer the same question. Declaring it before
+        anything collects it is the exact bug this declaration exists to prevent.
+        """
+        assert "permissions" not in CloudAgentCreationSource.observable_fields()
+        assert "permissions" not in SIEMAgentCreationSource.observable_fields()
+
+    def test_permissions_are_a_list_not_the_collectors_joined_string(self):
+        """Splitting the comma-joined column is the connector's job, not this contract's."""
+        observations = AgentObservations(
+            permissions=["tabs", "nativeMessaging", "<all_urls>"],
+        )
+        assert observations.permissions[-1] == "<all_urls>"
+
+    def test_extra_is_deliberately_not_carried(self):
+        """It means a different thing per kind, and a field must mean one thing here.
+
+        browser_type, image size, deb arch, systemd unit state, VSCode edition,
+        listening address. The listening address is the one worth promoting to its own
+        field eventually -- 0.0.0.0 is a materially different finding from 127.0.0.1.
+        """
+        for absent in ("extra", "browser_type", "listen_address"):
+            assert absent not in AgentObservations.model_fields
 
     def test_endpoint_sees_the_machine(self):
         """What the collector's six columns plus the MDM device record actually give."""
