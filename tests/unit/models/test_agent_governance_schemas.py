@@ -4,15 +4,23 @@ import pytest
 from pydantic import ValidationError
 
 from arthur_common.models.agent_governance_schemas import (
+    DEPRECATED_CREATION_SOURCE_TAGS,
     AgentCreationSource,
+    AgentObservations,
+    CloudAgentCreationSource,
+    CloudPlatform,
     DataSource,
     EndpointAgentCreationSource,
+    EndpointSensor,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
     LLMModel,
     ManualAgentCreationSource,
     OTELAgentCreationSource,
+    SIEMAgentCreationSource,
+    SIEMPlatform,
+    SourceAddress,
     SubAgent,
     TaskMetadata,
     Tool,
@@ -126,13 +134,82 @@ class TestCreationSource:
             ),
             ({"type": "OTEL"}, OTELAgentCreationSource),
             ({"type": "MANUAL"}, ManualAgentCreationSource),
+            (
+                {
+                    "type": "ENDPOINT",
+                    "sensor": "jamf_pro",
+                    "address": {
+                        "instance": "serial:C02XL4KHQ6NV",
+                        "resource_id": "openclaw",
+                    },
+                },
+                EndpointAgentCreationSource,
+            ),
+            (
+                {
+                    "type": "SIEM",
+                    "siem": "splunk",
+                    "address": {
+                        "instance": "splunk-prod",
+                        "resource_id": "rec-1",
+                        "scope": "index=main sourcetype=proxy",
+                        "query": "search sourcetype=proxy",
+                    },
+                },
+                SIEMAgentCreationSource,
+            ),
+            (
+                {
+                    "type": "CLOUD",
+                    "cloud": "aws_bedrock",
+                    "address": {
+                        "instance": "111122223333",
+                        "resource_id": "AGENT123",
+                        "scope": "us-east-1",
+                    },
+                },
+                CloudAgentCreationSource,
+            ),
         ],
     )
     def test_discriminated_union_deserialization(self, json_data, expected_type):
-        """Pydantic should correctly discriminate CreationSource variants by 'type' field."""
+        """Every variant must resolve to itself, never to a neighbour.
+
+        EVERY member belongs in this parametrization, not a representative sample.
+        UP-4883 shipped because an ENDPOINT payload resolved to MANUAL and lost every
+        field it carried; the only thing that catches that class of bug is asserting
+        each tag round-trips to its own class.
+        """
         # Wrap in TaskMetadata to test the union deserialization
         metadata = TaskMetadata.model_validate({"creation_source": json_data})
         assert isinstance(metadata.creation_source.root, expected_type)
+
+    def test_unknown_creation_source_type_raises(self):
+        """An unrecognized 'type' must fail loudly rather than degrade to a neighbour.
+
+        This is the behaviour the explicit discriminator buys (UP-4974). Under bare
+        smart-union matching an unknown payload silently validated as whichever variant
+        it loosely fit -- in practice MANUAL, whose only field is the tag -- so a
+        malformed or newer record looked like a successfully-parsed manual agent.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata.model_validate(
+                {"creation_source": {"type": "CROWDSTRIKE", "device": "laptop-1"}},
+            )
+        assert exc_info.value.errors()[0]["type"] == "union_tag_invalid"
+
+    def test_union_json_schema_is_a_discriminated_one_of(self):
+        """The generated clients depend on this, not just the Python models.
+
+        A bare Union emits `anyOf`, which the OpenAPI generators turn into a
+        try-each-in-turn validator -- the same silent mis-parse, reproduced in every
+        generated client. A discriminator turns it into `oneOf` plus a tag mapping, so
+        downstream clients dispatch on the tag the way the server does.
+        """
+        schema = AgentCreationSource.model_json_schema()
+        assert schema["discriminator"]["propertyName"] == "type"
+        assert "anyOf" not in schema
+        assert len(schema["oneOf"]) == 6
 
 
 class TestTaskMetadata:
@@ -236,147 +313,456 @@ class TestEnrichedTaskResponse:
         assert restored.num_spans == 5
 
 
-class TestEndpointAgentCreationSource:
-    """Agents discovered on managed endpoints (UP-4884).
+ENDPOINT_ADDRESS = SourceAddress(
+    instance="serial:C02XL4KHQ6NV",
+    resource_id="openclaw",
+)
+SPLUNK_ADDRESS = SourceAddress(
+    instance="splunk-prod",
+    resource_id="rec-1",
+    scope="index=main sourcetype=proxy",
+    query="search sourcetype=proxy dest=api.anthropic.com",
+)
+BEDROCK_ADDRESS = SourceAddress(
+    instance="111122223333",
+    resource_id="AGENT123",
+    scope="us-east-1",
+)
 
-    Grain is per (software, device): the Discovery list shows a row per machine, so the
-    device is part of the finding's identity rather than a count attached to it.
-    """
 
-    def test_minimum_viable_finding(self):
-        """Only the two identity fields are required. A device can report software it
-        cannot say much else about, and that is still a finding worth surfacing."""
-        source = EndpointAgentCreationSource(
-            software_key="a3f1c0d2", device_key="serial:C02XL4KHQ6NV"
-        )
-        assert source.type == "ENDPOINT"
-        assert source.mdm == "jamf_pro"
-        assert source.device_name is None
-        assert source.process_cmdline is None
+class TestSourceAddress:
+    """One address shape for every sensor (UP-4974)."""
 
-    def test_full_finding_round_trips_through_json(self):
-        """The collector writes this and the app-plane reads it back out of a sa.JSON()
-        column, so dict round-tripping is the actual contract."""
-        original = EndpointAgentCreationSource(
-            software_key="a3f1c0d2",
-            device_key="serial:C02XL4KHQ6NV",
-            device_name="MBP-4471",
-            device_group="Corp-Managed macOS / Retail Analytics",
-            assigned_user="dana.whitfield@acme.com",
-            os_version="macOS 15.3 (24D60)",
-            process_cmdline="openclaw --serve --port 8788",
-            parent_process="/bin/zsh",
-            install_path="~/.local/bin/openclaw",
-            version="0.14.2",
-            classification="Personal agent",
-            first_seen=datetime(2026, 8, 24, 14, 32, 7, tzinfo=timezone.utc),
-        )
-        restored = EndpointAgentCreationSource.model_validate(
-            original.model_dump(mode="json")
-        )
-        assert restored == original
+    def test_endpoint_addresses_software_on_a_device(self):
+        """Grain is per (software, device): the device is the instance.
 
-    def test_identity_fields_are_required(self):
-        """software_key and device_key together are the frozen wire contract. Without
-        both there is nothing stable to key a finding on, and the Agents API has no
-        delete to clean up whatever gets written instead."""
+        The Discovery list shows a row per machine, so the device is part of the
+        finding's identity rather than a count attached to it.
+        """
+        assert ENDPOINT_ADDRESS.instance.startswith("serial:")
+        assert ENDPOINT_ADDRESS.resource_id == "openclaw"
+        assert ENDPOINT_ADDRESS.scope is None
+        assert ENDPOINT_ADDRESS.query is None
+
+    def test_siem_addresses_a_record_in_an_indexed_scope(self):
+        assert SPLUNK_ADDRESS.scope == "index=main sourcetype=proxy"
+        assert SPLUNK_ADDRESS.query is not None
+
+    def test_cloud_addresses_a_resource_in_an_account_and_region(self):
+        assert BEDROCK_ADDRESS.instance == "111122223333"
+        assert BEDROCK_ADDRESS.scope == "us-east-1"
+        assert BEDROCK_ADDRESS.query is None
+
+    def test_instance_and_resource_are_required(self):
+        """Without both, a finding cannot be located again upstream."""
         with pytest.raises(ValidationError):
-            EndpointAgentCreationSource(software_key="k")
-        with pytest.raises(ValidationError):
-            EndpointAgentCreationSource(device_key="serial:X")
+            SourceAddress(instance="only-half")  # type: ignore[call-arg]
+
+    def test_round_trips_as_json(self):
+        assert (
+            SourceAddress.model_validate_json(SPLUNK_ADDRESS.model_dump_json())
+            == SPLUNK_ADDRESS
+        )
+
+
+class TestObservationCapabilities:
+    """Each category declares what it can see, rather than proving it by omission."""
+
+    def test_endpoint_sees_the_machine(self):
+        observable = EndpointAgentCreationSource.observable_fields()
+        assert {"command_line", "install_path", "os_version"} <= observable
+
+    def test_siem_sees_almost_nothing_about_the_host(self):
+        """A SIEM watches traffic and logs, not the machine behind them."""
+        observable = SIEMAgentCreationSource.observable_fields()
+        assert "install_path" not in observable
+        assert "command_line" not in observable
+        assert "os_version" not in observable
+
+    def test_uncollectable_signals_are_in_no_category(self):
+        """Destination hostname and connection counts are not modelled at all.
+
+        Reverse DNS is unreliable against CDN and anycast ranges; connection counts
+        need osqueryd running persistently with the audit subsystem, which puts code
+        signing, notarization and PPPC back on the critical path. Neither is a nullable
+        field, on purpose -- an always-null column reads as "not collected yet".
+        """
+        for absent in ("destination", "remote_address", "connection_count", "egress"):
+            assert absent not in AgentObservations.model_fields
+
+    @pytest.mark.parametrize(
+        "category",
+        [
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+            EndpointAgentCreationSource,
+        ],
+    )
+    def test_declared_fields_all_exist_on_the_observation_model(self, category):
+        """A typo in a capability set would silently widen or narrow evidence_level.
+
+        The declaration is only trustworthy if it cannot name a field that does not
+        exist, so assert the two stay in step.
+        """
+        assert category.observable_fields() <= set(AgentObservations.model_fields)
+
+    def test_capabilities_differ_by_category_not_by_vendor(self):
+        """Adding CrowdStrike must not require a new capability set.
+
+        This is the property that makes the contract extensible: a second endpoint
+        sensor is an EndpointSensor member, and it inherits what endpoints can see.
+        """
+        jamf = EndpointAgentCreationSource(
+            sensor=EndpointSensor.JAMF_PRO,
+            address=ENDPOINT_ADDRESS,
+        )
+        falcon = EndpointAgentCreationSource(
+            sensor=EndpointSensor.CROWDSTRIKE_FALCON,
+            address=ENDPOINT_ADDRESS,
+        )
+        assert jamf.observable_fields() == falcon.observable_fields()
+
+
+class TestDiscoveryCreationSources:
+    """One record from each of the three discovery categories (UP-4974)."""
+
+    def test_endpoint_finding_carries_what_a_one_shot_sweep_can_see(self):
+        src = EndpointAgentCreationSource(
+            sensor=EndpointSensor.JAMF_PRO,
+            address=ENDPOINT_ADDRESS,
+            observations=AgentObservations(
+                command_line="openclaw --serve --port 8788",
+                parent_process="/bin/zsh",
+                install_path="~/.local/bin/openclaw",
+                version="0.4.1",
+                host_name="MBP-4471",
+                os_version="macOS 15.3 (24D60)",
+                classification="Personal agent",
+            ),
+        )
+        assert src.type == "ENDPOINT"
+        assert src.observations.command_line is not None
+        assert src.observations.install_path.startswith("~/")
 
     def test_installed_but_not_running_is_representable(self):
-        """An absent process_cmdline means the software is installed and idle -- a real
-        and different state from 'running', not a collection failure."""
-        source = EndpointAgentCreationSource(
-            software_key="k",
-            device_key="serial:X",
-            install_path="~/.local/bin/openclaw",
+        """A meaningful difference, not a collection failure."""
+        src = EndpointAgentCreationSource(
+            sensor=EndpointSensor.OSQUERY,
+            address=ENDPOINT_ADDRESS,
+            observations=AgentObservations(install_path="~/.local/bin/openclaw"),
         )
-        assert source.process_cmdline is None
-        assert source.install_path == "~/.local/bin/openclaw"
+        assert src.observations.command_line is None
+        assert src.observations.install_path is not None
 
     def test_uncatalogued_software_still_renders(self):
-        """classification is absent for software the catalog does not know, and that is
-        precisely the finding that matters most. It must not be required."""
-        source = EndpointAgentCreationSource(software_key="k", device_key="serial:X")
-        assert source.classification is None
-
-    def test_classification_carries_a_catalog_label(self):
-        source = EndpointAgentCreationSource(
-            software_key="k", device_key="serial:X", classification="Personal agent"
+        """Absent classification is a finding in its own right."""
+        src = EndpointAgentCreationSource(
+            sensor=EndpointSensor.JAMF_PRO,
+            address=ENDPOINT_ADDRESS,
         )
-        assert source.classification == "Personal agent"
+        assert src.observations.classification is None
 
-    def test_uncollectable_evidence_is_absent_not_null(self):
-        """Destination hostname and connection counts are NOT modelled.
+    def test_siem_finding_is_explainable_after_the_fact(self):
+        src = SIEMAgentCreationSource(
+            siem=SIEMPlatform.SENTINEL,
+            address=SourceAddress(
+                instance="law-secops-prod",
+                resource_id="rec-9",
+                scope="AzureDiagnostics",
+                query="AzureDiagnostics | where Category == 'LLMGateway'",
+            ),
+        )
+        assert src.type == "SIEM"
+        assert src.address.query.startswith("AzureDiagnostics |")
 
-        remote_address is an IP, and counts over a window need socket_events, which is
-        event-based and reports 'events are disabled' in a one-shot run -- it needs a
-        persistent osqueryd with the audit subsystem. A nullable field would read as
-        'not collected yet' rather than 'this sensor cannot see it', so there is none.
-        Pydantic ignores extras, so assert against the schema itself.
+    @pytest.mark.parametrize("siem", list(SIEMPlatform))
+    def test_all_three_siems_share_one_variant(self, siem):
+        """Adding a SIEM is an enum member, not a class.
+
+        The payload is identical across the three; only the query language differs,
+        and that belongs to the connector that runs the query.
         """
-        fields = set(EndpointAgentCreationSource.model_fields)
-        for absent in ("destination", "connection_count", "remote_address", "egress"):
-            assert absent not in fields, (
-                f"{absent!r} is not obtainable from a one-shot EA -- adding it as a "
-                "nullable field would misrepresent a sensor limit as missing data"
-            )
+        src = SIEMAgentCreationSource(siem=siem, address=SPLUNK_ADDRESS)
+        assert src.type == "SIEM"
+        assert src.siem is siem
 
+    def test_unknown_vendors_are_rejected_per_category(self):
+        with pytest.raises(ValidationError):
+            SIEMAgentCreationSource(siem="qradar", address=SPLUNK_ADDRESS)
+        with pytest.raises(ValidationError):
+            EndpointAgentCreationSource(sensor="intune", address=ENDPOINT_ADDRESS)
 
-class TestAgentCreationSourceUnionWithEndpoint:
-    def test_endpoint_payload_resolves_to_endpoint_not_manual(self):
-        """The whole point of UP-4884. Before the union member existed this payload
-        read back as MANUAL with software_key and device_key silently gone."""
-        union = AgentCreationSource.model_validate(
+    def test_cloud_finding_addresses_account_and_region(self):
+        """Multi-account, multi-region scanning makes both part of the address."""
+        src = CloudAgentCreationSource(
+            cloud=CloudPlatform.AWS_BEDROCK,
+            address=BEDROCK_ADDRESS,
+        )
+        assert src.type == "CLOUD"
+        assert src.address.instance == "111122223333"
+
+    def test_gcp_vertex_has_a_cloud_member_awaiting_migration(self):
+        """GCPAgentCreationSource stays until its JSONB fields are migrated.
+
+        The enum member exists now so that move is a data migration rather than a
+        schema change on top of one.
+        """
+        assert CloudPlatform.GCP_VERTEX.value == "gcp_vertex"
+
+    def test_there_is_no_per_vendor_creation_source_class(self):
+        """The extensibility property, asserted rather than assumed.
+
+        Six union members cover ~10 sensors because vendors are enum values. A Jamf- or
+        Splunk-specific class would mean a schema release and a regeneration of every
+        generated client per vendor.
+        """
+        members = AgentCreationSource.model_json_schema()["oneOf"]
+        assert len(members) == 6
+        vendor_counts = len(CloudPlatform) + len(SIEMPlatform) + len(EndpointSensor)
+        assert vendor_counts > len(members)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {
+                "type": "SIEM",
+                "siem": "elastic",
+                "address": {
+                    "instance": "deploy-1",
+                    "resource_id": "r",
+                    "scope": "logs-proxy",
+                    "query": "FROM logs",
+                },
+            },
+            {
+                "type": "CLOUD",
+                "cloud": "aws_bedrock",
+                "address": {
+                    "instance": "1",
+                    "resource_id": "a",
+                    "scope": "us-east-1",
+                },
+            },
             {
                 "type": "ENDPOINT",
-                "mdm": "jamf_pro",
-                "software_key": "a3f1c0d2",
-                "device_key": "serial:C02XL4KHQ6NV",
-                "device_name": "MBP-4471",
-                "process_cmdline": "openclaw --serve --port 8788",
-            }
-        )
-        assert isinstance(union.root, EndpointAgentCreationSource)
-        assert union.root.software_key == "a3f1c0d2"
-        assert union.root.device_key == "serial:C02XL4KHQ6NV"
-        assert union.root.process_cmdline == "openclaw --serve --port 8788"
+                "sensor": "jamf_pro",
+                "address": {"instance": "serial:X", "resource_id": "openclaw"},
+                "observations": {"assigned_user": "someone@arthur.ai"},
+            },
+        ],
+    )
+    def test_discovery_records_survive_a_json_round_trip(self, payload):
+        """The wire format is what crosses three services; assert on it directly."""
+        src = AgentCreationSource.model_validate(payload)
+        assert AgentCreationSource.model_validate_json(src.model_dump_json()) == src
 
-    def test_existing_members_still_resolve(self):
-        """Adding a union member must not perturb how the others discriminate."""
-        manual = AgentCreationSource.model_validate({"type": "MANUAL"})
-        assert isinstance(manual.root, ManualAgentCreationSource)
+    def test_endpoint_payload_resolves_to_endpoint_not_manual(self):
+        """The UP-4883 regression, kept: an ENDPOINT payload must not read as MANUAL.
 
-        otel = AgentCreationSource.model_validate(
-            {"type": "OTEL", "service_names": ["svc"]}
-        )
-        assert isinstance(otel.root, OTELAgentCreationSource)
-        assert otel.root.service_names == ["svc"]
-
-        gcp = AgentCreationSource.model_validate(
-            {
-                "type": "GCP",
-                "gcp_project_id": "p",
-                "gcp_region": "r",
-                "gcp_reasoning_engine_id": "e",
-                "service_names": [],
-            }
-        )
-        assert isinstance(gcp.root, GCPAgentCreationSource)
-        assert gcp.root.gcp_project_id == "p"
-
-    def test_task_metadata_carries_an_endpoint_source(self):
-        """TaskMetadata is what actually lands in the tasks.task_metadata column."""
+        It once did, losing every field, because a bare smart-union matched the variant
+        with the loosest shape. The explicit discriminator is what forecloses it.
+        """
         meta = TaskMetadata.model_validate(
             {
                 "creation_source": {
                     "type": "ENDPOINT",
-                    "software_key": "k",
-                    "device_key": "serial:X",
+                    "sensor": "jamf_pro",
+                    "address": {"instance": "serial:X", "resource_id": "openclaw"},
                 }
             }
         )
         assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
-        assert meta.creation_source.root.device_key == "serial:X"
+        assert meta.creation_source.root.address.resource_id == "openclaw"
+
+
+class TestPersonalData:
+    def test_assigned_user_is_declared_once(self):
+        """PII lives in one place so the DPIA obligation travels with the field.
+
+        A per-vendor model would carry a copy per endpoint sensor, with a separate
+        docstring to keep in step.
+        """
+        assert "assigned_user" in AgentObservations.model_fields
+        for category in (CloudAgentCreationSource, SIEMAgentCreationSource):
+            assert "assigned_user" not in category.observable_fields()
+
+    def test_only_endpoint_sources_can_attribute_to_a_person(self):
+        assert "assigned_user" in EndpointAgentCreationSource.observable_fields()
+
+
+ALL_SOURCE_PAYLOADS = [
+    pytest.param(
+        {
+            "type": "GCP",
+            "gcp_project_id": "proj-a",
+            "gcp_region": "us-central1",
+            "gcp_reasoning_engine_id": "eng-1",
+            "service_names": ["svc-a"],
+        },
+        id="GCP",
+    ),
+    pytest.param({"type": "OTEL", "service_names": ["svc-b"]}, id="OTEL"),
+    pytest.param({"type": "MANUAL"}, id="MANUAL"),
+    pytest.param(
+        {
+            "type": "CLOUD",
+            "cloud": "aws_bedrock",
+            "address": {
+                "instance": "111122223333",
+                "resource_id": "AGENT1",
+                "scope": "us-east-1",
+            },
+        },
+        id="CLOUD",
+    ),
+    pytest.param(
+        {
+            "type": "SIEM",
+            "siem": "splunk",
+            "address": {
+                "instance": "splunk-prod",
+                "resource_id": "rec-1",
+                "scope": "index=main",
+                "query": "search x",
+            },
+        },
+        id="SIEM",
+    ),
+    pytest.param(
+        {
+            "type": "ENDPOINT",
+            "sensor": "jamf_pro",
+            "address": {"instance": "serial:X", "resource_id": "openclaw"},
+        },
+        id="ENDPOINT",
+    ),
+]
+
+
+class TestUniformReadAccess:
+    """Every member reads alike, so consumers never branch on the tag (UP-4974).
+
+    The pre-category variants (GCP, OTEL, MANUAL) keep their flat stored shape because
+    GCP's fields are queried out of task_metadata JSONB. Without these accessors, every
+    consumer of "where did this come from" or "what service names does it emit" has to
+    handle two shapes -- and the second one gets forgotten.
+    """
+
+    @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS)
+    def test_every_member_exposes_address(self, payload):
+        root = AgentCreationSource.model_validate(payload).root
+        address = root.address
+        assert address is None or isinstance(address, SourceAddress)
+
+    @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS)
+    def test_every_member_exposes_observations(self, payload):
+        root = AgentCreationSource.model_validate(payload).root
+        assert isinstance(root.observations, AgentObservations)
+
+    @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS)
+    def test_service_names_have_exactly_one_read_path(self, payload):
+        """The one that matters: service.name is the task-resolution key.
+
+        It is a top-level field on the two legacy variants and lives in observations on
+        the categories. A consumer that reads only one location silently misses half of
+        them, and `_resolve_task_id` keys off this.
+        """
+        root = AgentCreationSource.model_validate(payload).root
+        assert isinstance(root.observations.service_names, list)
+
+    def test_legacy_service_names_surface_through_observations(self):
+        for payload, expected in (
+            (ALL_SOURCE_PAYLOADS[0].values[0], ["svc-a"]),
+            (ALL_SOURCE_PAYLOADS[1].values[0], ["svc-b"]),
+        ):
+            root = AgentCreationSource.model_validate(payload).root
+            assert root.observations.service_names == expected
+
+    def test_gcp_flat_fields_map_onto_the_shared_address(self):
+        """The mapping the D-14 migration will make permanent."""
+        root = AgentCreationSource.model_validate(
+            ALL_SOURCE_PAYLOADS[0].values[0],
+        ).root
+        assert root.address.instance == "proj-a"  # project
+        assert root.address.resource_id == "eng-1"  # reasoning engine
+        assert root.address.scope == "us-central1"  # region
+        assert root.address.query is None  # enumerated, not searched
+
+    def test_sources_with_no_upstream_system_have_no_address(self):
+        """OTEL instrumented itself; MANUAL was typed in. Neither was 'found'."""
+        for payload in (
+            ALL_SOURCE_PAYLOADS[1].values[0],
+            ALL_SOURCE_PAYLOADS[2].values[0],
+        ):
+            assert AgentCreationSource.model_validate(payload).root.address is None
+
+    @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS[:3])
+    def test_accessors_add_nothing_to_the_legacy_wire_format(self, payload):
+        """Plain properties, not computed_field, precisely so this holds.
+
+        The stored JSONB and the `gcp_reasoning_engine_id` JSONB query must keep
+        working untouched, and the generated clients must not gain redundant fields.
+        """
+        dumped = AgentCreationSource.model_validate(payload).model_dump()
+        assert set(dumped) == set(payload)
+        assert "address" not in dumped
+        assert "observations" not in dumped
+
+    def test_legacy_json_schemas_are_unchanged_by_the_accessors(self):
+        schema = AgentCreationSource.model_json_schema()
+        gcp = schema["$defs"]["GCPAgentCreationSource"]["properties"]
+        assert set(gcp) == {
+            "type",
+            "gcp_project_id",
+            "gcp_region",
+            "gcp_reasoning_engine_id",
+            "service_names",
+        }
+
+
+class TestDeprecations:
+    """The north star is five members; GCP is the one exception (UP-4974)."""
+
+    def test_the_deprecated_set_is_exactly_gcp(self):
+        """Pinned so deprecations cannot quietly accumulate.
+
+        Every entry needs a named successor and a stated reason it cannot go yet. A
+        second entry appearing without those is what this test is here to surface.
+        """
+        assert DEPRECATED_CREATION_SOURCE_TAGS == frozenset({"GCP"})
+
+    def test_deprecated_tags_are_real_union_members(self):
+        mapping = AgentCreationSource.model_json_schema()["discriminator"]["mapping"]
+        assert DEPRECATED_CREATION_SOURCE_TAGS <= set(mapping)
+
+    def test_every_deprecated_tag_has_a_live_successor(self):
+        """GCP's successor must be selectable before GCP can be removed."""
+        assert CloudPlatform.GCP_VERTEX in set(CloudPlatform)
+
+    def test_deprecation_surfaces_in_the_openapi_schema(self):
+        """The repo convention: json_schema_extra, so clients see it too."""
+        defs = AgentCreationSource.model_json_schema()["$defs"]
+        assert defs["GCPAgentCreationSource"]["deprecated"] is True
+
+    def test_flat_service_names_are_deprecated_on_both_legacy_variants(self):
+        """One read path for the key task resolution dispatches on.
+
+        The OTEL *class* is not deprecated -- self-instrumented agents are permanent --
+        only its flattened accessor.
+        """
+        defs = AgentCreationSource.model_json_schema()["$defs"]
+        for variant in ("GCPAgentCreationSource", "OTELAgentCreationSource"):
+            field = defs[variant]["properties"]["service_names"]
+            assert field["deprecated"] is True
+        assert defs["OTELAgentCreationSource"].get("deprecated", False) is False
+
+    def test_north_star_members_are_not_deprecated(self):
+        defs = AgentCreationSource.model_json_schema()["$defs"]
+        for variant in (
+            "CloudAgentCreationSource",
+            "SIEMAgentCreationSource",
+            "EndpointAgentCreationSource",
+            "OTELAgentCreationSource",
+            "ManualAgentCreationSource",
+        ):
+            assert defs[variant].get("deprecated", False) is False
