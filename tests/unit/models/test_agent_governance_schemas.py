@@ -119,7 +119,11 @@ class TestCreationSource:
     def test_manual_creation_source(self):
         src = ManualAgentCreationSource()
         dumped = src.model_dump()
-        assert dumped == {"type": "MANUAL"}
+        assert dumped["type"] == "MANUAL"
+        # Nothing was found and nothing observed, but the accessors are still present
+        # so consumers never type-check before reading them.
+        assert dumped["address"] is None
+        assert dumped["observations"]["service_names"] == []
 
     @pytest.mark.parametrize(
         "json_data,expected_type",
@@ -237,7 +241,9 @@ class TestTaskMetadata:
     def test_exclude_none(self):
         metadata = TaskMetadata(creation_source=ManualAgentCreationSource())
         dumped = metadata.model_dump(exclude_none=True)
-        assert dumped == {"creation_source": {"type": "MANUAL"}}
+        assert dumped == {
+            "creation_source": {"type": "MANUAL", "observations": {"service_names": []}}
+        }
 
 
 class TestEnrichedAgentMetadata:
@@ -703,27 +709,65 @@ class TestUniformReadAccess:
             assert AgentCreationSource.model_validate(payload).root.address is None
 
     @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS[:3])
-    def test_accessors_add_nothing_to_the_legacy_wire_format(self, payload):
-        """Plain properties, not computed_field, precisely so this holds.
+    def test_every_legacy_key_survives_untouched(self, payload):
+        """What actually protects the stored JSONB and the query that reads it.
 
-        The stored JSONB and the `gcp_reasoning_engine_id` JSONB query must keep
-        working untouched, and the generated clients must not gain redundant fields.
+        The accessors are ADDITIVE -- they add `address` and `observations` and change
+        nothing else. Asserting "nothing was added" would be the wrong invariant: the
+        additions are the point, since a plain property would be invisible to the
+        generated clients. What must not move is the flat fields
+        `find_by_gcp_engine_id` reads.
         """
         dumped = AgentCreationSource.model_validate(payload).model_dump()
-        assert set(dumped) == set(payload)
-        assert "address" not in dumped
-        assert "observations" not in dumped
+        for key, value in payload.items():
+            assert dumped[key] == value, key
 
-    def test_legacy_json_schemas_are_unchanged_by_the_accessors(self):
-        schema = AgentCreationSource.model_json_schema()
-        gcp = schema["$defs"]["GCPAgentCreationSource"]["properties"]
-        assert set(gcp) == {
-            "type",
-            "gcp_project_id",
-            "gcp_region",
-            "gcp_reasoning_engine_id",
-            "service_names",
-        }
+    @pytest.mark.parametrize(
+        "variant",
+        [
+            "GCPAgentCreationSource",
+            "OTELAgentCreationSource",
+            "ManualAgentCreationSource",
+        ],
+    )
+    def test_accessors_reach_the_generated_clients(self, variant):
+        """The reason these are computed_field and not plain properties.
+
+        A property gives uniform reads to Python callers only, leaving the frontend and
+        every SDK user branching on the tag -- which is most of the problem it was
+        meant to solve. Computed fields land in the SERIALIZATION schema, which is what
+        FastAPI builds response models from, so the generated clients carry them.
+        """
+        serialized = AgentCreationSource.model_json_schema(mode="serialization")
+        properties = serialized["$defs"][variant]["properties"]
+        assert "address" in properties
+        assert "observations" in properties
+
+    @pytest.mark.parametrize(
+        "variant",
+        [
+            "GCPAgentCreationSource",
+            "OTELAgentCreationSource",
+            "ManualAgentCreationSource",
+        ],
+    )
+    def test_accessors_are_not_writable(self, variant):
+        """Derived, so they must not appear as inputs.
+
+        A caller that could *send* `address` on a legacy variant could contradict the
+        flat fields it is derived from, and there would be no answer to which one wins.
+        """
+        validation = AgentCreationSource.model_json_schema(mode="validation")
+        properties = validation["$defs"][variant]["properties"]
+        assert "address" not in properties
+        assert "observations" not in properties
+
+    def test_gcp_keeps_the_field_the_jsonb_query_reads(self):
+        """`find_by_gcp_engine_id` is step 4 of the task-resolution ladder."""
+        gcp = AgentCreationSource.model_json_schema()["$defs"][
+            "GCPAgentCreationSource"
+        ]["properties"]
+        assert "gcp_reasoning_engine_id" in gcp
 
 
 class TestDeprecations:

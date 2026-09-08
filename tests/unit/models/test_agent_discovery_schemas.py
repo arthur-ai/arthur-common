@@ -14,12 +14,13 @@ from arthur_common.models.agent_discovery_schemas import (
     Evidence,
 )
 from arthur_common.models.agent_governance_schemas import (
-    SOURCE_CLASSIFICATION,
     AgentCreationSource,
+    AgentObservations,
     EvidenceLevel,
     FoundBy,
     LLMModel,
     Provenance,
+    ProvenanceSource,
     RunsOn,
     SourceAddress,
     Tool,
@@ -102,55 +103,64 @@ class TestRunsOn:
 
 
 class TestProvenance:
-    def test_found_by_accumulates_several_sensors(self):
-        """It is a list because one agent can be corroborated by several sensors."""
+    def test_sources_accumulate_one_entry_per_sensor(self):
+        """A list of contributions, not scalars beside a list of sensor classes.
+
+        With scalars, an agent corroborated by two sensors has two entries in found_by
+        but one source_id and one address, and nothing says which sensor they describe.
+        """
         prov = Provenance(
-            found_by=[FoundBy.ENDPOINT, FoundBy.SIEM],
+            sources=[
+                ProvenanceSource(
+                    found_by=FoundBy.ENDPOINT,
+                    source_type="jamf_pro",
+                    address=SourceAddress(instance="serial:X", resource_id="openclaw"),
+                ),
+                ProvenanceSource(
+                    found_by=FoundBy.SIEM,
+                    source_type="splunk",
+                    address=SourceAddress(instance="splunk-prod", resource_id="rec-1"),
+                ),
+            ],
             runs_on=RunsOn.ENDPOINT,
+        )
+        assert [s.source_type for s in prov.sources] == ["jamf_pro", "splunk"]
+        assert prov.sources[0].address.instance == "serial:X"
+        assert prov.sources[1].address.instance == "splunk-prod"
+
+    def test_found_by_is_derived_and_cannot_disagree_with_sources(self):
+        """Serialized because it is the documented column, derived so it stays true."""
+        prov = Provenance(
+            sources=[
+                ProvenanceSource(found_by=FoundBy.ENDPOINT),
+                ProvenanceSource(found_by=FoundBy.SIEM),
+            ],
         )
         assert prov.found_by == [FoundBy.ENDPOINT, FoundBy.SIEM]
+        assert prov.model_dump()["found_by"] == [FoundBy.ENDPOINT, FoundBy.SIEM]
 
-    def test_found_by_cannot_be_empty(self):
-        """Provenance whose sensor list is empty records nothing; reject it."""
+    def test_found_by_dedupes_while_keeping_first_seen_order(self):
+        """Two Splunk instances are two sources but one sensor class."""
+        prov = Provenance(
+            sources=[
+                ProvenanceSource(found_by=FoundBy.SIEM, source_type="splunk"),
+                ProvenanceSource(found_by=FoundBy.ENDPOINT, source_type="jamf_pro"),
+                ProvenanceSource(found_by=FoundBy.SIEM, source_type="sentinel"),
+            ],
+        )
+        assert prov.found_by == [FoundBy.SIEM, FoundBy.ENDPOINT]
+
+    def test_provenance_without_a_sensor_is_rejected(self):
         with pytest.raises(ValidationError):
-            Provenance(found_by=[])
+            Provenance(sources=[])
 
     def test_runs_on_defaults_to_unknown_not_to_a_guess(self):
-        prov = Provenance(found_by=[FoundBy.SIEM])
+        prov = Provenance(sources=[ProvenanceSource(found_by=FoundBy.SIEM)])
         assert prov.runs_on is RunsOn.UNKNOWN
 
-    def test_addressing_reuses_the_creation_source_type(self):
-        """Provenance and the finding must address upstream identically.
-
-        A parallel set of flattened fields here is how a task and the evidence that
-        produced it drift apart until they cannot be reconciled.
-        """
-        siem = Provenance(
-            found_by=[FoundBy.SIEM],
-            source_id=uuid4(),
-            source_type="splunk",
-            address=SourceAddress(
-                instance="splunk-prod",
-                resource_id="rec-1",
-                scope="index=main",
-                query="search sourcetype=proxy",
-            ),
-        )
-        assert isinstance(siem.address, SourceAddress)
-        assert siem.address.query is not None
-
-        endpoint = Provenance(
-            found_by=[FoundBy.ENDPOINT],
-            runs_on=RunsOn.ENDPOINT,
-            source_type="jamf_pro",
-            address=SourceAddress(instance="serial:X", resource_id="openclaw"),
-        )
-        assert endpoint.address.query is None
-
-    def test_address_is_absent_for_non_discovered_agents(self):
-        """OTEL and manual agents have no upstream source to address."""
-        prov = Provenance(found_by=[FoundBy.OTEL], runs_on=RunsOn.KUBERNETES)
-        assert prov.address is None
+    def test_runs_on_stays_scalar(self):
+        """Where an agent runs is one fact, even when several sensors report it."""
+        assert Provenance.model_fields["runs_on"].annotation is RunsOn
 
     def test_no_flat_infrastructure_or_location_field(self):
         """Provenance is the single source of truth for both questions (UP-4974)."""
@@ -159,11 +169,148 @@ class TestProvenance:
 
     def test_round_trips_as_json(self):
         prov = Provenance(
-            found_by=[FoundBy.CLOUD],
+            sources=[ProvenanceSource(found_by=FoundBy.CLOUD, source_id=uuid4())],
             runs_on=RunsOn.GCP,
-            source_id=uuid4(),
         )
         assert Provenance.model_validate_json(prov.model_dump_json()) == prov
+
+
+class TestProvenanceFromCreationSource:
+    """One place turns a finding into a provenance entry (UP-4974)."""
+
+    @pytest.mark.parametrize(
+        "payload,expected_found_by",
+        [
+            (ENDPOINT_SOURCE, FoundBy.ENDPOINT),
+            (SPLUNK_SOURCE, FoundBy.SIEM),
+            (CLOUD_SOURCE, FoundBy.CLOUD),
+            (OTEL_SOURCE, FoundBy.OTEL),
+            (MANUAL_SOURCE, FoundBy.MANUAL),
+            (GCP_SOURCE, FoundBy.CLOUD),
+        ],
+    )
+    def test_derives_found_by_from_the_source_itself(self, payload, expected_found_by):
+        source = AgentCreationSource.model_validate(payload)
+        entry = ProvenanceSource.from_creation_source(source)
+        assert entry.found_by is expected_found_by
+
+    def test_carries_the_address_across_unchanged(self):
+        """The finding and the task must address upstream identically."""
+        source = AgentCreationSource.model_validate(SPLUNK_SOURCE)
+        entry = ProvenanceSource.from_creation_source(source)
+        assert entry.address == source.root.address
+
+    def test_legacy_gcp_source_yields_a_cloud_entry_with_an_address(self):
+        """A caller building provenance never learns GCP has its own shape."""
+        source = AgentCreationSource.model_validate(GCP_SOURCE)
+        entry = ProvenanceSource.from_creation_source(source, source_type="gcp_vertex")
+        assert entry.found_by is FoundBy.CLOUD
+        assert entry.address.resource_id == "e"
+
+    def test_sources_with_no_upstream_system_yield_no_address(self):
+        for payload in (OTEL_SOURCE, MANUAL_SOURCE):
+            source = AgentCreationSource.model_validate(payload)
+            assert ProvenanceSource.from_creation_source(source).address is None
+
+
+class TestFoundByDerivation:
+    """FoundBy mirrors the category tags so it cannot drift into a second taxonomy."""
+
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            (ENDPOINT_SOURCE, FoundBy.ENDPOINT),
+            (SPLUNK_SOURCE, FoundBy.SIEM),
+            (OTEL_SOURCE, FoundBy.OTEL),
+            (MANUAL_SOURCE, FoundBy.MANUAL),
+        ],
+    )
+    def test_derives_from_the_creation_source_tag(self, payload, expected):
+        source = AgentCreationSource.model_validate(payload)
+        assert FoundBy.for_creation_source(source) is expected
+
+    def test_legacy_gcp_source_maps_to_cloud(self):
+        """Callers must not have to know which of two shapes a GCP row uses.
+
+        GCPAgentCreationSource is the pre-category flat variant, kept because its
+        fields are queried out of task_metadata JSONB, but it is a cloud runtime.
+        """
+        source = AgentCreationSource.model_validate(GCP_SOURCE)
+        assert FoundBy.for_creation_source(source) is FoundBy.CLOUD
+
+    def test_every_category_tag_has_a_found_by_member(self):
+        """The guard on the mirror: a new category without one would raise at runtime."""
+        tags = {
+            member["$ref"].rsplit("/", 1)[-1]
+            for member in AgentCreationSource.model_json_schema()["oneOf"]
+        }
+        assert len(tags) == 6
+        for payload in (ENDPOINT_SOURCE, SPLUNK_SOURCE, OTEL_SOURCE, MANUAL_SOURCE):
+            FoundBy.for_creation_source(AgentCreationSource.model_validate(payload))
+
+
+class TestEvidenceCeiling:
+    """Each source declares its own ceiling; there is no side table (UP-4974)."""
+
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            (ENDPOINT_SOURCE, EvidenceLevel.THIN),
+            (SPLUNK_SOURCE, EvidenceLevel.INFERRED),
+            (CLOUD_SOURCE, EvidenceLevel.INFERRED),
+            (GCP_SOURCE, EvidenceLevel.INFERRED),
+            (OTEL_SOURCE, EvidenceLevel.TRACED),
+        ],
+    )
+    def test_ceiling_per_sensor_class(self, payload, expected):
+        source = AgentCreationSource.model_validate(payload)
+        assert evidence_ceiling(source) is expected
+
+    def test_endpoint_can_never_claim_traced(self):
+        """An endpoint sensor watches a machine, not a program's behaviour."""
+        source = AgentCreationSource.model_validate(ENDPOINT_SOURCE)
+        assert evidence_ceiling(source) is not EvidenceLevel.TRACED
+
+    def test_manual_tasks_are_ungraded(self):
+        """A hand-created task is not a discovery finding and has no evidence."""
+        source = AgentCreationSource.model_validate(MANUAL_SOURCE)
+        assert evidence_ceiling(source) is None
+
+    def test_ceiling_is_a_ceiling_not_the_answer(self):
+        """The TRACED upgrade needs spans, which this package does not hold.
+
+        A Cloud finding whose service_names match live traces is TRACED; the same
+        finding with no traces is INFERRED. Consumers cap their telemetry-aware answer
+        at the ceiling rather than reading it as final.
+        """
+        cloud = AgentCreationSource.model_validate(CLOUD_SOURCE)
+        assert evidence_ceiling(cloud) is EvidenceLevel.INFERRED
+        assert EvidenceLevel.TRACED in set(EvidenceLevel)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            ENDPOINT_SOURCE,
+            SPLUNK_SOURCE,
+            CLOUD_SOURCE,
+            GCP_SOURCE,
+            OTEL_SOURCE,
+            MANUAL_SOURCE,
+        ],
+    )
+    def test_every_member_classifies_itself(self, payload):
+        """The guard that replaced the tag-keyed table.
+
+        A side table can hold a tag the union does not have, or miss one it does, and
+        the failure is silent -- an ungraded level or a KeyError in a consumer. Declaring
+        it on the class makes the union and the classification the same thing; this
+        asserts no member forgot.
+        """
+        root = AgentCreationSource.model_validate(payload).root
+        assert isinstance(root.FOUND_BY, FoundBy)
+        ceiling = root.EVIDENCE_CEILING
+        assert ceiling is None or isinstance(ceiling, EvidenceLevel)
+        assert root.observable_fields() <= set(AgentObservations.model_fields)
 
 
 class TestEvidence:
@@ -321,102 +468,6 @@ class TestDiscoveryOutputRecord:
             tools=[Tool(name="search")],
         )
         assert DiscoveryOutputRecord.model_validate_json(rec.model_dump_json()) == rec
-
-
-class TestFoundByDerivation:
-    """FoundBy mirrors the category tags so it cannot drift into a second taxonomy."""
-
-    @pytest.mark.parametrize(
-        "payload,expected",
-        [
-            (ENDPOINT_SOURCE, FoundBy.ENDPOINT),
-            (SPLUNK_SOURCE, FoundBy.SIEM),
-            (OTEL_SOURCE, FoundBy.OTEL),
-            (MANUAL_SOURCE, FoundBy.MANUAL),
-        ],
-    )
-    def test_derives_from_the_creation_source_tag(self, payload, expected):
-        source = AgentCreationSource.model_validate(payload)
-        assert FoundBy.for_creation_source(source) is expected
-
-    def test_legacy_gcp_source_maps_to_cloud(self):
-        """Callers must not have to know which of two shapes a GCP row uses.
-
-        GCPAgentCreationSource is the pre-category flat variant, kept because its
-        fields are queried out of task_metadata JSONB, but it is a cloud runtime.
-        """
-        source = AgentCreationSource.model_validate(GCP_SOURCE)
-        assert FoundBy.for_creation_source(source) is FoundBy.CLOUD
-
-    def test_every_category_tag_has_a_found_by_member(self):
-        """The guard on the mirror: a new category without one would raise at runtime."""
-        tags = {
-            member["$ref"].rsplit("/", 1)[-1]
-            for member in AgentCreationSource.model_json_schema()["oneOf"]
-        }
-        assert len(tags) == 6
-        for payload in (ENDPOINT_SOURCE, SPLUNK_SOURCE, OTEL_SOURCE, MANUAL_SOURCE):
-            FoundBy.for_creation_source(AgentCreationSource.model_validate(payload))
-
-
-class TestEvidenceCeiling:
-    """One table for "the best this sensor could ever claim" (UP-4974)."""
-
-    @pytest.mark.parametrize(
-        "payload,expected",
-        [
-            (ENDPOINT_SOURCE, EvidenceLevel.THIN),
-            (SPLUNK_SOURCE, EvidenceLevel.INFERRED),
-            (OTEL_SOURCE, EvidenceLevel.TRACED),
-        ],
-    )
-    def test_ceiling_per_sensor_class(self, payload, expected):
-        source = AgentCreationSource.model_validate(payload)
-        assert evidence_ceiling(source) is expected
-
-    def test_endpoint_can_never_claim_traced(self):
-        """An endpoint sensor watches a machine, not a program's behaviour."""
-        source = AgentCreationSource.model_validate(ENDPOINT_SOURCE)
-        assert evidence_ceiling(source) is not EvidenceLevel.TRACED
-
-    def test_manual_tasks_are_ungraded(self):
-        """A hand-created task is not a discovery finding and has no evidence."""
-        source = AgentCreationSource.model_validate(MANUAL_SOURCE)
-        assert evidence_ceiling(source) is None
-
-    def test_ceiling_is_a_ceiling_not_the_answer(self):
-        """The TRACED upgrade needs spans, which this package does not hold.
-
-        A Cloud finding whose service_names match live traces is TRACED; the same
-        finding with no traces is INFERRED. Consumers cap their telemetry-aware answer
-        at the ceiling rather than reading it as final.
-        """
-        assert SOURCE_CLASSIFICATION["CLOUD"].evidence_ceiling is EvidenceLevel.INFERRED
-        assert EvidenceLevel.TRACED.value == "traced"
-
-    def test_the_registry_covers_every_union_member(self):
-        """The guard that a new category cannot be half-registered.
-
-        One table for both the sensor class and the ceiling is what stops a category
-        arriving with a FoundBy but no grading, which would come back silently ungraded.
-        """
-        tags = {
-            AgentCreationSource.model_validate(p).root.type
-            for p in (
-                ENDPOINT_SOURCE,
-                SPLUNK_SOURCE,
-                OTEL_SOURCE,
-                MANUAL_SOURCE,
-                GCP_SOURCE,
-                CLOUD_SOURCE,
-            )
-        }
-        assert tags <= set(SOURCE_CLASSIFICATION)
-        assert len(SOURCE_CLASSIFICATION) == 6
-
-    def test_every_level_in_the_table_is_a_real_level(self):
-        ceilings = {c.evidence_ceiling for c in SOURCE_CLASSIFICATION.values()}
-        assert ceilings - {None} <= set(EvidenceLevel)
 
 
 class TestModuleBoundary:
