@@ -216,17 +216,13 @@ class AgentObservations(BaseModel):
     every consumer.
     """
 
-    # --- the running process / deployment ----------------------------------------
-    command_line: Optional[str] = Field(
-        default=None,
-        description="Full command line, e.g. 'openclaw --serve --port 8788'. Absent "
-        "when the agent is installed but not running, which is a meaningful difference.",
-    )
-    parent_process: Optional[str] = Field(
-        default=None,
-        description="Parent of the observed process, e.g. '/bin/zsh'. Distinguishes an "
-        "agent a human launched from one a service manager starts unattended.",
-    )
+    # --- the software on disk -----------------------------------------------------
+    #
+    # No command line and no parent process. The endpoint collector's output contract
+    # is six columns -- kind, id, ver, loc, extra, perms -- and neither is among them:
+    # nothing selects processes.cmdline or processes.parent, and adding a column there
+    # breaks every query branch by design. They are absent rather than nullable for the
+    # same reason as the destination and connection-count fields below.
     install_path: Optional[str] = Field(
         default=None,
         description="Where the software is installed, PATH-SHAPED to '~/...' rather "
@@ -309,7 +305,15 @@ class AgentCreationSourceBase(BaseModel):
     """
 
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset()
-    """Names within AgentObservations this source can ever populate."""
+    """Names within AgentObservations this source can ever populate.
+
+    A CEILING for the category, like EVIDENCE_CEILING, not a per-vendor guarantee. One
+    vendor in a category can reach less than another: an endpoint deployment with no
+    MDM behind it gets the collector's output but no device record, so host and user
+    facts are unreachable for it even though the category as a whole can fill them.
+    When that distinction starts mattering, narrow per-vendor at the instance level --
+    the ceiling stays where it is.
+    """
 
     @classmethod
     def observable_fields(cls) -> frozenset[str]:
@@ -587,10 +591,16 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     the finding's identity rather than a count attached to it.
 
     The richest observer of the three categories, because it is the only one looking at
-    the machine itself. Everything it fills is obtainable from a ONE-SHOT osquery
-    invocation plus MDM inventory. Deliberately unobservable, and therefore not in
-    OBSERVABLE_FIELDS:
+    the machine itself. What it fills comes from two places: the collector's six-column
+    output (``loc`` -> install_path, ``ver`` -> version) and the MDM's device record for
+    the same machine (host, group, OS, assigned user).
 
+    NOT in OBSERVABLE_FIELDS, and each for a different reason:
+
+    * **Command line and parent process.** Obtainable from osquery's ``processes`` in
+      principle, but the collector does not select them: its output contract is six
+      columns and adding one breaks every query branch by design. If they are wanted,
+      that is a change there first, and this becomes two more entries above.
     * **Destination hostname.** ``process_open_sockets`` returns ``remote_address`` as
       an IP. Recovering 'api.anthropic.com' needs reverse DNS, unreliable against CDN
       and anycast ranges, or SNI capture.
@@ -598,20 +608,27 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
       is event-based: a one-shot run reports "events are disabled". It needs osqueryd
       running persistently with the audit subsystem -- the decision that would put code
       signing, notarization and PPPC back on the critical path.
+
+    Also not modelled, though the collector does emit them: ``kind`` (how the agent
+    manifests -- app, daemon, listening port, browser extension, npm package) and
+    ``perms`` (declared permissions, browser extensions only). Both are real signal and
+    neither is in this ticket's output contract; carrying them is a deliberate
+    follow-up rather than an oversight.
     """
 
     FOUND_BY: ClassVar[FoundBy] = FoundBy.ENDPOINT
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.THIN
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
-            "command_line",
-            "parent_process",
-            "install_path",
-            "version",
+            # from the collector's six-column output
+            "install_path",  # loc
+            "version",  # ver, statically readable only
+            # from the MDM's device record for the same machine
             "host_name",
             "host_group",
             "os_version",
             "assigned_user",
+            # from the collector's catalog
             "classification",
         },
     )

@@ -378,15 +378,28 @@ class TestObservationCapabilities:
     """Each category declares what it can see, rather than proving it by omission."""
 
     def test_endpoint_sees_the_machine(self):
+        """What the collector's six columns plus the MDM device record actually give."""
         observable = EndpointAgentCreationSource.observable_fields()
-        assert {"command_line", "install_path", "os_version"} <= observable
+        assert {"install_path", "version"} <= observable  # collector: loc, ver
+        assert {"host_name", "os_version", "assigned_user"} <= observable  # MDM record
+
+    def test_the_collector_does_not_report_a_command_line(self):
+        """Its output contract is six columns and cmdline is not one of them.
+
+        Obtainable from osquery's `processes` in principle, but nothing selects it, and
+        adding a column there breaks every query branch by design. Absent rather than
+        nullable so the gap reads as "not collected" rather than "collected as empty".
+        """
+        for absent in ("command_line", "parent_process"):
+            assert absent not in AgentObservations.model_fields
+            assert absent not in EndpointAgentCreationSource.observable_fields()
 
     def test_siem_sees_almost_nothing_about_the_host(self):
         """A SIEM watches traffic and logs, not the machine behind them."""
         observable = SIEMAgentCreationSource.observable_fields()
         assert "install_path" not in observable
-        assert "command_line" not in observable
         assert "os_version" not in observable
+        assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
         """Destination hostname and connection counts are not modelled at all.
@@ -415,12 +428,14 @@ class TestObservationCapabilities:
         """
         assert category.observable_fields() <= set(AgentObservations.model_fields)
 
-    def test_capabilities_differ_by_category_not_by_vendor(self):
-        """Every vendor in a category shares one capability set.
+    def test_a_new_vendor_inherits_its_category_ceiling(self):
+        """The property that makes the contract extensible.
 
-        This is the property that makes the contract extensible: a new endpoint sensor
-        is an EndpointSensor member and inherits what endpoints can see, rather than
-        needing a class, a client regeneration and its own grading branch.
+        A new endpoint sensor is an EndpointSensor member and inherits what the
+        category can see, rather than needing a class, a client regeneration and its
+        own grading branch. The declaration is a CEILING, though: a deployment with no
+        MDM behind it reaches less than one with Jamf, and narrowing that is an
+        instance-level concern rather than a reason to fork the class.
         """
         assert (
             len(
@@ -446,8 +461,6 @@ class TestDiscoveryCreationSources:
             sensor=EndpointSensor.JAMF_PRO,
             address=ENDPOINT_ADDRESS,
             observations=AgentObservations(
-                command_line="openclaw --serve --port 8788",
-                parent_process="/bin/zsh",
                 install_path="~/.local/bin/openclaw",
                 version="0.4.1",
                 host_name="MBP-4471",
@@ -456,18 +469,24 @@ class TestDiscoveryCreationSources:
             ),
         )
         assert src.type == "ENDPOINT"
-        assert src.observations.command_line is not None
         assert src.observations.install_path.startswith("~/")
+        assert src.observations.version == "0.4.1"
 
-    def test_installed_but_not_running_is_representable(self):
-        """A meaningful difference, not a collection failure."""
+    def test_a_finding_with_no_mdm_record_still_validates(self):
+        """The collector's output alone is a valid finding.
+
+        An endpoint deployment with no MDM behind it gets install_path and version but
+        no device record, so the host and user fields stay empty. That is the ceiling
+        being a ceiling, not a malformed finding.
+        """
         src = EndpointAgentCreationSource(
             sensor=EndpointSensor.OSQUERY,
             address=ENDPOINT_ADDRESS,
             observations=AgentObservations(install_path="~/.local/bin/openclaw"),
         )
-        assert src.observations.command_line is None
         assert src.observations.install_path is not None
+        assert src.observations.host_name is None
+        assert src.observations.assigned_user is None
 
     def test_uncatalogued_software_still_renders(self):
         """Absent classification is a finding in its own right."""
