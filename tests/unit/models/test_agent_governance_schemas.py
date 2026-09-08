@@ -428,10 +428,10 @@ class TestObservationCapabilities:
         assert "permissions" in EndpointAgentCreationSource.observable_fields()
 
     def test_permissions_are_not_claimed_where_unverified(self):
-        """Cloud is where the concept extends next, but not until a connector fetches.
+        """Cloud is where the concept extends next, once a connector fetches them.
 
-        A Bedrock agent's action groups answer the same question. Declaring it before
-        anything collects it is the exact bug this declaration exists to prevent.
+        A Bedrock agent's action groups answer the same question, but the declaration
+        follows what a connector actually collects, not what it could.
         """
         assert "permissions" not in CloudAgentCreationSource.observable_fields()
         assert "permissions" not in SIEMAgentCreationSource.observable_fields()
@@ -443,12 +443,12 @@ class TestObservationCapabilities:
         )
         assert observations.permissions[-1] == "<all_urls>"
 
-    def test_extra_is_deliberately_not_carried(self):
-        """It means a different thing per kind, and a field must mean one thing here.
+    def test_the_collectors_extra_column_is_not_carried(self):
+        """It means a different thing per kind, and a field here means one thing.
 
-        browser_type, image size, deb arch, systemd unit state, VSCode edition,
-        listening address. The listening address is the one worth promoting to its own
-        field eventually -- 0.0.0.0 is a materially different finding from 127.0.0.1.
+        Browser type, image size, deb arch, unit state, listening address. The
+        listening address is the one worth its own field eventually -- 0.0.0.0 is a
+        materially different finding from 127.0.0.1.
         """
         for absent in ("extra", "browser_type", "listen_address"):
             assert absent not in AgentObservations.model_fields
@@ -459,16 +459,25 @@ class TestObservationCapabilities:
         assert {"install_path", "version"} <= observable  # collector: loc, ver
         assert {"host_name", "os_version", "assigned_user"} <= observable  # MDM record
 
-    def test_the_collector_does_not_report_a_command_line(self):
-        """Its output contract is six columns and cmdline is not one of them.
+    def test_no_observation_field_is_unreachable(self):
+        """Every field must be fillable by at least one source.
 
-        Obtainable from osquery's `processes` in principle, but nothing selects it, and
-        adding a column there breaks every query branch by design. Absent rather than
-        nullable so the gap reads as "not collected" rather than "collected as empty".
+        A field no source declares would be permanently null, which reads as "not
+        collected yet" rather than "this sensor cannot see it" -- the ambiguity the
+        declaration exists to remove. Asserted as a set equality rather than against a
+        list of known-bad names, so it catches the next one too.
         """
-        for absent in ("command_line", "parent_process"):
-            assert absent not in AgentObservations.model_fields
-            assert absent not in EndpointAgentCreationSource.observable_fields()
+        declared: set[str] = set()
+        for category in (
+            GCPAgentCreationSource,
+            OTELAgentCreationSource,
+            ManualAgentCreationSource,
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+            EndpointAgentCreationSource,
+        ):
+            declared |= category.observable_fields()
+        assert declared == set(AgentObservations.model_fields)
 
     def test_siem_sees_almost_nothing_about_the_host(self):
         """A SIEM watches traffic and logs, not the machine behind them."""
