@@ -1,19 +1,21 @@
-"""Schemas for agent task governance: tools, creation sources, and enriched task responses.
+"""Schemas for agent task governance: what a task is and how it was found.
 
-These schemas are shared across services for the /api/v2/agent-tasks endpoint.
+Tools and sub-agents, the creation-source union (how an agent came to be known --
+self-instrumented, hand-created, or discovered by one of three sensor categories),
+provenance (where it was found and what it runs on), and the enriched task responses
+built from them.
+
+Everything the *task* carries lives here. What the Platform computes on top -- the
+per-sensor evidence record and the connector output contract -- is in
+agent_discovery_schemas, which imports from this module and is never imported by it.
+
+Shared across app_plane, ML Engine and GenAI Engine, and backing the
+/api/v2/agent-tasks endpoint.
 """
 
 from datetime import datetime
 from enum import Enum
-from typing import (
-    Annotated,
-    ClassVar,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-)
+from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, computed_field
@@ -773,9 +775,16 @@ class TaskMetadata(BaseModel):
     """
     Metadata for a task. Stored as JSON in tasks.task_metadata column.
 
-    Post-migration format: {"creation_source": {"type": "GCP", ...}}
-    Infrastructure is derived from creation_source.type.
-    Service names are looked up from service_name_task_mappings at query time.
+    Format: {"creation_source": {"type": "SIEM", ...}}
+
+    Where an agent runs is answered by Provenance's ``runs_on``, NOT derived from
+    ``creation_source.type``. The two are different questions and the old derivation
+    got the important case backwards: an endpoint finding reported by a cloud-hosted
+    engine runs on a laptop, not on that engine's cloud.
+
+    Service names are readable from ``creation_source.observations.service_names`` for
+    every variant. The legacy flat ``service_names`` field on the GCP and OTEL variants
+    is deprecated; it is still looked up from service_name_task_mappings at query time.
     """
 
     creation_source: Optional[AgentCreationSource] = Field(

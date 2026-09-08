@@ -14,7 +14,6 @@ from arthur_common.models.agent_governance_schemas import (
     EndpointSensor,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
-    EvidenceLevel,
     GCPAgentCreationSource,
     LLMModel,
     ManualAgentCreationSource,
@@ -242,7 +241,10 @@ class TestTaskMetadata:
         metadata = TaskMetadata(creation_source=ManualAgentCreationSource())
         dumped = metadata.model_dump(exclude_none=True)
         assert dumped == {
-            "creation_source": {"type": "MANUAL", "observations": {"service_names": []}}
+            "creation_source": {
+                "type": "MANUAL",
+                "observations": {"service_names": []},
+            },
         }
 
 
@@ -425,11 +427,12 @@ class TestObservationCapabilities:
                 {
                     frozenset(
                         EndpointAgentCreationSource(
-                            sensor=sensor, address=ENDPOINT_ADDRESS
-                        ).observable_fields()
+                            sensor=sensor,
+                            address=ENDPOINT_ADDRESS,
+                        ).observable_fields(),
                     )
                     for sensor in EndpointSensor
-                }
+                },
             )
             == 1
         )
@@ -580,8 +583,8 @@ class TestDiscoveryCreationSources:
                     "type": "ENDPOINT",
                     "sensor": "jamf_pro",
                     "address": {"instance": "serial:X", "resource_id": "openclaw"},
-                }
-            }
+                },
+            },
         )
         assert isinstance(meta.creation_source.root, EndpointAgentCreationSource)
         assert meta.creation_source.root.address.resource_id == "openclaw"

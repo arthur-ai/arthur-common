@@ -1,3 +1,4 @@
+import ast
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -5,14 +6,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from arthur_common.models import (
-    agent_discovery_schemas,
-    agent_governance_schemas,
-)
-from arthur_common.models.agent_discovery_schemas import (
-    DiscoveryOutputRecord,
-    Evidence,
-)
+from arthur_common.models import agent_discovery_schemas, agent_governance_schemas
+from arthur_common.models.agent_discovery_schemas import DiscoveryOutputRecord, Evidence
 from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     AgentObservations,
@@ -481,8 +476,21 @@ class TestModuleBoundary:
     """
 
     def test_governance_does_not_import_discovery(self):
-        source = Path(agent_governance_schemas.__file__).read_text()
-        assert "agent_discovery_schemas" not in source
+        """Checked against the import statements, not the file text.
+
+        A substring search would also trip on a docstring that merely names this
+        module, and would miss nothing a real import check catches. Walking the AST
+        also picks up a function-local import, which the repo forbids anyway but which
+        a text search cannot tell apart from a mention.
+        """
+        tree = ast.parse(Path(agent_governance_schemas.__file__).read_text())
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+        assert not any("agent_discovery_schemas" in name for name in imported)
 
     def test_task_facing_types_are_reachable_from_governance(self):
         """What D-09 needs in scope to put provenance on the task response."""
