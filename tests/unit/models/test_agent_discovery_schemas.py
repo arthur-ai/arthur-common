@@ -301,10 +301,19 @@ class TestEvidenceCeiling:
         it on the class makes the union and the classification the same thing; this
         asserts no member forgot.
         """
-        root = AgentCreationSource.model_validate(payload).root
+        source = AgentCreationSource.model_validate(payload)
+        root = source.root
         assert isinstance(root.FOUND_BY, FoundBy)
-        ceiling = root.EVIDENCE_CEILING
+
+        # Read through the documented accessors, not the raw ClassVars, and assert the
+        # two access paths agree. There is a class-level view (for reflecting over the
+        # categories) and a source-level one (for callers holding an
+        # AgentCreationSource); if they could disagree, the level a consumer renders
+        # would depend on which one it happened to reach for.
+        ceiling = root.evidence_ceiling()
         assert ceiling is None or isinstance(ceiling, EvidenceLevel)
+        assert evidence_ceiling(source) is ceiling
+
         assert root.observable_fields() <= set(AgentObservations.model_fields)
 
 
