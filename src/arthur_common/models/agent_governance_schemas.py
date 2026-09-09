@@ -1,12 +1,24 @@
-"""Schemas for agent task governance: tools, creation sources, and enriched task responses.
+"""Schemas for agent task governance: what a task is and how it was found.
 
-These schemas are shared across services for the /api/v2/agent-tasks endpoint.
+Tools and sub-agents, the creation-source union (how an agent came to be known --
+self-instrumented, hand-created, or discovered by one of three sensor categories),
+provenance (where it was found and what it runs on), and the enriched task responses
+built from them.
+
+Everything the *task* carries lives here. What the Platform computes on top -- the
+per-sensor evidence record and the connector output contract -- is in
+agent_discovery_schemas, which imports from this module and is never imported by it.
+
+Shared across app_plane, ML Engine and GenAI Engine, and backing the
+/api/v2/agent-tasks endpoint.
 """
 
 from datetime import datetime
-from typing import List, Literal, Optional, TypedDict, Union
+from enum import Enum
+from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, computed_field
 
 from arthur_common.models.response_schemas import RuleResponse
 
@@ -53,11 +65,327 @@ class DataSource(BaseModel):
     url: str = Field(description="URL of the data source.")
 
 
-# Creation Source discriminated union
+# --- vocabulary ------------------------------------------------------------------
 
 
-class GCPAgentCreationSource(BaseModel):
-    """Creation source for GCP-discovered agents."""
+class RunsOn(str, Enum):
+    """Infrastructure a discovered agent runs on.
+
+    Lives on Provenance rather than being derived from the source type: a Jamf finding
+    runs on a laptop, not on the cloud hosting the engine that reported it.
+    """
+
+    AWS = "aws"
+    AZURE = "azure"
+    GCP = "gcp"
+    DOCKER = "docker"
+    KUBERNETES = "kubernetes"
+    ENDPOINT = "endpoint"
+    """A managed endpoint -- a laptop or desktop, not a hosted environment."""
+
+    UNKNOWN = "unknown"
+    """The sensor cannot tell, which for most SIEM findings is the permanent answer.
+
+    An explicit member rather than a null, so consumers have something total to switch
+    on instead of failing on an unmapped value.
+    """
+
+
+class SourceClass(str, Enum):
+    """Where a source observes from. One name for this concept everywhere.
+
+    The design docs' "source class"; earlier API drafts called it ``vantage_point``.
+    Used on a configured discovery source and on a task's provenance alike, so the two
+    are the same vocabulary rather than two that have to be reconciled.
+
+    Consumers branch on this -- capability and evidence ceilings are declared per class
+    -- which is why it is a closed enum while the vendor is not.
+    """
+
+    CLOUD = "cloud"
+    SIEM = "siem"
+    ENDPOINT = "endpoint"
+    OTEL = "otel"
+    """Not a discovery source: the agent instrumented itself."""
+
+    MANUAL = "manual"
+    """Not a discovery source: someone created the task by hand."""
+
+    @classmethod
+    def for_creation_source(cls, source: "AgentCreationSource") -> "SourceClass":
+        """Read the source class off the finding itself."""
+        return source.root.SOURCE_CLASS
+
+
+DISCOVERY_SOURCE_CLASSES: frozenset[SourceClass] = frozenset(
+    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT},
+)
+"""The classes a configured discovery source can have.
+
+OTEL and MANUAL are members of SourceClass because a task's provenance has to name
+them, but neither is something anyone configures. Exported as a subset rather than a
+second enum, so there is one vocabulary and app_plane validates against it instead of
+redeclaring three of its five members.
+"""
+
+
+class Detection(str, Enum):
+    """How a source came to know the agent is there.
+
+    NOT RANKABLE AGAINST VISIBILITY, which is why they are two fields. An earlier
+    single band ordered "traced, inferred, thin" strongest to weakest, which put an
+    osquery-confirmed binary on disk *below* a name lifted from a log field --
+    inverted, because it was sorting two different questions on one scale.
+    """
+
+    OBSERVED = "observed"
+    """Seen directly: a process on a box, a row from a provider's list API, a span.
+
+    Displayed as "Detected". The value says *directly*, since an inference is also a
+    detection.
+    """
+
+    INFERRED = "inferred"
+    """Deduced from indirect evidence -- a name lifted from a proxy log, say."""
+
+    # UNKNOWN, for activity that cannot be tied to any agent, is deferred: those are
+    # the ownerless findings the epic puts out of scope for v1.
+
+
+class Visibility(str, Enum):
+    """How much of the agent the source can actually see.
+
+    Independent of Detection: a certain detection can carry almost no depth, which is
+    the normal case for an endpoint sweep, and is exactly the pairing the old single
+    band could not express.
+
+    Staleness is NOT a member; it is a separate ``is_stale`` flag on the evidence
+    record, so full visibility does not become limited when a credential expires.
+    """
+
+    FULL = "full"
+    """Instrumented: spans, tools, sub-agents and models are all available."""
+
+    LIMITED = "limited"
+    """Identity and a little metadata, with no behavioural picture."""
+
+
+# --- the two halves every finding carries ----------------------------------------
+
+
+class SourceAddress(BaseModel):
+    """How to find a discovered agent again in the system that reported it.
+
+    One shape for every sensor, widest to narrowest:
+
+    ==============  ================  ==================  ==========  ============
+    sensor          instance          scope               kind        resource_id
+    ==============  ================  ==================  ==========  ============
+    Bedrock         AWS account       region              --          agent id
+    Vertex          GCP project       region              --          engine id
+    Splunk          instance          index+sourcetype    --          record id
+    Sentinel        LA workspace      table               --          record id
+    Elastic         deployment        data stream         --          record id
+    Jamf / osquery  device key        --                  npm, app…   software key
+    ==============  ================  ==================  ==========  ============
+
+    Only endpoints fill ``resource_kind``: they are the one sensor whose ids come from
+    several namespaces at once. Every cloud and SIEM vendor addresses exactly one kind
+    of resource, so the kind is implied by the vendor and stays absent.
+
+    Reused by Provenance rather than re-declared there, so a finding and the task it
+    resolves to address the upstream system identically. A vendor needing to address a
+    sub-resource -- a Bedrock alias, a Vertex version -- is one more optional field
+    here, not a new shape.
+    """
+
+    instance: str = Field(
+        description="Instance that was scanned: an account, project, SIEM workspace or "
+        "device. Part of the address, so two instances of one vendor stay distinct.",
+    )
+    scope: Optional[str] = Field(
+        default=None,
+        description="Subdivision queried, where the source has one: a cloud region, a "
+        "Splunk index, a Sentinel table, an Elastic data stream.",
+    )
+    resource_kind: Optional[str] = Field(
+        default=None,
+        description="Namespace `resource_id` lives in: a bundle id, npm package, "
+        "launchd label, listening port, browser extension id. Identity rather than "
+        "observation, and needed because '8788' and 'openclaw' are otherwise "
+        "indistinguishable strings from colliding namespaces. Absent for sources with "
+        "one kind of resource, which is every cloud and SIEM vendor -- there the vendor "
+        "implies the kind, so carrying it would duplicate `vendor`. Free text: the "
+        "vocabulary belongs to the collector's route registry, not to this schema.",
+    )
+    resource_id: str = Field(
+        description="The resource within that instance, in the namespace `resource_kind` "
+        "names. For endpoints this is the software, with the device in `instance` -- "
+        "the grain is per (software, device).",
+    )
+    query: Optional[str] = Field(
+        default=None,
+        description="Query text that produced this record, so a finding can be "
+        "explained and reproduced. Absent for sources that are enumerated rather than "
+        "searched. Never parsed here -- only the output columns are contracted.",
+    )
+
+
+class AgentObservations(BaseModel):
+    """What a sensor could see about an agent. Shared across categories, all optional.
+
+    An absent field means the sensor cannot see it, not that collection failed. That
+    promise is kept by each source declaring ``observable_fields()``, which is also
+    what lets visibility be computed without a per-vendor branch in consumers.
+    """
+
+    # --- the software on disk -----------------------------------------------------
+    install_path: Optional[str] = Field(
+        default=None,
+        description="Install location, shaped to '~/...' rather than "
+        "'/Users/<name>/...' so a username does not travel in a path.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description="Version read statically, never by executing the discovered binary.",
+    )
+
+    # --- the host it was seen on --------------------------------------------------
+    host_name: Optional[str] = Field(
+        default=None,
+        description="Host the agent was observed on, e.g. 'MBP-4471'.",
+    )
+    host_group: Optional[str] = Field(
+        default=None,
+        description="Grouping the host belongs to: a Jamf site or smart group, a cloud "
+        "resource group.",
+    )
+    os_version: Optional[str] = Field(
+        default=None,
+        description="Guest OS version, e.g. 'macOS 15.3 (24D60)'.",
+    )
+
+    # --- attribution --------------------------------------------------------------
+    assigned_user: Optional[str] = Field(
+        default=None,
+        description="User the source attributes the host to. PERSONAL DATA: this is "
+        "the field that makes a finding attributable to an individual, and is subject "
+        "to works-council and DPIA review before EU deployment. Omit it where that "
+        "review has not happened.",
+    )
+
+    # --- what it is allowed to do -------------------------------------------------
+    permissions: List[str] = Field(
+        default_factory=list,
+        description="Capabilities the agent declared for itself, e.g. a browser "
+        "extension's manifest permissions ('tabs', 'nativeMessaging', '<all_urls>'). "
+        "A cloud agent's action groups or service-account scopes answer the same "
+        "question, which is why this is shared rather than endpoint-only.",
+    )
+
+    # --- telemetry linkage --------------------------------------------------------
+    service_names: List[str] = Field(
+        default_factory=list,
+        description="Service names this agent emits telemetry under. What links a "
+        "discovered agent to traces already arriving.",
+    )
+
+    # --- presentation -------------------------------------------------------------
+    classification: Optional[str] = Field(
+        default=None,
+        description="Short catalog label shown beside the name, e.g. 'Personal agent'. "
+        "Free text so the catalog can add one without a schema release. Absent for "
+        "uncatalogued software, which must still render.",
+    )
+
+
+class AgentCreationSourceBase(BaseModel):
+    """Base for every creation source, discovery or not.
+
+    Each source classifies itself through the three ClassVars below rather than being
+    looked up in a tag-keyed table, so adding a category is writing one class. A side
+    table can hold a tag the union does not, or miss one it does, and fail silently.
+
+    Every subclass exposes ``vendor``, ``address`` and ``observations``, so reading a
+    creation source never needs a type check: real fields on the discovery categories,
+    computed on the pre-category ones.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass]
+    """Where this source observes from. See SourceClass."""
+
+    DETECTION: ClassVar[Optional[Detection]] = None
+    """How this class of source knows an agent is there. Fixed, not a ceiling.
+
+    A list API and an osquery sweep both observe directly; a SIEM infers from a log
+    field. None for manual tasks, which are not findings.
+    """
+
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = None
+    """The most this class of source could ever see, or None if ungraded.
+
+    A ceiling, not the answer: reaching FULL needs spans, which the Platform holds and
+    this package does not.
+    """
+
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset()
+    """Names in AgentObservations this source can populate.
+
+    A ceiling for the category, not a per-vendor guarantee: an endpoint deployment with
+    no MDM behind it gets the collector's output but no device record. Narrow
+    per-vendor at the instance level if that starts mattering.
+    """
+
+    @classmethod
+    def observable_fields(cls) -> frozenset[str]:
+        """Observation fields this source can fill. Declared, not inferred."""
+        return cls.OBSERVABLE_FIELDS
+
+    @classmethod
+    def detection(cls) -> Optional[Detection]:
+        """See DETECTION."""
+        return cls.DETECTION
+
+    @classmethod
+    def visibility_ceiling(cls) -> Optional[Visibility]:
+        """See VISIBILITY_CEILING."""
+        return cls.VISIBILITY_CEILING
+
+
+# --- pre-category sources ---------------------------------------------------------
+#
+# OTEL and MANUAL are permanent: a self-instrumented agent and a hand-created task are
+# not discovery findings. GCP is deprecated -- see its docstring.
+#
+# All three expose `address` and `observations` as computed fields, not plain
+# properties, so they reach the OpenAPI serialization schema and therefore the
+# generated clients. Additive to the wire; the flat fields below are untouched.
+
+
+class GCPAgentCreationSource(AgentCreationSourceBase):
+    """DEPRECATED. Use ``CloudAgentCreationSource`` with ``cloud=gcp_vertex``.
+
+    Deprecated and to be removed. A Vertex finding is a cloud finding, and nothing
+    about GCP warrants its own union member now that Cloud exists.
+
+    It cannot go yet because ``tasks_repository.find_by_gcp_engine_id`` reads
+    ``task_metadata->'creation_source'->>'gcp_reasoning_engine_id'`` directly, and that
+    is step 4 of the task-resolution ladder. Removal, in four safe steps rather than
+    one risky one -- which is what serializing ``address`` below buys:
+
+    1. Backfill ``address``; rows rewritten through this model gain it for free.
+    2. Repoint that query at ``address->>'resource_id'``.
+    3. Move the three prod call sites to ``CloudAgentCreationSource``
+       with ``vendor="gcp_vertex"``.
+    4. Delete this class and its ``service_names`` field.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"deprecated": True})
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
     type: Literal["GCP"] = "GCP"
     gcp_project_id: str = Field(description="GCP project ID")
@@ -67,154 +395,369 @@ class GCPAgentCreationSource(BaseModel):
     )
     service_names: List[str] = Field(
         default_factory=list,
-        description="Service names associated with this agent",
+        description="Service names associated with this agent. Deprecated and will be "
+        "removed; use observations.service_names, which is the one read path for every "
+        "variant. Populated at query time from service_name_task_mappings.",
+        json_schema_extra={"deprecated": True},
     )
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """The vendor this shape has always meant, named the way the rest name it."""
+        return "gcp_vertex"
 
-class OTELAgentCreationSource(BaseModel):
-    """Creation source for OTEL-discovered agents (auto-created from traces)."""
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def address(self) -> Optional[SourceAddress]:
+        """The flat GCP fields in the shape every other source uses."""
+        return SourceAddress(
+            instance=self.gcp_project_id,
+            resource_id=self.gcp_reasoning_engine_id,
+            scope=self.gcp_region,
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def observations(self) -> AgentObservations:
+        return AgentObservations(service_names=self.service_names)
+
+
+class OTELAgentCreationSource(AgentCreationSourceBase):
+    """An agent that instrumented itself; its traces arrived.
+
+    Not a discovery source and not deprecated. There is no upstream system to address.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.OTEL
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.FULL
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
     type: Literal["OTEL"] = "OTEL"
     service_names: List[str] = Field(
         default_factory=list,
-        description="Service names associated with this agent",
+        description="Service names associated with this agent. Deprecated and will be "
+        "removed; use observations.service_names. The class is not deprecated, only "
+        "this flattened accessor.",
+        json_schema_extra={"deprecated": True},
     )
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """None: nothing upstream reported this agent."""
+        return None
 
-class ManualAgentCreationSource(BaseModel):
-    """Creation source for manually created tasks."""
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def address(self) -> Optional[SourceAddress]:
+        """None: a self-instrumented agent was not found in an upstream system."""
+        return None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def observations(self) -> AgentObservations:
+        return AgentObservations(service_names=self.service_names)
+
+
+class ManualAgentCreationSource(AgentCreationSourceBase):
+    """A hand-created task. Nothing to address, nothing observed, no evidence to grade."""
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.MANUAL
 
     type: Literal["MANUAL"] = "MANUAL"
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """None: nobody reported this agent, someone typed it in."""
+        return None
 
-class EndpointAgentCreationSource(BaseModel):
-    """One agent discovered on one managed endpoint.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def address(self) -> Optional[SourceAddress]:
+        return None
 
-    GRAIN IS PER (SOFTWARE, DEVICE), not per software. The Discovery list shows a row
-    per machine -- "OpenClaw / MBP-4471 / openclaw --serve" -- so the device is part of
-    the finding's identity rather than a count attached to it. An earlier draft carried
-    ``device_count`` instead and was the wrong shape: it could not name the machine, the
-    user, or what the process was actually doing.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def observations(self) -> AgentObservations:
+        return AgentObservations()
 
-    Every field here is obtainable from a ONE-SHOT osquery invocation plus MDM inventory.
-    Deliberately absent, because they are not:
 
-    * **Destination hostname.** ``process_open_sockets`` returns ``remote_address`` as an
-      IP. Recovering ``api.anthropic.com`` needs reverse DNS, which is unreliable against
-      CDN and anycast ranges, or SNI capture.
-    * **Connection counts over a window.** Only ``socket_events`` yields those, and it is
-      event-based: a one-shot run reports "events are disabled". It requires osqueryd
-      running persistently with the audit subsystem -- which is the decision that would
-      put code signing, notarization and PPPC back on the critical path.
+# --- discovery sources ------------------------------------------------------------
+#
+# Organised by CATEGORY, not by vendor: a new vendor is an enum member, and only a new
+# category costs a class. The three are the epic's own -- Cloud, SIEM and Endpoint --
+# with Network & Gateway the known fourth.
 
-    Neither is modelled as a nullable field, on purpose. A column that is always null
-    reads as "not collected yet" rather than "this sensor cannot see it."
+
+class DiscoveryAgentCreationSource(AgentCreationSourceBase):
+    """Base for the discovery categories. Not a union member itself."""
+
+    vendor: str = Field(
+        description="Upstream product this came from, e.g. 'splunk_enterprise', "
+        "'jamf_pro', 'aws_bedrock'. FREE TEXT, and deliberately not enumerated here: "
+        "nothing in this package branches on the vendor -- capability and evidence "
+        "ceilings are declared per source class -- so enumerating it would make every "
+        "new vendor a release of this package plus a repin in three services. The "
+        "registry is app_plane's discovery source type catalog, which is also where "
+        "the display name lives. Values are `<platform>_<product>`, always, so a "
+        "vendor shipping a second product that could be a source does not force a "
+        "rename of the first.",
+    )
+    address: SourceAddress = Field(
+        description="Where to find this agent again upstream. Required: a discovered "
+        "agent that cannot be located again is not actionable.",
+    )
+    observations: AgentObservations = Field(
+        default_factory=AgentObservations,
+        description="What the sensor could see. Only fields in `observable_fields()` "
+        "are ever populated by this category.",
+    )
+
+
+class CloudAgentCreationSource(DiscoveryAgentCreationSource):
+    """An agent read out of a cloud provider's agent runtime.
+
+    Enumerated rather than searched, so ``address.query`` is absent. Account and region
+    are part of the address because scanning is multi-account and multi-region.
     """
 
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        # `permissions` is where this category extends next -- action groups, service
+        # account scopes -- once a connector is verified to fetch them.
+        {"version", "service_names", "host_group"},
+    )
+
+    type: Literal["CLOUD"] = "CLOUD"
+
+
+class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
+    """An agent surfaced by a query against the customer's security stack.
+
+    One variant for all three SIEMs, discriminated by ``siem``: the payload is
+    identical in every case and only the query language differs, which belongs to the
+    connector that runs the query.
+
+    A SIEM sees log and network activity, not the machine behind it, so it observes
+    very little and ``runs_on`` is usually unknown.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.SIEM
+    DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"host_name", "service_names"},
+    )
+
+    type: Literal["SIEM"] = "SIEM"
+
+
+class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
+    """One agent observed on one managed endpoint.
+
+    Grain is per (software, device): ``address.instance`` is the device and
+    ``address.resource_id`` the software, because the Discovery list shows a row per
+    machine.
+
+    What it fills comes from three places: the collector's on-disk output, the MDM's
+    device record, and the collector's catalog.
+
+    Where the collector's six output columns land, so none is unaccounted for:
+
+    ========  =============================================
+    column    carried as
+    ========  =============================================
+    kind      ``address.resource_kind``
+    id        ``address.resource_id``
+    ver       ``observations.version``
+    loc       ``observations.install_path``
+    perms     ``observations.permissions``
+    extra     nothing -- see below
+    ========  =============================================
+
+    ``extra`` means a different thing per kind (browser type, image size, deb arch,
+    unit state, listening address) and a field here means one thing for every sensor.
+    The listening address is the one value in it worth its own field eventually.
+
+    ``scan`` rows must never arrive: that kind marks a branch that could not look, not
+    an agent that was found.
+
+    A one-shot sweep sees the machine, not behaviour over time. Anything needing
+    persistent event capture -- outbound destinations, connection counts -- is out of
+    reach until osqueryd runs with the audit subsystem, which would put code signing,
+    notarization and PPPC on the critical path.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.ENDPOINT
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            # collector, on disk
+            "install_path",
+            "version",
+            # MDM device record
+            "host_name",
+            "host_group",
+            "os_version",
+            "assigned_user",
+            # declared by the artifact itself, browser extensions today
+            "permissions",
+            # collector's catalog
+            "classification",
+        },
+    )
+
     type: Literal["ENDPOINT"] = "ENDPOINT"
-    mdm: Literal["jamf_pro"] = Field(
-        default="jamf_pro",
-        description="The device management system that reported this agent.",
-    )
-
-    # --- identity of the finding -------------------------------------------------
-    software_key: str = Field(
-        description="Stable, version-free identifier for the discovered software. "
-        "Frozen wire contract: with device_key it forms the finding's identity, and "
-        "changing either derivation orphans every existing agent AND duplicates it, "
-        "because the Agents API has no delete.",
-    )
-    device_key: str = Field(
-        description="Stable device identity, e.g. 'serial:C02XL4KHQ6NV'. Part of the "
-        "frozen wire contract alongside software_key.",
-    )
-
-    # --- device facts, from MDM inventory ----------------------------------------
-    device_name: Optional[str] = Field(
-        default=None, description="MDM device name, e.g. 'MBP-4471'."
-    )
-    device_group: Optional[str] = Field(
-        default=None,
-        description="MDM grouping the device belongs to, e.g. a Jamf site or smart group.",
-    )
-    assigned_user: Optional[str] = Field(
-        default=None,
-        description="User the MDM assigns the device to. PERSONAL DATA -- this is the "
-        "field that makes an endpoint finding attributable to an individual, and it is "
-        "subject to the works-council and DPIA review the design calls for before EU "
-        "deployment. Omit it where that review has not happened.",
-    )
-    os_version: Optional[str] = Field(
-        default=None, description="Guest OS version, e.g. 'macOS 15.3 (24D60)'."
-    )
-
-    # --- what the sensor actually observed ---------------------------------------
-    process_cmdline: Optional[str] = Field(
-        default=None,
-        description="Full command line of the running process, e.g. "
-        "'openclaw --serve --port 8788'. Absent when the agent is installed but not "
-        "running, which is a meaningful difference and not a collection failure.",
-    )
-    parent_process: Optional[str] = Field(
-        default=None,
-        description="Parent of the observed process, e.g. '/bin/zsh'. Distinguishes an "
-        "agent a human launched from a terminal from one a LaunchAgent starts unattended.",
-    )
-    install_path: Optional[str] = Field(
-        default=None,
-        description="Where the software is installed, PATH-SHAPED to '~/...' rather than "
-        "'/Users/<name>/...'. The collector shapes it; usernames must not travel here in "
-        "a path when assigned_user already carries identity explicitly.",
-    )
-    version: Optional[str] = Field(
-        default=None,
-        description="Version read statically from the install path. Never obtained by "
-        "executing the discovered binary.",
-    )
-    first_seen: Optional[datetime] = Field(
-        default=None,
-        description="When the collector first observed this software on this device. "
-        "Reconstructed by diffing inventory snapshots, since MDM relay is snapshot- "
-        "rather than event-shaped.",
-    )
-
-    # --- how the finding presents ------------------------------------------------
-    # This travels here rather than being derived UI-side because the Discovery page
-    # speaks only to the app-plane, and the label varies per finding. The evidence
-    # band deliberately does NOT: it is a constant for this sensor, so the UI holds
-    # it rather than every payload carrying the same word.
-    classification: Optional[str] = Field(
-        default=None,
-        description="Short catalog-assigned label shown beside the name, e.g. "
-        "'Personal agent' or 'Local model'. Free-form rather than an enum so the "
-        "catalog can add one without a schema release and a client regeneration -- the "
-        "same reason the catalog itself lives in the collector. Keep the vocabulary "
-        "small; it is a glanceable pill, not a taxonomy. Absent for uncatalogued "
-        "software, which is a finding in its own right and must still render.",
-    )
 
 
-# Union type for creation source (discriminated by 'type' field)
-class AgentCreationSource(
-    RootModel[
-        Union[
-            GCPAgentCreationSource,
-            OTELAgentCreationSource,
-            ManualAgentCreationSource,
-            EndpointAgentCreationSource,
-        ]
-    ]
-):
+# Union type for creation source. The north star is five members -- CLOUD, SIEM,
+# ENDPOINT, OTEL, MANUAL -- plus deprecated GCP.
+#
+# The discriminator is EXPLICIT. Without it, a payload with an unknown tag, or one
+# whose fields happen to fit a neighbour, validates as the wrong member and silently
+# drops everything it carried. It also makes the OpenAPI output a discriminated
+# `oneOf`, so generated clients dispatch on the tag rather than trying each member.
+AgentCreationSourceUnion = Annotated[
+    Union[
+        GCPAgentCreationSource,
+        OTELAgentCreationSource,
+        ManualAgentCreationSource,
+        CloudAgentCreationSource,
+        SIEMAgentCreationSource,
+        EndpointAgentCreationSource,
+    ],
+    Field(discriminator="type"),
+]
+
+
+class AgentCreationSource(RootModel[AgentCreationSourceUnion]):
     pass
 
 
-class TaskMetadata(BaseModel):
-    """
-    Metadata for a task. Stored as JSON in tasks.task_metadata column.
+DEPRECATED_CREATION_SOURCE_TAGS: frozenset[str] = frozenset({"GCP"})
+"""Union tags kept only for backward compatibility, to be removed.
 
-    Post-migration format: {"creation_source": {"type": "GCP", ...}}
-    Infrastructure is derived from creation_source.type.
-    Service names are looked up from service_name_task_mappings at query time.
+Declared so deprecations cannot accumulate unnoticed: every entry needs a named
+successor and a reason it cannot go yet. Consumers that want to warn on legacy input
+can check membership rather than hard-coding a tag.
+
+  GCP -> CloudAgentCreationSource(vendor="gcp_vertex")
+"""
+
+
+def detection_for(source: AgentCreationSource) -> Optional[Detection]:
+    """How this source knows the agent is there.
+
+    Unwraps the RootModel so callers do not have to reach through it.
+    """
+    return source.root.DETECTION
+
+
+def visibility_ceiling(source: AgentCreationSource) -> Optional[Visibility]:
+    """The most this source's class could ever see."""
+    return source.root.VISIBILITY_CEILING
+
+
+# --- provenance -------------------------------------------------------------------
+
+
+class ProvenanceSource(BaseModel):
+    """One sensor's contribution to a task's provenance.
+
+    Provenance holds a list of these rather than scalars beside a list of sensor
+    classes: with scalars, an agent corroborated by two sensors has two entries in
+    found_by but one address, and nothing says which sensor it belongs to.
+    """
+
+    source_class: SourceClass = Field(
+        description="Where this contribution was observed from.",
+    )
+    source_id: Optional[UUID] = Field(
+        default=None,
+        description="The Discovery Source behind it. Absent for agents predating "
+        "discovery, and retained after a source is deleted.",
+    )
+    vendor: Optional[str] = Field(
+        default=None,
+        description="Upstream product behind this contribution, e.g. "
+        "'splunk_enterprise'. Same value and same registry as the finding's `vendor`. "
+        "Absent for OTEL and manual agents, which have no upstream product.",
+    )
+    address: Optional[SourceAddress] = Field(
+        default=None,
+        description="Where upstream this came from -- the same type the creation source "
+        "carries, so a finding and its task address the system identically. Absent for "
+        "OTEL and manual agents.",
+    )
+
+    @classmethod
+    def from_creation_source(
+        cls,
+        source: AgentCreationSource,
+        *,
+        source_id: Optional[UUID] = None,
+    ) -> "ProvenanceSource":
+        """Build an entry from the finding that produced it.
+
+        The single place a creation source becomes a provenance entry, so source_class,
+        vendor and address cannot be derived one way here and another in a consumer.
+        Only ``source_id`` has to be supplied: it identifies the configured source,
+        which the finding itself does not carry.
+        """
+        return cls(
+            source_class=source.root.SOURCE_CLASS,
+            source_id=source_id,
+            vendor=source.root.vendor,
+            address=source.root.address,
+        )
+
+
+class Provenance(BaseModel):
+    """Where an agent was found and what it runs on.
+
+    The single source of truth for both: there is no flat ``infrastructure`` enum
+    beside it and no standalone ``location`` object. Set on the task at resolution
+    time and served through the API intact.
+    """
+
+    sources: list[ProvenanceSource] = Field(
+        min_length=1,
+        description="Every sensor that has reported this agent, one entry each. Grows "
+        "as sensors corroborate.",
+    )
+    runs_on: RunsOn = Field(
+        default=RunsOn.UNKNOWN,
+        description="Infrastructure the agent runs on. Scalar, unlike sources: where "
+        "an agent runs is one fact even when several sensors report it, and the more "
+        "specific answer wins. Defaults to UNKNOWN, which for most SIEM findings is "
+        "the honest answer rather than a gap.",
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def source_classes(self) -> list[SourceClass]:
+        """Distinct source classes behind this agent, in first-seen order.
+
+        Derived so it cannot disagree with ``sources``, and serialized because it backs
+        the inventory's "Found by" column and filter.
+        """
+        return list(dict.fromkeys(entry.source_class for entry in self.sources))
+
+
+class TaskMetadata(BaseModel):
+    """Metadata for a task. Stored as JSON in tasks.task_metadata.
+
+    Format: {"creation_source": {"type": "SIEM", ...}}
+
+    Where an agent runs comes from Provenance's ``runs_on``, not from
+    ``creation_source.type``. Service names are readable from
+    ``creation_source.observations.service_names`` for every variant.
     """
 
     creation_source: Optional[AgentCreationSource] = Field(
