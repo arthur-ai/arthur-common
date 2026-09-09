@@ -1006,13 +1006,30 @@ class TestPlatformAndSubstrate:
         assert prov.runs_on is RunsOn.DOCKER
         assert prov.platform is Platform.DARWIN
 
-    def test_a_plain_laptop_has_no_substrate_and_that_is_correct(self):
-        """UNKNOWN is the right answer, not a gap: no cloud value is true of it."""
+    def test_a_plain_laptop_runs_on_the_host(self):
+        """Not UNKNOWN: an endpoint sweep establishes this rather than failing to.
+
+        A launchd daemon or installed package runs directly under the OS, and the
+        collector distinguishes that from a container image.
+        """
         prov = Provenance(
             sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
+            runs_on=RunsOn.HOST,
             platform=Platform.DARWIN,
         )
-        assert prov.runs_on is RunsOn.UNKNOWN
+        assert prov.runs_on is RunsOn.HOST
+
+    def test_unknown_means_ignorance_not_direct_execution(self):
+        """The conflation HOST removes.
+
+        A SIEM sees traffic, not the machine, so it genuinely cannot tell -- a
+        different fact from "we know it is not containerised", which is what a laptop
+        daemon is. One value for two facts is the defect; the default stays UNKNOWN
+        because ignorance is the safe assumption.
+        """
+        siem = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert siem.runs_on is RunsOn.UNKNOWN
+        assert RunsOn.HOST is not RunsOn.UNKNOWN
 
     def test_platform_is_absent_where_the_os_is_unknowable(self):
         """Most SIEM rows. A column always populated with a guess is worse than empty."""

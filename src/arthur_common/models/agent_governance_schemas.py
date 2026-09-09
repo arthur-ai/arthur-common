@@ -80,18 +80,31 @@ class RunsOn(str, Enum):
     GCP = "gcp"
     DOCKER = "docker"
     KUBERNETES = "kubernetes"
-    # There is deliberately no ENDPOINT member. A managed endpoint is not a
-    # deployment substrate: a laptop is `runs_on=UNKNOWN, platform=DARWIN`, and the
-    # same laptop running the agent in a container is `runs_on=DOCKER,
-    # platform=DARWIN`. One member for "endpoint" could only express the first, and
-    # having it alongside `platform` would give a laptop two spellings.
-    UNKNOWN = "unknown"
-    """The sensor cannot tell which substrate, which for a SIEM row is usually
-    permanent and for a managed laptop is simply correct -- no cloud value is true of
-    it.
+    HOST = "host"
+    """Directly under the OS, not containerised or orchestrated.
 
-    An explicit member rather than a null, so consumers have something total to switch
-    on instead of failing on an unmapped value.
+    POSITIVE KNOWLEDGE, not the absence of it. An endpoint sweep can tell: a launchd
+    daemon or an installed package runs on the host, while a container image does not.
+    Filing that as UNKNOWN would discard something the sensor actually established.
+    """
+
+    # There is deliberately no ENDPOINT member. A managed endpoint is not a substrate:
+    # a laptop running the agent directly is `runs_on=HOST, platform=DARWIN`, and the
+    # same laptop running it in a container is `runs_on=DOCKER, platform=DARWIN`.
+    UNKNOWN = "unknown"
+    """The sensor cannot tell. Ignorance only -- see HOST for the known-direct case.
+
+    Usually permanent for a SIEM row, which sees traffic rather than the machine
+    behind it. An explicit member rather than a null, so consumers have something
+    total to switch on instead of failing on an unmapped value.
+
+    KNOWN LIMITATION: this enum mixes two axes -- where the machine is hosted
+    (aws/azure/gcp) and how the agent is packaged on it (host/docker/kubernetes). An
+    agent on an EC2 VM is both `aws` and not-containerised, and only one of those fits.
+    The vocabulary is inherited from app_plane's data-plane `Infrastructure` enum,
+    where a single choice was meaningful because an engine is deployed one way. If the
+    packaging axis starts mattering independently, it wants its own field rather than
+    more members here.
     """
 
 
