@@ -69,52 +69,52 @@ class DataSource(BaseModel):
 
 
 class RunsOn(str, Enum):
-    """Infrastructure a discovered agent runs on.
+    """Where the machine hosting a discovered agent is. ONE AXIS: location.
 
     Lives on Provenance rather than being derived from the source type: a Jamf finding
     runs on a laptop, not on the cloud hosting the engine that reported it.
+
+    Deliberately NOT a place for `docker` or `kubernetes`. Those answer a different
+    question -- how the agent is packaged on the machine -- and mixing the two makes
+    the common case lossy: an agent in an EKS pod is both `aws` and orchestrated, and
+    one field can only say one. They are also values nothing can currently fill. In the
+    endpoint collector Docker is a detection ROUTE (`docker_images`, surfaced as
+    ``resource_kind=image``), and in app_plane `Infrastructure.Docker` describes how
+    the ENGINE was deployed. Neither is a statement about where a discovered agent
+    runs. If the packaging axis starts mattering, it wants its own field.
+
+    ``on_prem`` is the natural next member on this axis and is left out only because
+    nothing in v1 can fill it: on-prem findings arrive through a SIEM, which cannot see
+    the machine, so UNKNOWN is already the honest answer there.
     """
 
     AWS = "aws"
     AZURE = "azure"
     GCP = "gcp"
-    DOCKER = "docker"
-    KUBERNETES = "kubernetes"
-    HOST = "host"
-    """Directly under the OS, not containerised or orchestrated.
+    ENDPOINT = "endpoint"
+    """A managed endpoint -- a laptop or desktop rather than a hosted environment.
 
-    POSITIVE KNOWLEDGE, not the absence of it. An endpoint sweep can tell: a launchd
-    daemon or an installed package runs on the host, while a container image does not.
-    Filing that as UNKNOWN would discard something the sensor actually established.
+    Coherent here in a way it was not beside `docker`: this axis is location, and an
+    endpoint is a location. Not implied by ``platform``, since a darwin machine can be
+    an EC2 Mac instance, nor by ``source_class``, since a SIEM row could name a laptop.
     """
 
-    # There is deliberately no ENDPOINT member. A managed endpoint is not a substrate:
-    # a laptop running the agent directly is `runs_on=HOST, platform=DARWIN`, and the
-    # same laptop running it in a container is `runs_on=DOCKER, platform=DARWIN`.
     UNKNOWN = "unknown"
-    """The sensor cannot tell. Ignorance only -- see HOST for the known-direct case.
+    """The sensor cannot tell where the machine is.
 
-    Usually permanent for a SIEM row, which sees traffic rather than the machine
-    behind it. An explicit member rather than a null, so consumers have something
-    total to switch on instead of failing on an unmapped value.
-
-    KNOWN LIMITATION: this enum mixes two axes -- where the machine is hosted
-    (aws/azure/gcp) and how the agent is packaged on it (host/docker/kubernetes). An
-    agent on an EC2 VM is both `aws` and not-containerised, and only one of those fits.
-    The vocabulary is inherited from app_plane's data-plane `Infrastructure` enum,
-    where a single choice was meaningful because an engine is deployed one way. If the
-    packaging axis starts mattering independently, it wants its own field rather than
-    more members here.
+    Usually permanent for a SIEM row, which sees traffic rather than the machine behind
+    it. An explicit member rather than a null, so consumers have something total to
+    switch on instead of failing on an unmapped value.
     """
 
 
 class Platform(str, Enum):
     """Which OS the agent runs on.
 
-    A COMPANION TO RunsOn, not a widening of it. ``runs_on`` answers "which deployment
-    substrate", this answers "which OS", and keeping them apart is what makes an agent
-    in a container on a managed laptop expressible: ``runs_on=DOCKER,
-    platform=DARWIN``. A single field forces a choice between two true answers.
+    A COMPANION TO RunsOn, not a widening of it. ``runs_on`` answers where the machine
+    is, this answers which OS it runs. Neither implies the other: a darwin machine can
+    be a managed laptop (``runs_on=ENDPOINT``) or an EC2 Mac instance
+    (``runs_on=AWS``), and a linux machine can be either a laptop or a cloud VM.
 
     Enumerated, unlike ``vendor``: this set is bounded and stable, and a typo like
     "macos" for "darwin" would silently break a filter. Vendors are open and growing,

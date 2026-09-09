@@ -115,15 +115,9 @@ class TestRunsOn:
         """
         assert RunsOn.UNKNOWN.value == "unknown"
 
-    def test_there_is_no_endpoint_substrate(self):
-        """A managed endpoint is not a deployment substrate.
-
-        A laptop is `runs_on=unknown, platform=darwin`; the same laptop running the
-        agent in a container is `runs_on=docker, platform=darwin`. A single ENDPOINT
-        member could express only the first, and keeping it beside `platform` would
-        give a laptop two spellings.
-        """
-        assert "ENDPOINT" not in RunsOn.__members__
+    def test_endpoint_is_a_location(self):
+        """The axis is where the machine is, and a laptop is a where."""
+        assert RunsOn.ENDPOINT.value == "endpoint"
 
 
 class TestProvenance:

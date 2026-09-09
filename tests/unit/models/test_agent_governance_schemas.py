@@ -989,62 +989,51 @@ class TestVendorRegistry:
         assert "vendor" not in EndpointAgentCreationSource.observable_fields()
 
 
-class TestPlatformAndSubstrate:
-    """`runs_on` and `platform` are companions, not one widened field (UP-4974)."""
+class TestLocationAndPlatform:
+    """`runs_on` is one axis -- location -- with `platform` beside it (UP-4974)."""
 
-    def test_a_container_on_a_laptop_is_expressible(self):
-        """The case a single field cannot represent.
-
-        Both answers are true at once. A single substrate field with an "endpoint"
-        member could only express one of them.
-        """
+    def test_a_managed_laptop_is_a_location(self):
+        """`endpoint` is coherent on a location axis in a way it was not beside docker."""
         prov = Provenance(
             sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
-            runs_on=RunsOn.DOCKER,
+            runs_on=RunsOn.ENDPOINT,
             platform=Platform.DARWIN,
         )
-        assert prov.runs_on is RunsOn.DOCKER
+        assert prov.runs_on is RunsOn.ENDPOINT
         assert prov.platform is Platform.DARWIN
 
-    def test_a_plain_laptop_runs_on_the_host(self):
-        """Not UNKNOWN: an endpoint sweep establishes this rather than failing to.
-
-        A launchd daemon or installed package runs directly under the OS, and the
-        collector distinguishes that from a container image.
-        """
-        prov = Provenance(
+    def test_neither_field_implies_the_other(self):
+        """A darwin machine can be a laptop or an EC2 Mac instance."""
+        mac_laptop = Provenance(
             sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
-            runs_on=RunsOn.HOST,
+            runs_on=RunsOn.ENDPOINT,
             platform=Platform.DARWIN,
         )
-        assert prov.runs_on is RunsOn.HOST
+        mac_in_aws = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.CLOUD)],
+            runs_on=RunsOn.AWS,
+            platform=Platform.DARWIN,
+        )
+        assert mac_laptop.platform is mac_in_aws.platform
+        assert mac_laptop.runs_on is not mac_in_aws.runs_on
 
-    def test_unknown_means_ignorance_not_direct_execution(self):
-        """The conflation HOST removes.
+    def test_packaging_is_not_on_this_axis(self):
+        """No docker or kubernetes: they answer how, not where.
 
-        A SIEM sees traffic, not the machine, so it genuinely cannot tell -- a
-        different fact from "we know it is not containerised", which is what a laptop
-        daemon is. One value for two facts is the defect; the default stays UNKNOWN
-        because ignorance is the safe assumption.
+        Mixing them makes the common case lossy -- an EKS pod is both `aws` and
+        orchestrated, and one field can only say one. They are also unfillable: in the
+        collector Docker is a detection route surfaced as `resource_kind=image`, and
+        app_plane's `Infrastructure.Docker` describes the engine's deployment. Neither
+        says where a discovered agent runs.
         """
-        siem = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
-        assert siem.runs_on is RunsOn.UNKNOWN
-        assert RunsOn.HOST is not RunsOn.UNKNOWN
+        locations = {member.value for member in RunsOn}
+        assert locations == {"aws", "azure", "gcp", "endpoint", "unknown"}
 
-    def test_platform_is_absent_where_the_os_is_unknowable(self):
-        """Most SIEM rows. A column always populated with a guess is worse than empty."""
+    def test_unknown_is_the_honest_answer_for_a_siem_row(self):
+        """It sees traffic, not the machine behind it."""
         prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert prov.runs_on is RunsOn.UNKNOWN
         assert prov.platform is None
-
-    def test_a_laptop_has_exactly_one_spelling(self):
-        """No `endpoint` substrate member, so there is no second way to say it.
-
-        Two representations of one fact is the defect this whole split removes; a
-        deprecated member left in place would have reintroduced it, and would have
-        stayed selectable in every generated client.
-        """
-        substrates = Provenance.model_json_schema()["$defs"]["RunsOn"]["enum"]
-        assert "endpoint" not in substrates
 
     def test_platform_is_enumerated_but_vendor_is_not(self):
         """Bounded and stable versus open and growing.
