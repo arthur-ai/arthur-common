@@ -102,9 +102,14 @@ class RunsOn(str, Enum):
     UNKNOWN = "unknown"
     """The sensor cannot tell where the machine is.
 
-    Usually permanent for a SIEM row, which sees traffic rather than the machine behind
-    it. An explicit member rather than a null, so consumers have something total to
-    switch on instead of failing on an unmapped value.
+    The default, because absence of evidence is the safe assumption. NOT a property of
+    any source class: a SIEM query over proxy logs cannot say where the machine is, but
+    one over host-enriched data can -- ECS carries ``cloud.provider`` and Sentinel's
+    Heartbeat table carries ``ComputerEnvironment``. Which applies depends on what the
+    customer indexes and projects, so this is per finding rather than per vendor.
+
+    An explicit member rather than a null, so consumers have something total to switch
+    on instead of failing on an unmapped value.
     """
 
 
@@ -578,15 +583,31 @@ class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
     identical in every case and only the query language differs, which belongs to the
     connector that runs the query.
 
-    A SIEM sees log and network activity, not the machine behind it, so it observes
-    very little and ``runs_on`` is usually unknown.
+    HOW MUCH IT OBSERVES DEPENDS ON WHAT THE CUSTOMER INDEXES, not on the vendor. A
+    query over proxy or DNS logs sees a destination and little else, which is what
+    every v1 example query does. One over host-enriched data can carry the OS and the
+    cloud -- ECS has ``host.os.platform``, ``host.os.version`` and ``cloud.provider``;
+    Sentinel's Heartbeat table has ``OSName`` and ``ComputerEnvironment``. Since the
+    customer's own query controls the output columns, either is reachable.
+
+    OBSERVABLE_FIELDS below is therefore a ceiling in the fullest sense: it says what a
+    SIEM query *can* project, and most will project almost none of it.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.SIEM
     DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    """Right for every v1 query, which are all proxy or DNS log searches: existence is
+    deduced from a log record rather than read from an inventory.
+
+    It stops being fixed per class if an inventory feed is ever queried -- Defender for
+    Endpoint through Sentinel, or Elastic Agent data -- because that record was
+    directly observed and merely transported by the SIEM. At that point detection
+    becomes per finding, and this ClassVar becomes a ceiling like the two below.
+    """
+
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"host_name", "service_names"},
+        {"host_name", "os_version", "service_names"},
     )
 
     type: Literal["SIEM"] = "SIEM"
@@ -776,10 +797,12 @@ class Provenance(BaseModel):
     platform: Optional[Platform] = Field(
         default=None,
         description="OS the agent runs on, paired with `runs_on` rather than folded "
-        "into it -- a container on a managed laptop is `runs_on=docker, "
-        "platform=darwin`, and one field could only say one of those. Absent where the "
-        "OS is unknowable, which is most SIEM rows: a column always populated with a "
-        "guess is worse than one honestly empty.",
+        "into it: neither implies the other, since a darwin machine can be a managed "
+        "laptop or an EC2 Mac instance. Not endpoint-only -- a SIEM query over "
+        "host-enriched data can project it, ECS calls it `host.os.platform` with these "
+        "same values, though a proxy-log query cannot. Absent when the query did not "
+        "carry it: a column always populated with a guess is worse than one honestly "
+        "empty.",
     )
 
     @computed_field  # type: ignore[prop-decorator]

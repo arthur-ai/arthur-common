@@ -482,11 +482,24 @@ class TestObservationCapabilities:
             declared |= category.observable_fields()
         assert declared == set(AgentObservations.model_fields)
 
-    def test_siem_sees_almost_nothing_about_the_host(self):
-        """A SIEM watches traffic and logs, not the machine behind them."""
+    def test_what_a_siem_can_reach_depends_on_what_is_indexed(self):
+        """Its ceiling covers host facts a host-enriched query can project.
+
+        ECS carries `host.os.version`; Sentinel's Heartbeat table carries `OSName`.
+        A proxy-log query projects none of it, which is what every v1 example query
+        does -- the ceiling says reachable, not guaranteed.
+        """
+        observable = SIEMAgentCreationSource.observable_fields()
+        assert "os_version" in observable
+
+    def test_a_siem_still_cannot_see_inside_the_machine(self):
+        """No SIEM query reaches an install path or an MDM's assigned user.
+
+        Those come from reading the filesystem or a device record, which is the line
+        between transporting a log and inspecting a host.
+        """
         observable = SIEMAgentCreationSource.observable_fields()
         assert "install_path" not in observable
-        assert "os_version" not in observable
         assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
@@ -1043,3 +1056,38 @@ class TestLocationAndPlatform:
         """
         assert {p.value for p in Platform} == {"darwin", "linux", "windows"}
         assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str
+
+
+class TestSiemHostEnrichment:
+    """A SIEM can carry location and platform, but nothing guarantees it (UP-4974)."""
+
+    def test_a_proxy_log_query_carries_neither(self):
+        """Every v1 example query is a proxy or DNS log search."""
+        prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert prov.runs_on is RunsOn.UNKNOWN
+        assert prov.platform is None
+
+    def test_a_host_enriched_query_can_carry_both(self):
+        """ECS has `cloud.provider` and `host.os.platform`; Sentinel has the Heartbeat
+        table's `ComputerEnvironment` and `OSName`. The customer's query decides."""
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.SIEM)],
+            runs_on=RunsOn.AZURE,
+            platform=Platform.LINUX,
+        )
+        assert prov.runs_on is RunsOn.AZURE
+        assert prov.platform is Platform.LINUX
+
+    def test_neither_field_is_gated_on_source_class(self):
+        """The contract must not encode "SIEMs cannot know this".
+
+        What a SIEM reaches depends on what the customer indexes, so gating these on
+        the source class would make a correct finding unrepresentable.
+        """
+        for source_class in SourceClass:
+            prov = Provenance(
+                sources=[ProvenanceSource(source_class=source_class)],
+                runs_on=RunsOn.GCP,
+                platform=Platform.WINDOWS,
+            )
+            assert prov.runs_on is RunsOn.GCP
