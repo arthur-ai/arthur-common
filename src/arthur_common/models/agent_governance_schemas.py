@@ -69,26 +69,66 @@ class DataSource(BaseModel):
 
 
 class RunsOn(str, Enum):
-    """Infrastructure a discovered agent runs on.
+    """Where the machine hosting a discovered agent is. ONE AXIS: location.
 
     Lives on Provenance rather than being derived from the source type: a Jamf finding
     runs on a laptop, not on the cloud hosting the engine that reported it.
+
+    Deliberately NOT a place for `docker` or `kubernetes`. Those answer a different
+    question -- how the agent is packaged on the machine -- and mixing the two makes
+    the common case lossy: an agent in an EKS pod is both `aws` and orchestrated, and
+    one field can only say one. They are also values nothing can currently fill. In the
+    endpoint collector Docker is a detection ROUTE (`docker_images`, surfaced as
+    ``resource_kind=image``), and in app_plane `Infrastructure.Docker` describes how
+    the ENGINE was deployed. Neither is a statement about where a discovered agent
+    runs. If the packaging axis starts mattering, it wants its own field.
+
+    ``on_prem`` is the natural next member on this axis and is left out only because
+    nothing in v1 can fill it: on-prem findings arrive through a SIEM, which cannot see
+    the machine, so UNKNOWN is already the honest answer there.
     """
 
     AWS = "aws"
     AZURE = "azure"
     GCP = "gcp"
-    DOCKER = "docker"
-    KUBERNETES = "kubernetes"
     ENDPOINT = "endpoint"
-    """A managed endpoint -- a laptop or desktop, not a hosted environment."""
+    """A managed endpoint -- a laptop or desktop rather than a hosted environment.
+
+    Coherent here in a way it was not beside `docker`: this axis is location, and an
+    endpoint is a location. Not implied by ``platform``, since a darwin machine can be
+    an EC2 Mac instance, nor by ``source_class``, since a SIEM row could name a laptop.
+    """
 
     UNKNOWN = "unknown"
-    """The sensor cannot tell, which for most SIEM findings is the permanent answer.
+    """The sensor cannot tell where the machine is.
+
+    The default, because absence of evidence is the safe assumption. NOT a property of
+    any source class: a SIEM query over proxy logs cannot say where the machine is, but
+    one over host-enriched data can -- ECS carries ``cloud.provider`` and Sentinel's
+    Heartbeat table carries ``ComputerEnvironment``. Which applies depends on what the
+    customer indexes and projects, so this is per finding rather than per vendor.
 
     An explicit member rather than a null, so consumers have something total to switch
     on instead of failing on an unmapped value.
     """
+
+
+class Platform(str, Enum):
+    """Which OS the agent runs on.
+
+    A COMPANION TO RunsOn, not a widening of it. ``runs_on`` answers where the machine
+    is, this answers which OS it runs. Neither implies the other: a darwin machine can
+    be a managed laptop (``runs_on=ENDPOINT``) or an EC2 Mac instance
+    (``runs_on=AWS``), and a linux machine can be either a laptop or a cloud VM.
+
+    Enumerated, unlike ``vendor``: this set is bounded and stable, and a typo like
+    "macos" for "darwin" would silently break a filter. Vendors are open and growing,
+    which is why they are free text.
+    """
+
+    DARWIN = "darwin"
+    LINUX = "linux"
+    WINDOWS = "windows"
 
 
 class SourceClass(str, Enum):
@@ -543,15 +583,31 @@ class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
     identical in every case and only the query language differs, which belongs to the
     connector that runs the query.
 
-    A SIEM sees log and network activity, not the machine behind it, so it observes
-    very little and ``runs_on`` is usually unknown.
+    HOW MUCH IT OBSERVES DEPENDS ON WHAT THE CUSTOMER INDEXES, not on the vendor. A
+    query over proxy or DNS logs sees a destination and little else, which is what
+    every v1 example query does. One over host-enriched data can carry the OS and the
+    cloud -- ECS has ``host.os.platform``, ``host.os.version`` and ``cloud.provider``;
+    Sentinel's Heartbeat table has ``OSName`` and ``ComputerEnvironment``. Since the
+    customer's own query controls the output columns, either is reachable.
+
+    OBSERVABLE_FIELDS below is therefore a ceiling in the fullest sense: it says what a
+    SIEM query *can* project, and most will project almost none of it.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.SIEM
     DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    """Right for every v1 query, which are all proxy or DNS log searches: existence is
+    deduced from a log record rather than read from an inventory.
+
+    It stops being fixed per class if an inventory feed is ever queried -- Defender for
+    Endpoint through Sentinel, or Elastic Agent data -- because that record was
+    directly observed and merely transported by the SIEM. At that point detection
+    becomes per finding, and this ClassVar becomes a ceiling like the two below.
+    """
+
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"host_name", "service_names"},
+        {"host_name", "os_version", "service_names"},
     )
 
     type: Literal["SIEM"] = "SIEM"
@@ -733,10 +789,20 @@ class Provenance(BaseModel):
     )
     runs_on: RunsOn = Field(
         default=RunsOn.UNKNOWN,
-        description="Infrastructure the agent runs on. Scalar, unlike sources: where "
-        "an agent runs is one fact even when several sensors report it, and the more "
-        "specific answer wins. Defaults to UNKNOWN, which for most SIEM findings is "
-        "the honest answer rather than a gap.",
+        description="Deployment substrate the agent runs on. Scalar, unlike sources: "
+        "where an agent runs is one fact even when several sensors report it, and the "
+        "more specific answer wins. Defaults to UNKNOWN, which for a SIEM row is "
+        "usually the honest answer and for a managed laptop is simply correct.",
+    )
+    platform: Optional[Platform] = Field(
+        default=None,
+        description="OS the agent runs on, paired with `runs_on` rather than folded "
+        "into it: neither implies the other, since a darwin machine can be a managed "
+        "laptop or an EC2 Mac instance. Not endpoint-only -- a SIEM query over "
+        "host-enriched data can project it, ECS calls it `host.os.platform` with these "
+        "same values, though a proxy-log query cannot. Absent when the query did not "
+        "carry it: a column always populated with a guess is worse than one honestly "
+        "empty.",
     )
 
     @computed_field  # type: ignore[prop-decorator]

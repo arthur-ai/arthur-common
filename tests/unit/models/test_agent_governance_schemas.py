@@ -18,6 +18,10 @@ from arthur_common.models.agent_governance_schemas import (
     LLMModel,
     ManualAgentCreationSource,
     OTELAgentCreationSource,
+    Platform,
+    Provenance,
+    ProvenanceSource,
+    RunsOn,
     SIEMAgentCreationSource,
     SourceAddress,
     SourceClass,
@@ -478,11 +482,24 @@ class TestObservationCapabilities:
             declared |= category.observable_fields()
         assert declared == set(AgentObservations.model_fields)
 
-    def test_siem_sees_almost_nothing_about_the_host(self):
-        """A SIEM watches traffic and logs, not the machine behind them."""
+    def test_what_a_siem_can_reach_depends_on_what_is_indexed(self):
+        """Its ceiling covers host facts a host-enriched query can project.
+
+        ECS carries `host.os.version`; Sentinel's Heartbeat table carries `OSName`.
+        A proxy-log query projects none of it, which is what every v1 example query
+        does -- the ceiling says reachable, not guaranteed.
+        """
+        observable = SIEMAgentCreationSource.observable_fields()
+        assert "os_version" in observable
+
+    def test_a_siem_still_cannot_see_inside_the_machine(self):
+        """No SIEM query reaches an install path or an MDM's assigned user.
+
+        Those come from reading the filesystem or a device record, which is the line
+        between transporting a log and inspecting a host.
+        """
         observable = SIEMAgentCreationSource.observable_fields()
         assert "install_path" not in observable
-        assert "os_version" not in observable
         assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
@@ -983,3 +1000,94 @@ class TestVendorRegistry:
         """Which is why a new vendor needs no change here."""
         assert EndpointAgentCreationSource.observable_fields()
         assert "vendor" not in EndpointAgentCreationSource.observable_fields()
+
+
+class TestLocationAndPlatform:
+    """`runs_on` is one axis -- location -- with `platform` beside it (UP-4974)."""
+
+    def test_a_managed_laptop_is_a_location(self):
+        """`endpoint` is coherent on a location axis in a way it was not beside docker."""
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
+            runs_on=RunsOn.ENDPOINT,
+            platform=Platform.DARWIN,
+        )
+        assert prov.runs_on is RunsOn.ENDPOINT
+        assert prov.platform is Platform.DARWIN
+
+    def test_neither_field_implies_the_other(self):
+        """A darwin machine can be a laptop or an EC2 Mac instance."""
+        mac_laptop = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
+            runs_on=RunsOn.ENDPOINT,
+            platform=Platform.DARWIN,
+        )
+        mac_in_aws = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.CLOUD)],
+            runs_on=RunsOn.AWS,
+            platform=Platform.DARWIN,
+        )
+        assert mac_laptop.platform is mac_in_aws.platform
+        assert mac_laptop.runs_on is not mac_in_aws.runs_on
+
+    def test_packaging_is_not_on_this_axis(self):
+        """No docker or kubernetes: they answer how, not where.
+
+        Mixing them makes the common case lossy -- an EKS pod is both `aws` and
+        orchestrated, and one field can only say one. They are also unfillable: in the
+        collector Docker is a detection route surfaced as `resource_kind=image`, and
+        app_plane's `Infrastructure.Docker` describes the engine's deployment. Neither
+        says where a discovered agent runs.
+        """
+        locations = {member.value for member in RunsOn}
+        assert locations == {"aws", "azure", "gcp", "endpoint", "unknown"}
+
+    def test_unknown_is_the_honest_answer_for_a_siem_row(self):
+        """It sees traffic, not the machine behind it."""
+        prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert prov.runs_on is RunsOn.UNKNOWN
+        assert prov.platform is None
+
+    def test_platform_is_enumerated_but_vendor_is_not(self):
+        """Bounded and stable versus open and growing.
+
+        A typo like "macos" for "darwin" would silently break a filter, and the OS set
+        does not grow the way vendors do -- which is the whole reason vendors are data.
+        """
+        assert {p.value for p in Platform} == {"darwin", "linux", "windows"}
+        assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str
+
+
+class TestSiemHostEnrichment:
+    """A SIEM can carry location and platform, but nothing guarantees it (UP-4974)."""
+
+    def test_a_proxy_log_query_carries_neither(self):
+        """Every v1 example query is a proxy or DNS log search."""
+        prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert prov.runs_on is RunsOn.UNKNOWN
+        assert prov.platform is None
+
+    def test_a_host_enriched_query_can_carry_both(self):
+        """ECS has `cloud.provider` and `host.os.platform`; Sentinel has the Heartbeat
+        table's `ComputerEnvironment` and `OSName`. The customer's query decides."""
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.SIEM)],
+            runs_on=RunsOn.AZURE,
+            platform=Platform.LINUX,
+        )
+        assert prov.runs_on is RunsOn.AZURE
+        assert prov.platform is Platform.LINUX
+
+    def test_neither_field_is_gated_on_source_class(self):
+        """The contract must not encode "SIEMs cannot know this".
+
+        What a SIEM reaches depends on what the customer indexes, so gating these on
+        the source class would make a correct finding unrepresentable.
+        """
+        for source_class in SourceClass:
+            prov = Provenance(
+                sources=[ProvenanceSource(source_class=source_class)],
+                runs_on=RunsOn.GCP,
+                platform=Platform.WINDOWS,
+            )
+            assert prov.runs_on is RunsOn.GCP

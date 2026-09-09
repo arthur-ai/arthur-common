@@ -115,12 +115,8 @@ class TestRunsOn:
         """
         assert RunsOn.UNKNOWN.value == "unknown"
 
-    def test_endpoint_is_representable(self):
-        """The case the feature exists for: a Jamf finding runs on a laptop.
-
-        Serving infrastructure off the reporting engine's data plane reports the cloud
-        that hosts the engine instead, which is wrong for every endpoint finding.
-        """
+    def test_endpoint_is_a_location(self):
+        """The axis is where the machine is, and a laptop is a where."""
         assert RunsOn.ENDPOINT.value == "endpoint"
 
 
@@ -144,7 +140,7 @@ class TestProvenance:
                     address=SourceAddress(instance="splunk-prod", resource_id="rec-1"),
                 ),
             ],
-            runs_on=RunsOn.ENDPOINT,
+            runs_on=RunsOn.UNKNOWN,
         )
         assert [s.vendor for s in prov.sources] == ["jamf_pro", "splunk"]
         assert prov.sources[0].address.instance == "serial:X"
@@ -358,18 +354,34 @@ class TestEvidence:
         kwargs.update(overrides)
         return Evidence(**kwargs)  # type: ignore[arg-type]
 
-    def test_staleness_is_independent_of_visibility(self):
-        """The whole reason they are two fields (UP-4974).
+    def test_staleness_is_not_a_stored_flag(self):
+        """It is a function of last_scanned, a threshold, and now (UP-4974).
 
-        A Traced finding must not stop being Traced the moment its credential expires --
-        that loses the more important of the two facts.
+        A stored flag would be wrong the moment time passed without a write, and the
+        threshold is not this package's to hold: stale for a Jamf fleet reporting daily
+        is not stale for a SIEM query running hourly. app_plane derives it from
+        last_scanned and the source config's schedule.
         """
-        traced = self._evidence(OTEL_SOURCE, visibility=Visibility.FULL)
-        assert traced.is_stale is False
+        assert "is_stale" not in Evidence.model_fields
+        assert "last_scanned" in Evidence.model_fields
 
-        expired = traced.model_copy(update={"is_stale": True})
-        assert expired.is_stale is True
-        assert expired.visibility is Visibility.FULL
+    def test_going_stale_does_not_change_the_other_axes(self):
+        """The property the old flag was protecting, preserved by the timestamp.
+
+        A fully visible finding stays fully visible when its source stops reporting;
+        only last_scanned falls behind.
+        """
+        fresh = self._evidence(
+            OTEL_SOURCE,
+            visibility=Visibility.FULL,
+            last_scanned=NOW,
+        )
+        gone_quiet = fresh.model_copy(
+            update={"last_scanned": NOW - timedelta(days=30)},
+        )
+        assert gone_quiet.visibility is Visibility.FULL
+        assert gone_quiet.detection is fresh.detection
+        assert gone_quiet.last_scanned < fresh.last_scanned
 
     def test_one_agent_holds_evidence_from_two_sensors(self):
         """Two sensors disagree about how much they know and when they last looked.
@@ -386,16 +398,16 @@ class TestEvidence:
             SPLUNK_SOURCE,
             visibility=Visibility.LIMITED,
             last_seen=NOW - timedelta(days=3),
-            is_stale=True,
+            last_scanned=NOW - timedelta(days=3),
         )
 
         evidence = [endpoint, splunk]
         assert {e.creation_source.root.type for e in evidence} == {"ENDPOINT", "SIEM"}
         # each keeps its own answers
         assert endpoint.detection is Detection.OBSERVED
-        assert endpoint.is_stale is False
+        assert endpoint.last_scanned is None
         assert splunk.detection is Detection.INFERRED
-        assert splunk.is_stale is True
+        assert splunk.last_scanned == NOW - timedelta(days=3)
 
     def test_new_this_scan_derives_from_first_seen_and_run(self):
         """There is deliberately no `new` status field to fall out of date."""
