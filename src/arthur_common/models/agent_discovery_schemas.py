@@ -38,10 +38,19 @@ class Evidence(BaseModel):
     much they know, when they last looked, and whether they are still reporting, and
     flattening them would force one of those answers to win arbitrarily.
 
-    Three independent facts, deliberately not one score: how the agent was detected,
-    how much of it is visible, and whether the source is still reporting. ``detection``
-    is derived from the creation source rather than stored, since the source class
-    determines it and a stored copy could disagree.
+    Deliberately not one score. ``detection`` says how the agent was found and is
+    derived from the creation source, since the source class fixes it. ``visibility``
+    says how much of it can be seen and is stored, because it depends on what actually
+    arrived. ``last_scanned`` says when the source was last read for this record.
+
+    THERE IS NO STORED ``is_stale``. Staleness is a function of ``last_scanned``, a
+    threshold, and the current time, so a stored flag would be wrong the moment time
+    passed without a write, and would need a sweeper job that exists only because the
+    flag is stored. The threshold is also not this package's to hold: stale for a Jamf
+    fleet reporting daily is not stale for a SIEM query running hourly, and the source
+    config carries the schedule and lookback that decide it. app_plane derives it and
+    serves it in the response, so it stays out of the UI -- the same principle as
+    visibility.
     """
 
     creation_source: AgentCreationSource = Field(
@@ -57,15 +66,17 @@ class Evidence(BaseModel):
         "from which fields it could actually fill -- see the source class's "
         "``observable_fields()`` and ``visibility_ceiling()`` -- never a UI heuristic.",
     )
-    is_stale: bool = Field(
-        default=False,
-        description="This source has stopped reporting, so the finding describes the "
-        "past. Independent of both other axes: expiring a credential flips this "
-        "without changing how the agent was detected or how well it was understood.",
-    )
-
     last_seen: datetime = Field(
-        description="When this sensor most recently reported the agent.",
+        description="When the evidence itself was observed.",
+    )
+    last_scanned: Optional[datetime] = Field(
+        default=None,
+        description="When this source was last read successfully FOR THIS RECORD. "
+        "Separate from `last_seen` because they fail separately, and per-record "
+        "because a fleet pull returns records of wildly differing freshness -- Jamf's "
+        "own reportDate is per device for the same reason, so a run-level timestamp "
+        "cannot answer 'when did we last actually see this device'. Staleness is "
+        "derived from this rather than stored: see the class docstring.",
     )
     first_seen: Optional[datetime] = Field(
         default=None,

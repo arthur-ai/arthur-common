@@ -18,6 +18,10 @@ from arthur_common.models.agent_governance_schemas import (
     LLMModel,
     ManualAgentCreationSource,
     OTELAgentCreationSource,
+    Platform,
+    Provenance,
+    ProvenanceSource,
+    RunsOn,
     SIEMAgentCreationSource,
     SourceAddress,
     SourceClass,
@@ -983,3 +987,48 @@ class TestVendorRegistry:
         """Which is why a new vendor needs no change here."""
         assert EndpointAgentCreationSource.observable_fields()
         assert "vendor" not in EndpointAgentCreationSource.observable_fields()
+
+
+class TestPlatformAndSubstrate:
+    """`runs_on` and `platform` are companions, not one widened field (UP-4974)."""
+
+    def test_a_container_on_a_laptop_is_expressible(self):
+        """The case a single field cannot represent.
+
+        Both answers are true at once, and the old RunsOn.ENDPOINT forced one of them
+        to be dropped.
+        """
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
+            runs_on=RunsOn.DOCKER,
+            platform=Platform.DARWIN,
+        )
+        assert prov.runs_on is RunsOn.DOCKER
+        assert prov.platform is Platform.DARWIN
+
+    def test_a_plain_laptop_has_no_substrate_and_that_is_correct(self):
+        """UNKNOWN is the right answer, not a gap: no cloud value is true of it."""
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
+            platform=Platform.DARWIN,
+        )
+        assert prov.runs_on is RunsOn.UNKNOWN
+
+    def test_platform_is_absent_where_the_os_is_unknowable(self):
+        """Most SIEM rows. A column always populated with a guess is worse than empty."""
+        prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
+        assert prov.platform is None
+
+    def test_the_endpoint_substrate_member_is_deprecated(self):
+        """Superseded by the runs_on/platform pair; kept so nothing breaks today."""
+        schema = Provenance.model_json_schema()
+        assert RunsOn.ENDPOINT.value in schema["$defs"]["RunsOn"]["enum"]
+
+    def test_platform_is_enumerated_but_vendor_is_not(self):
+        """Bounded and stable versus open and growing.
+
+        A typo like "macos" for "darwin" would silently break a filter, and the OS set
+        does not grow the way vendors do -- which is the whole reason vendors are data.
+        """
+        assert {p.value for p in Platform} == {"darwin", "linux", "windows"}
+        assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str

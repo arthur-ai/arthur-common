@@ -81,14 +81,42 @@ class RunsOn(str, Enum):
     DOCKER = "docker"
     KUBERNETES = "kubernetes"
     ENDPOINT = "endpoint"
-    """A managed endpoint -- a laptop or desktop, not a hosted environment."""
+    """DEPRECATED. Use ``UNKNOWN`` with ``Platform.DARWIN`` (or linux/windows).
+
+    Deprecated and will be removed. It conflates the deployment substrate with the
+    device type, so it cannot express an agent in a container on a managed laptop --
+    that is ``runs_on=DOCKER, platform=DARWIN``, and this member forces one of the two
+    answers to be dropped. A laptop with nothing containerised is
+    ``runs_on=UNKNOWN, platform=DARWIN``, where UNKNOWN is the correct answer because
+    no substrate value is true of it.
+    """
 
     UNKNOWN = "unknown"
-    """The sensor cannot tell, which for most SIEM findings is the permanent answer.
+    """The sensor cannot tell which substrate, which for a SIEM row is usually
+    permanent and for a managed laptop is simply correct -- no cloud value is true of
+    it.
 
     An explicit member rather than a null, so consumers have something total to switch
     on instead of failing on an unmapped value.
     """
+
+
+class Platform(str, Enum):
+    """Which OS the agent runs on.
+
+    A COMPANION TO RunsOn, not a widening of it. ``runs_on`` answers "which deployment
+    substrate", this answers "which OS", and keeping them apart is what makes an agent
+    in a container on a managed laptop expressible: ``runs_on=DOCKER,
+    platform=DARWIN``. A single field forces a choice between two true answers.
+
+    Enumerated, unlike ``vendor``: this set is bounded and stable, and a typo like
+    "macos" for "darwin" would silently break a filter. Vendors are open and growing,
+    which is why they are free text.
+    """
+
+    DARWIN = "darwin"
+    LINUX = "linux"
+    WINDOWS = "windows"
 
 
 class SourceClass(str, Enum):
@@ -733,10 +761,18 @@ class Provenance(BaseModel):
     )
     runs_on: RunsOn = Field(
         default=RunsOn.UNKNOWN,
-        description="Infrastructure the agent runs on. Scalar, unlike sources: where "
-        "an agent runs is one fact even when several sensors report it, and the more "
-        "specific answer wins. Defaults to UNKNOWN, which for most SIEM findings is "
-        "the honest answer rather than a gap.",
+        description="Deployment substrate the agent runs on. Scalar, unlike sources: "
+        "where an agent runs is one fact even when several sensors report it, and the "
+        "more specific answer wins. Defaults to UNKNOWN, which for a SIEM row is "
+        "usually the honest answer and for a managed laptop is simply correct.",
+    )
+    platform: Optional[Platform] = Field(
+        default=None,
+        description="OS the agent runs on, paired with `runs_on` rather than folded "
+        "into it -- a container on a managed laptop is `runs_on=docker, "
+        "platform=darwin`, and one field could only say one of those. Absent where the "
+        "OS is unknowable, which is most SIEM rows: a column always populated with a "
+        "guess is worse than one honestly empty.",
     )
 
     @computed_field  # type: ignore[prop-decorator]
