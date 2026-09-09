@@ -91,23 +91,42 @@ class RunsOn(str, Enum):
     """
 
 
-class FoundBy(str, Enum):
-    """Which class of sensor reported an agent.
+class SourceClass(str, Enum):
+    """Where a source observes from. One name for this concept everywhere.
 
-    Mirrors the creation-source category tags, so it stays derivable from the finding.
-    Materialised on the task because it has to be filterable.
+    The design docs' "source class"; earlier API drafts called it ``vantage_point``.
+    Used on a configured discovery source and on a task's provenance alike, so the two
+    are the same vocabulary rather than two that have to be reconciled.
+
+    Consumers branch on this -- capability and evidence ceilings are declared per class
+    -- which is why it is a closed enum while the vendor is not.
     """
 
     CLOUD = "cloud"
     SIEM = "siem"
     ENDPOINT = "endpoint"
     OTEL = "otel"
+    """Not a discovery source: the agent instrumented itself."""
+
     MANUAL = "manual"
+    """Not a discovery source: someone created the task by hand."""
 
     @classmethod
-    def for_creation_source(cls, source: "AgentCreationSource") -> "FoundBy":
-        """Read the sensor class off the source itself."""
-        return source.root.FOUND_BY
+    def for_creation_source(cls, source: "AgentCreationSource") -> "SourceClass":
+        """Read the source class off the finding itself."""
+        return source.root.SOURCE_CLASS
+
+
+DISCOVERY_SOURCE_CLASSES: frozenset[SourceClass] = frozenset(
+    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT},
+)
+"""The classes a configured discovery source can have.
+
+OTEL and MANUAL are members of SourceClass because a task's provenance has to name
+them, but neither is something anyone configures. Exported as a subset rather than a
+second enum, so there is one vocabulary and app_plane validates against it instead of
+redeclaring three of its five members.
+"""
 
 
 class EvidenceLevel(str, Enum):
@@ -174,7 +193,8 @@ class SourceAddress(BaseModel):
         "launchd label, listening port, browser extension id. Identity rather than "
         "observation, and needed because '8788' and 'openclaw' are otherwise "
         "indistinguishable strings from colliding namespaces. Absent for sources with "
-        "one kind of resource, which is every cloud and SIEM vendor. Free text: the "
+        "one kind of resource, which is every cloud and SIEM vendor -- there the vendor "
+        "implies the kind, so carrying it would duplicate `vendor`. Free text: the "
         "vocabulary belongs to the collector's route registry, not to this schema.",
     )
     resource_id: str = Field(
@@ -265,13 +285,13 @@ class AgentCreationSourceBase(BaseModel):
     looked up in a tag-keyed table, so adding a category is writing one class. A side
     table can hold a tag the union does not, or miss one it does, and fail silently.
 
-    Every subclass exposes ``address`` and ``observations``, so reading a creation
-    source never needs a type check: real fields on the discovery categories, computed
-    from the flat fields on the pre-category ones.
+    Every subclass exposes ``vendor``, ``address`` and ``observations``, so reading a
+    creation source never needs a type check: real fields on the discovery categories,
+    computed on the pre-category ones.
     """
 
-    FOUND_BY: ClassVar[FoundBy]
-    """Which sensor class this source represents."""
+    SOURCE_CLASS: ClassVar[SourceClass]
+    """Where this source observes from. See SourceClass."""
 
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = None
     """Strongest level this sensor could justify, or None if ungraded.
@@ -322,13 +342,14 @@ class GCPAgentCreationSource(AgentCreationSourceBase):
 
     1. Backfill ``address``; rows rewritten through this model gain it for free.
     2. Repoint that query at ``address->>'resource_id'``.
-    3. Move the three prod call sites to ``CloudAgentCreationSource``.
+    3. Move the three prod call sites to ``CloudAgentCreationSource``
+       with ``vendor="gcp_vertex"``.
     4. Delete this class and its ``service_names`` field.
     """
 
     model_config = ConfigDict(json_schema_extra={"deprecated": True})
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.CLOUD
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
@@ -345,6 +366,12 @@ class GCPAgentCreationSource(AgentCreationSourceBase):
         "variant. Populated at query time from service_name_task_mappings.",
         json_schema_extra={"deprecated": True},
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """The vendor this shape has always meant, named the way the rest name it."""
+        return "gcp_vertex"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -368,7 +395,7 @@ class OTELAgentCreationSource(AgentCreationSourceBase):
     Not a discovery source and not deprecated. There is no upstream system to address.
     """
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.OTEL
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.OTEL
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.TRACED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
@@ -380,6 +407,12 @@ class OTELAgentCreationSource(AgentCreationSourceBase):
         "this flattened accessor.",
         json_schema_extra={"deprecated": True},
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """None: nothing upstream reported this agent."""
+        return None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -396,10 +429,16 @@ class OTELAgentCreationSource(AgentCreationSourceBase):
 class ManualAgentCreationSource(AgentCreationSourceBase):
     """A hand-created task. Nothing to address, nothing observed, no evidence to grade."""
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.MANUAL
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.MANUAL
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = None
 
     type: Literal["MANUAL"] = "MANUAL"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vendor(self) -> Optional[str]:
+        """None: nobody reported this agent, someone typed it in."""
+        return None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -422,6 +461,17 @@ class ManualAgentCreationSource(AgentCreationSourceBase):
 class DiscoveryAgentCreationSource(AgentCreationSourceBase):
     """Base for the discovery categories. Not a union member itself."""
 
+    vendor: str = Field(
+        description="Upstream product this came from, e.g. 'splunk_enterprise', "
+        "'jamf_pro', 'aws_bedrock'. FREE TEXT, and deliberately not enumerated here: "
+        "nothing in this package branches on the vendor -- capability and evidence "
+        "ceilings are declared per source class -- so enumerating it would make every "
+        "new vendor a release of this package plus a repin in three services. The "
+        "registry is app_plane's discovery source type catalog, which is also where "
+        "the display name lives. Values are `<platform>_<product>`, always, so a "
+        "vendor shipping a second product that could be a source does not force a "
+        "rename of the first.",
+    )
     address: SourceAddress = Field(
         description="Where to find this agent again upstream. Required: a discovered "
         "agent that cannot be located again is not actionable.",
@@ -433,46 +483,6 @@ class DiscoveryAgentCreationSource(AgentCreationSourceBase):
     )
 
 
-class CloudPlatform(str, Enum):
-    """Cloud agent runtimes enumerated through provider list APIs."""
-
-    AWS_BEDROCK = "aws_bedrock"
-    GCP_VERTEX = "gcp_vertex"
-    """Not emitted yet: GCP findings still use the deprecated GCPAgentCreationSource.
-    The member exists so that migration is a data move, not a schema change."""
-
-    # Azure AI Foundry is a selectable target only in v1 and Bedrock AgentCore is
-    # behind a preview gate, so neither is a member yet. Adding one is a line here plus
-    # an `availability` entry in discovery_source_types.
-
-
-class SIEMPlatform(str, Enum):
-    """Security stacks queried in their own query language."""
-
-    SENTINEL = "sentinel"
-    """KQL."""
-
-    SPLUNK = "splunk"
-    """SPL."""
-
-    ELASTIC = "elastic"
-    """ES|QL."""
-
-
-class EndpointSensor(str, Enum):
-    """Sensors that observe agents on managed endpoints."""
-
-    JAMF_PRO = "jamf_pro"
-    """MDM inventory, paired with an osquery sweep for the on-disk detail."""
-
-    OSQUERY = "osquery"
-    """An osquery-only deployment, with no MDM behind it."""
-
-    # CrowdStrike Falcon is pending its scope decision (D-20). An enum value reaches
-    # the generated clients, so shipping it early would let the config UI offer a
-    # sensor nothing can scan with.
-
-
 class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     """An agent read out of a cloud provider's agent runtime.
 
@@ -480,7 +490,7 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     are part of the address because scanning is multi-account and multi-region.
     """
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.CLOUD
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         # `permissions` is where this category extends next -- action groups, service
@@ -489,7 +499,6 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     )
 
     type: Literal["CLOUD"] = "CLOUD"
-    cloud: CloudPlatform = Field(description="Which cloud agent runtime.")
 
 
 class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
@@ -503,14 +512,13 @@ class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
     very little and ``runs_on`` is usually unknown.
     """
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.SIEM
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.SIEM
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {"host_name", "service_names"},
     )
 
     type: Literal["SIEM"] = "SIEM"
-    siem: SIEMPlatform = Field(description="Which security stack reported this agent.")
 
 
 class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
@@ -549,7 +557,7 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     notarization and PPPC on the critical path.
     """
 
-    FOUND_BY: ClassVar[FoundBy] = FoundBy.ENDPOINT
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.ENDPOINT
     EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.THIN
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -569,9 +577,6 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     )
 
     type: Literal["ENDPOINT"] = "ENDPOINT"
-    sensor: EndpointSensor = Field(
-        description="Which endpoint sensor reported this agent.",
-    )
 
 
 # Union type for creation source. The north star is five members -- CLOUD, SIEM,
@@ -605,7 +610,7 @@ Declared so deprecations cannot accumulate unnoticed: every entry needs a named
 successor and a reason it cannot go yet. Consumers that want to warn on legacy input
 can check membership rather than hard-coding a tag.
 
-  GCP -> CloudAgentCreationSource(cloud=CloudPlatform.GCP_VERTEX)
+  GCP -> CloudAgentCreationSource(vendor="gcp_vertex")
 """
 
 
@@ -628,17 +633,19 @@ class ProvenanceSource(BaseModel):
     found_by but one address, and nothing says which sensor it belongs to.
     """
 
-    found_by: FoundBy = Field(description="Which sensor class contributed this entry.")
+    source_class: SourceClass = Field(
+        description="Where this contribution was observed from.",
+    )
     source_id: Optional[UUID] = Field(
         default=None,
         description="The Discovery Source behind it. Absent for agents predating "
         "discovery, and retained after a source is deleted.",
     )
-    source_type: Optional[str] = Field(
+    vendor: Optional[str] = Field(
         default=None,
-        description="Vendor of the upstream source, e.g. 'splunk' or 'jamf_pro'. Free "
-        "text because it is a filter label; the sensor class consumers switch on is "
-        "typed in found_by.",
+        description="Upstream product behind this contribution, e.g. "
+        "'splunk_enterprise'. Same value and same registry as the finding's `vendor`. "
+        "Absent for OTEL and manual agents, which have no upstream product.",
     )
     address: Optional[SourceAddress] = Field(
         default=None,
@@ -653,17 +660,18 @@ class ProvenanceSource(BaseModel):
         source: AgentCreationSource,
         *,
         source_id: Optional[UUID] = None,
-        source_type: Optional[str] = None,
     ) -> "ProvenanceSource":
         """Build an entry from the finding that produced it.
 
-        The single place a creation source becomes a provenance entry, so found_by and
-        address cannot be derived one way here and another in a consumer.
+        The single place a creation source becomes a provenance entry, so source_class,
+        vendor and address cannot be derived one way here and another in a consumer.
+        Only ``source_id`` has to be supplied: it identifies the configured source,
+        which the finding itself does not carry.
         """
         return cls(
-            found_by=source.root.FOUND_BY,
+            source_class=source.root.SOURCE_CLASS,
             source_id=source_id,
-            source_type=source_type,
+            vendor=source.root.vendor,
             address=source.root.address,
         )
 
@@ -691,13 +699,13 @@ class Provenance(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def found_by(self) -> list[FoundBy]:
-        """Distinct sensor classes behind this agent, in first-seen order.
+    def source_classes(self) -> list[SourceClass]:
+        """Distinct source classes behind this agent, in first-seen order.
 
-        Derived so it cannot disagree with ``sources``, and serialized because it is
-        the "Found by" column and filter.
+        Derived so it cannot disagree with ``sources``, and serialized because it backs
+        the inventory's "Found by" column and filter.
         """
-        return list(dict.fromkeys(entry.found_by for entry in self.sources))
+        return list(dict.fromkeys(entry.source_class for entry in self.sources))
 
 
 class TaskMetadata(BaseModel):

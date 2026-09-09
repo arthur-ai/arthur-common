@@ -9,10 +9,9 @@ from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     AgentObservations,
     CloudAgentCreationSource,
-    CloudPlatform,
     DataSource,
+    DiscoveryAgentCreationSource,
     EndpointAgentCreationSource,
-    EndpointSensor,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
@@ -20,8 +19,8 @@ from arthur_common.models.agent_governance_schemas import (
     ManualAgentCreationSource,
     OTELAgentCreationSource,
     SIEMAgentCreationSource,
-    SIEMPlatform,
     SourceAddress,
+    SourceClass,
     SubAgent,
     TaskMetadata,
     Tool,
@@ -142,7 +141,7 @@ class TestCreationSource:
             (
                 {
                     "type": "ENDPOINT",
-                    "sensor": "jamf_pro",
+                    "vendor": "jamf_pro",
                     "address": {
                         "instance": "serial:C02XL4KHQ6NV",
                         "resource_id": "openclaw",
@@ -153,7 +152,7 @@ class TestCreationSource:
             (
                 {
                     "type": "SIEM",
-                    "siem": "splunk",
+                    "vendor": "splunk_enterprise",
                     "address": {
                         "instance": "splunk-prod",
                         "resource_id": "rec-1",
@@ -166,7 +165,7 @@ class TestCreationSource:
             (
                 {
                     "type": "CLOUD",
-                    "cloud": "aws_bedrock",
+                    "vendor": "aws_bedrock",
                     "address": {
                         "instance": "111122223333",
                         "resource_id": "AGENT123",
@@ -513,29 +512,25 @@ class TestObservationCapabilities:
         """
         assert category.observable_fields() <= set(AgentObservations.model_fields)
 
-    def test_a_new_vendor_inherits_its_category_ceiling(self):
+    def test_a_new_vendor_inherits_its_class_ceiling(self):
         """The property that makes the contract extensible.
 
-        A new endpoint sensor is an EndpointSensor member and inherits what the
-        category can see, rather than needing a class, a client regeneration and its
-        own grading branch. The declaration is a CEILING, though: a deployment with no
-        MDM behind it reaches less than one with Jamf, and narrowing that is an
-        instance-level concern rather than a reason to fork the class.
+        A vendor is a string validated against app_plane's catalog, so a new endpoint
+        sensor inherits what the class can see without a schema change here -- no enum
+        member, no client regeneration, no grading branch. The declaration is a
+        CEILING: a deployment with no MDM behind it reaches less than one with Jamf,
+        and narrowing that is an instance-level concern, not a reason to fork the class.
         """
-        assert (
-            len(
-                {
-                    frozenset(
-                        EndpointAgentCreationSource(
-                            sensor=sensor,
-                            address=ENDPOINT_ADDRESS,
-                        ).observable_fields(),
-                    )
-                    for sensor in EndpointSensor
-                },
+        capability_sets = {
+            frozenset(
+                EndpointAgentCreationSource(
+                    vendor=vendor,
+                    address=ENDPOINT_ADDRESS,
+                ).observable_fields(),
             )
-            == 1
-        )
+            for vendor in ("jamf_pro", "osquery", "crowdstrike_falcon")
+        }
+        assert len(capability_sets) == 1
 
 
 class TestDiscoveryCreationSources:
@@ -543,7 +538,7 @@ class TestDiscoveryCreationSources:
 
     def test_endpoint_finding_carries_what_a_one_shot_sweep_can_see(self):
         src = EndpointAgentCreationSource(
-            sensor=EndpointSensor.JAMF_PRO,
+            vendor="jamf_pro",
             address=ENDPOINT_ADDRESS,
             observations=AgentObservations(
                 install_path="~/.local/bin/openclaw",
@@ -565,7 +560,7 @@ class TestDiscoveryCreationSources:
         being a ceiling, not a malformed finding.
         """
         src = EndpointAgentCreationSource(
-            sensor=EndpointSensor.OSQUERY,
+            vendor="osquery",
             address=ENDPOINT_ADDRESS,
             observations=AgentObservations(install_path="~/.local/bin/openclaw"),
         )
@@ -576,14 +571,14 @@ class TestDiscoveryCreationSources:
     def test_uncatalogued_software_still_renders(self):
         """Absent classification is a finding in its own right."""
         src = EndpointAgentCreationSource(
-            sensor=EndpointSensor.JAMF_PRO,
+            vendor="jamf_pro",
             address=ENDPOINT_ADDRESS,
         )
         assert src.observations.classification is None
 
     def test_siem_finding_is_explainable_after_the_fact(self):
         src = SIEMAgentCreationSource(
-            siem=SIEMPlatform.SENTINEL,
+            vendor="microsoft_sentinel",
             address=SourceAddress(
                 instance="law-secops-prod",
                 resource_id="rec-9",
@@ -594,58 +589,68 @@ class TestDiscoveryCreationSources:
         assert src.type == "SIEM"
         assert src.address.query.startswith("AzureDiagnostics |")
 
-    @pytest.mark.parametrize("siem", list(SIEMPlatform))
-    def test_all_three_siems_share_one_variant(self, siem):
+    @pytest.mark.parametrize(
+        "vendor",
+        ["microsoft_sentinel", "splunk_enterprise", "elastic_security"],
+    )
+    def test_all_three_siems_share_one_variant(self, vendor):
         """Adding a SIEM is an enum member, not a class.
 
         The payload is identical across the three; only the query language differs,
         and that belongs to the connector that runs the query.
         """
-        src = SIEMAgentCreationSource(siem=siem, address=SPLUNK_ADDRESS)
+        src = SIEMAgentCreationSource(vendor=vendor, address=SPLUNK_ADDRESS)
         assert src.type == "SIEM"
-        assert src.siem is siem
+        assert src.vendor == vendor
 
-    def test_unknown_vendors_are_rejected_per_category(self):
-        with pytest.raises(ValidationError):
-            SIEMAgentCreationSource(siem="qradar", address=SPLUNK_ADDRESS)
-        with pytest.raises(ValidationError):
-            EndpointAgentCreationSource(sensor="intune", address=ENDPOINT_ADDRESS)
+    def test_an_unrecognised_vendor_is_not_rejected_here(self):
+        """Vendor validation belongs to app_plane's catalog, not to this schema.
+
+        Enumerating vendors here would make every new one a release of this package
+        plus a repin in three services, for a value nothing in it branches on.
+        """
+        source = SIEMAgentCreationSource(vendor="qradar", address=SPLUNK_ADDRESS)
+        assert source.vendor == "qradar"
+        assert source.SOURCE_CLASS is SourceClass.SIEM
 
     def test_cloud_finding_addresses_account_and_region(self):
         """Multi-account, multi-region scanning makes both part of the address."""
         src = CloudAgentCreationSource(
-            cloud=CloudPlatform.AWS_BEDROCK,
+            vendor="aws_bedrock",
             address=BEDROCK_ADDRESS,
         )
         assert src.type == "CLOUD"
         assert src.address.instance == "111122223333"
 
-    def test_gcp_vertex_has_a_cloud_member_awaiting_migration(self):
-        """GCPAgentCreationSource stays until its JSONB fields are migrated.
-
-        The enum member exists now so that move is a data migration rather than a
-        schema change on top of one.
-        """
-        assert CloudPlatform.GCP_VERTEX.value == "gcp_vertex"
+    def test_a_migrated_gcp_finding_is_just_a_cloud_finding(self):
+        """What GCPAgentCreationSource becomes once its JSONB is migrated."""
+        migrated = CloudAgentCreationSource(
+            vendor="gcp_vertex",
+            address=SourceAddress(
+                instance="proj-a",
+                resource_id="eng-1",
+                scope="us-central1",
+            ),
+        )
+        assert migrated.SOURCE_CLASS is SourceClass.CLOUD
 
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
 
-        Six union members cover ~10 sensors because vendors are enum values. A Jamf- or
-        Splunk-specific class would mean a schema release and a regeneration of every
-        generated client per vendor.
+        Six union members cover every vendor, present and future, because the vendor is
+        a string. A Jamf- or Splunk-specific class would mean a schema release and a
+        regeneration of every generated client per vendor.
         """
         members = AgentCreationSource.model_json_schema()["oneOf"]
         assert len(members) == 6
-        vendor_counts = len(CloudPlatform) + len(SIEMPlatform) + len(EndpointSensor)
-        assert vendor_counts > len(members)
+        assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str
 
     @pytest.mark.parametrize(
         "payload",
         [
             {
                 "type": "SIEM",
-                "siem": "elastic",
+                "vendor": "elastic_security",
                 "address": {
                     "instance": "deploy-1",
                     "resource_id": "r",
@@ -655,7 +660,7 @@ class TestDiscoveryCreationSources:
             },
             {
                 "type": "CLOUD",
-                "cloud": "aws_bedrock",
+                "vendor": "aws_bedrock",
                 "address": {
                     "instance": "1",
                     "resource_id": "a",
@@ -664,7 +669,7 @@ class TestDiscoveryCreationSources:
             },
             {
                 "type": "ENDPOINT",
-                "sensor": "jamf_pro",
+                "vendor": "jamf_pro",
                 "address": {"instance": "serial:X", "resource_id": "openclaw"},
                 "observations": {"assigned_user": "someone@arthur.ai"},
             },
@@ -685,7 +690,7 @@ class TestDiscoveryCreationSources:
             {
                 "creation_source": {
                     "type": "ENDPOINT",
-                    "sensor": "jamf_pro",
+                    "vendor": "jamf_pro",
                     "address": {"instance": "serial:X", "resource_id": "openclaw"},
                 },
             },
@@ -725,7 +730,7 @@ ALL_SOURCE_PAYLOADS = [
     pytest.param(
         {
             "type": "CLOUD",
-            "cloud": "aws_bedrock",
+            "vendor": "aws_bedrock",
             "address": {
                 "instance": "111122223333",
                 "resource_id": "AGENT1",
@@ -737,7 +742,7 @@ ALL_SOURCE_PAYLOADS = [
     pytest.param(
         {
             "type": "SIEM",
-            "siem": "splunk",
+            "vendor": "splunk_enterprise",
             "address": {
                 "instance": "splunk-prod",
                 "resource_id": "rec-1",
@@ -750,7 +755,7 @@ ALL_SOURCE_PAYLOADS = [
     pytest.param(
         {
             "type": "ENDPOINT",
-            "sensor": "jamf_pro",
+            "vendor": "jamf_pro",
             "address": {"instance": "serial:X", "resource_id": "openclaw"},
         },
         id="ENDPOINT",
@@ -766,6 +771,23 @@ class TestUniformReadAccess:
     consumer of "where did this come from" or "what service names does it emit" has to
     handle two shapes -- and the second one gets forgotten.
     """
+
+    @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS)
+    def test_every_member_exposes_vendor(self, payload):
+        """So `from_creation_source` derives it rather than being handed it.
+
+        A vendor passed in by hand is a vendor that can disagree with the finding.
+        """
+        root = AgentCreationSource.model_validate(payload).root
+        vendor = root.vendor
+        assert vendor is None or isinstance(vendor, str)
+
+    def test_the_deprecated_gcp_shape_reports_its_vendor(self):
+        """A caller reading `.vendor` never learns GCP has its own shape."""
+        root = AgentCreationSource.model_validate(
+            ALL_SOURCE_PAYLOADS[0].values[0],
+        ).root
+        assert root.vendor == "gcp_vertex"
 
     @pytest.mark.parametrize("payload", ALL_SOURCE_PAYLOADS)
     def test_every_member_exposes_address(self, payload):
@@ -893,8 +915,12 @@ class TestDeprecations:
         assert DEPRECATED_CREATION_SOURCE_TAGS <= set(mapping)
 
     def test_every_deprecated_tag_has_a_live_successor(self):
-        """GCP's successor must be selectable before GCP can be removed."""
-        assert CloudPlatform.GCP_VERTEX in set(CloudPlatform)
+        """GCP's successor must be expressible before GCP can be removed."""
+        successor = CloudAgentCreationSource(
+            vendor="gcp_vertex",
+            address=SourceAddress(instance="p", resource_id="e", scope="r"),
+        )
+        assert successor.SOURCE_CLASS is SourceClass.CLOUD
 
     def test_deprecation_surfaces_in_the_openapi_schema(self):
         """The repo convention: json_schema_extra, so clients see it too."""
@@ -925,22 +951,35 @@ class TestDeprecations:
             assert defs[variant].get("deprecated", False) is False
 
 
-class TestScopeGates:
-    """Vendors that are not in v1 must not reach the generated clients (UP-4974)."""
+class TestVendorRegistry:
+    """Vendors are data, not schema (UP-4974).
 
-    def test_crowdstrike_awaits_its_scope_decision(self):
-        """D-20 is a spike; an enum value would let the config UI offer it early."""
-        assert "CROWDSTRIKE_FALCON" not in EndpointSensor.__members__
+    Which vendors exist, and whether one is generally available, in preview or
+    unavailable, is declared by app_plane's discovery source type catalog. That is what
+    keeps a scope decision like CrowdStrike's (D-20) out of this package entirely: no
+    enum member to add, and nothing here to gate.
+    """
 
-    def test_azure_ai_foundry_is_out_of_scope_for_v1(self):
-        """A selectable target only, per the epic's out-of-scope list."""
-        assert "AZURE_AI_FOUNDRY" not in CloudPlatform.__members__
+    def test_any_vendor_string_is_accepted(self):
+        for vendor in ("jamf_pro", "crowdstrike_falcon", "azure_ai_foundry"):
+            source = EndpointAgentCreationSource(
+                vendor=vendor,
+                address=ENDPOINT_ADDRESS,
+            )
+            assert source.vendor == vendor
 
-    def test_adding_one_later_is_a_single_enum_member(self):
-        """The extensibility claim, stated where the gate is.
+    def test_this_package_enumerates_no_vendors(self):
+        """The guard on the decision.
 
-        Each category's capability set is declared on the class, so a new vendor
-        inherits it -- nothing else in this package changes.
+        Re-adding a vendor enum here would make every new vendor a release of this
+        package plus a repin in three services, for a value nothing in it branches on.
         """
+        import arthur_common.models.agent_governance_schemas as module
+
+        for removed in ("CloudPlatform", "SIEMPlatform", "EndpointSensor"):
+            assert not hasattr(module, removed), removed
+
+    def test_capability_comes_from_the_class_not_the_vendor(self):
+        """Which is why a new vendor needs no change here."""
         assert EndpointAgentCreationSource.observable_fields()
-        assert all(isinstance(sensor.value, str) for sensor in EndpointSensor)
+        assert "vendor" not in EndpointAgentCreationSource.observable_fields()

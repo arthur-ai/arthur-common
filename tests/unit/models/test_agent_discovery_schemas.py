@@ -12,12 +12,12 @@ from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     AgentObservations,
     EvidenceLevel,
-    FoundBy,
     LLMModel,
     Provenance,
     ProvenanceSource,
     RunsOn,
     SourceAddress,
+    SourceClass,
     Tool,
     evidence_ceiling,
 )
@@ -26,12 +26,12 @@ NOW = datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
 
 ENDPOINT_SOURCE = {
     "type": "ENDPOINT",
-    "sensor": "jamf_pro",
+    "vendor": "jamf_pro",
     "address": {"instance": "serial:C02XL4KHQ6NV", "resource_id": "openclaw"},
 }
 SPLUNK_SOURCE = {
     "type": "SIEM",
-    "siem": "splunk",
+    "vendor": "splunk_enterprise",
     "address": {
         "instance": "splunk-prod",
         "resource_id": "rec-1",
@@ -49,7 +49,7 @@ GCP_SOURCE = {
 }
 CLOUD_SOURCE = {
     "type": "CLOUD",
-    "cloud": "aws_bedrock",
+    "vendor": "aws_bedrock",
     "address": {"instance": "1", "resource_id": "a", "scope": "us-east-1"},
 }
 
@@ -107,19 +107,19 @@ class TestProvenance:
         prov = Provenance(
             sources=[
                 ProvenanceSource(
-                    found_by=FoundBy.ENDPOINT,
-                    source_type="jamf_pro",
+                    source_class=SourceClass.ENDPOINT,
+                    vendor="jamf_pro",
                     address=SourceAddress(instance="serial:X", resource_id="openclaw"),
                 ),
                 ProvenanceSource(
-                    found_by=FoundBy.SIEM,
-                    source_type="splunk",
+                    source_class=SourceClass.SIEM,
+                    vendor="splunk",
                     address=SourceAddress(instance="splunk-prod", resource_id="rec-1"),
                 ),
             ],
             runs_on=RunsOn.ENDPOINT,
         )
-        assert [s.source_type for s in prov.sources] == ["jamf_pro", "splunk"]
+        assert [s.vendor for s in prov.sources] == ["jamf_pro", "splunk"]
         assert prov.sources[0].address.instance == "serial:X"
         assert prov.sources[1].address.instance == "splunk-prod"
 
@@ -127,30 +127,33 @@ class TestProvenance:
         """Serialized because it is the documented column, derived so it stays true."""
         prov = Provenance(
             sources=[
-                ProvenanceSource(found_by=FoundBy.ENDPOINT),
-                ProvenanceSource(found_by=FoundBy.SIEM),
+                ProvenanceSource(source_class=SourceClass.ENDPOINT),
+                ProvenanceSource(source_class=SourceClass.SIEM),
             ],
         )
-        assert prov.found_by == [FoundBy.ENDPOINT, FoundBy.SIEM]
-        assert prov.model_dump()["found_by"] == [FoundBy.ENDPOINT, FoundBy.SIEM]
+        assert prov.source_classes == [SourceClass.ENDPOINT, SourceClass.SIEM]
+        assert prov.model_dump()["source_classes"] == [
+            SourceClass.ENDPOINT,
+            SourceClass.SIEM,
+        ]
 
     def test_found_by_dedupes_while_keeping_first_seen_order(self):
         """Two Splunk instances are two sources but one sensor class."""
         prov = Provenance(
             sources=[
-                ProvenanceSource(found_by=FoundBy.SIEM, source_type="splunk"),
-                ProvenanceSource(found_by=FoundBy.ENDPOINT, source_type="jamf_pro"),
-                ProvenanceSource(found_by=FoundBy.SIEM, source_type="sentinel"),
+                ProvenanceSource(source_class=SourceClass.SIEM, vendor="splunk"),
+                ProvenanceSource(source_class=SourceClass.ENDPOINT, vendor="jamf_pro"),
+                ProvenanceSource(source_class=SourceClass.SIEM, vendor="sentinel"),
             ],
         )
-        assert prov.found_by == [FoundBy.SIEM, FoundBy.ENDPOINT]
+        assert prov.source_classes == [SourceClass.SIEM, SourceClass.ENDPOINT]
 
     def test_provenance_without_a_sensor_is_rejected(self):
         with pytest.raises(ValidationError):
             Provenance(sources=[])
 
     def test_runs_on_defaults_to_unknown_not_to_a_guess(self):
-        prov = Provenance(sources=[ProvenanceSource(found_by=FoundBy.SIEM)])
+        prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
         assert prov.runs_on is RunsOn.UNKNOWN
 
     def test_runs_on_stays_scalar(self):
@@ -164,7 +167,9 @@ class TestProvenance:
 
     def test_round_trips_as_json(self):
         prov = Provenance(
-            sources=[ProvenanceSource(found_by=FoundBy.CLOUD, source_id=uuid4())],
+            sources=[
+                ProvenanceSource(source_class=SourceClass.CLOUD, source_id=uuid4()),
+            ],
             runs_on=RunsOn.GCP,
         )
         assert Provenance.model_validate_json(prov.model_dump_json()) == prov
@@ -176,18 +181,18 @@ class TestProvenanceFromCreationSource:
     @pytest.mark.parametrize(
         "payload,expected_found_by",
         [
-            (ENDPOINT_SOURCE, FoundBy.ENDPOINT),
-            (SPLUNK_SOURCE, FoundBy.SIEM),
-            (CLOUD_SOURCE, FoundBy.CLOUD),
-            (OTEL_SOURCE, FoundBy.OTEL),
-            (MANUAL_SOURCE, FoundBy.MANUAL),
-            (GCP_SOURCE, FoundBy.CLOUD),
+            (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
+            (SPLUNK_SOURCE, SourceClass.SIEM),
+            (CLOUD_SOURCE, SourceClass.CLOUD),
+            (OTEL_SOURCE, SourceClass.OTEL),
+            (MANUAL_SOURCE, SourceClass.MANUAL),
+            (GCP_SOURCE, SourceClass.CLOUD),
         ],
     )
     def test_derives_found_by_from_the_source_itself(self, payload, expected_found_by):
         source = AgentCreationSource.model_validate(payload)
         entry = ProvenanceSource.from_creation_source(source)
-        assert entry.found_by is expected_found_by
+        assert entry.source_class is expected_found_by
 
     def test_carries_the_address_across_unchanged(self):
         """The finding and the task must address upstream identically."""
@@ -198,8 +203,8 @@ class TestProvenanceFromCreationSource:
     def test_legacy_gcp_source_yields_a_cloud_entry_with_an_address(self):
         """A caller building provenance never learns GCP has its own shape."""
         source = AgentCreationSource.model_validate(GCP_SOURCE)
-        entry = ProvenanceSource.from_creation_source(source, source_type="gcp_vertex")
-        assert entry.found_by is FoundBy.CLOUD
+        entry = ProvenanceSource.from_creation_source(source)
+        assert entry.source_class is SourceClass.CLOUD
         assert entry.address.resource_id == "e"
 
     def test_sources_with_no_upstream_system_yield_no_address(self):
@@ -208,21 +213,21 @@ class TestProvenanceFromCreationSource:
             assert ProvenanceSource.from_creation_source(source).address is None
 
 
-class TestFoundByDerivation:
-    """FoundBy mirrors the category tags so it cannot drift into a second taxonomy."""
+class TestSourceClassDerivation:
+    """SourceClass mirrors the category tags so it cannot drift into a second taxonomy."""
 
     @pytest.mark.parametrize(
         "payload,expected",
         [
-            (ENDPOINT_SOURCE, FoundBy.ENDPOINT),
-            (SPLUNK_SOURCE, FoundBy.SIEM),
-            (OTEL_SOURCE, FoundBy.OTEL),
-            (MANUAL_SOURCE, FoundBy.MANUAL),
+            (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
+            (SPLUNK_SOURCE, SourceClass.SIEM),
+            (OTEL_SOURCE, SourceClass.OTEL),
+            (MANUAL_SOURCE, SourceClass.MANUAL),
         ],
     )
     def test_derives_from_the_creation_source_tag(self, payload, expected):
         source = AgentCreationSource.model_validate(payload)
-        assert FoundBy.for_creation_source(source) is expected
+        assert SourceClass.for_creation_source(source) is expected
 
     def test_legacy_gcp_source_maps_to_cloud(self):
         """Callers must not have to know which of two shapes a GCP row uses.
@@ -231,7 +236,7 @@ class TestFoundByDerivation:
         fields are queried out of task_metadata JSONB, but it is a cloud runtime.
         """
         source = AgentCreationSource.model_validate(GCP_SOURCE)
-        assert FoundBy.for_creation_source(source) is FoundBy.CLOUD
+        assert SourceClass.for_creation_source(source) is SourceClass.CLOUD
 
     def test_every_category_tag_has_a_found_by_member(self):
         """The guard on the mirror: a new category without one would raise at runtime."""
@@ -241,7 +246,7 @@ class TestFoundByDerivation:
         }
         assert len(tags) == 6
         for payload in (ENDPOINT_SOURCE, SPLUNK_SOURCE, OTEL_SOURCE, MANUAL_SOURCE):
-            FoundBy.for_creation_source(AgentCreationSource.model_validate(payload))
+            SourceClass.for_creation_source(AgentCreationSource.model_validate(payload))
 
 
 class TestEvidenceCeiling:
@@ -303,7 +308,7 @@ class TestEvidenceCeiling:
         """
         source = AgentCreationSource.model_validate(payload)
         root = source.root
-        assert isinstance(root.FOUND_BY, FoundBy)
+        assert isinstance(root.SOURCE_CLASS, SourceClass)
 
         # Read through the documented accessors, not the raw ClassVars, and assert the
         # two access paths agree. There is a class-level view (for reflecting over the
@@ -503,12 +508,12 @@ class TestModuleBoundary:
 
     def test_task_facing_types_are_reachable_from_governance(self):
         """What D-09 needs in scope to put provenance on the task response."""
-        for name in ("Provenance", "FoundBy", "RunsOn", "EvidenceLevel"):
+        for name in ("Provenance", "SourceClass", "RunsOn", "EvidenceLevel"):
             assert hasattr(agent_governance_schemas, name), name
 
     def test_this_module_holds_only_platform_side_types(self):
         """Evidence and the output contract; no engine reads either."""
         assert hasattr(agent_discovery_schemas, "Evidence")
         assert hasattr(agent_discovery_schemas, "DiscoveryOutputRecord")
-        for moved in ("Provenance", "RunsOn", "FoundBy"):
+        for moved in ("Provenance", "RunsOn", "SourceClass"):
             assert not hasattr(agent_discovery_schemas, moved), moved
