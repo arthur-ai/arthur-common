@@ -995,8 +995,8 @@ class TestPlatformAndSubstrate:
     def test_a_container_on_a_laptop_is_expressible(self):
         """The case a single field cannot represent.
 
-        Both answers are true at once, and the old RunsOn.ENDPOINT forced one of them
-        to be dropped.
+        Both answers are true at once. A single substrate field with an "endpoint"
+        member could only express one of them.
         """
         prov = Provenance(
             sources=[ProvenanceSource(source_class=SourceClass.ENDPOINT)],
@@ -1019,10 +1019,15 @@ class TestPlatformAndSubstrate:
         prov = Provenance(sources=[ProvenanceSource(source_class=SourceClass.SIEM)])
         assert prov.platform is None
 
-    def test_the_endpoint_substrate_member_is_deprecated(self):
-        """Superseded by the runs_on/platform pair; kept so nothing breaks today."""
-        schema = Provenance.model_json_schema()
-        assert RunsOn.ENDPOINT.value in schema["$defs"]["RunsOn"]["enum"]
+    def test_a_laptop_has_exactly_one_spelling(self):
+        """No `endpoint` substrate member, so there is no second way to say it.
+
+        Two representations of one fact is the defect this whole split removes; a
+        deprecated member left in place would have reintroduced it, and would have
+        stayed selectable in every generated client.
+        """
+        substrates = Provenance.model_json_schema()["$defs"]["RunsOn"]["enum"]
+        assert "endpoint" not in substrates
 
     def test_platform_is_enumerated_but_vendor_is_not(self):
         """Bounded and stable versus open and growing.

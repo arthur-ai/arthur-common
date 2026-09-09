@@ -115,13 +115,15 @@ class TestRunsOn:
         """
         assert RunsOn.UNKNOWN.value == "unknown"
 
-    def test_endpoint_is_representable(self):
-        """The case the feature exists for: a Jamf finding runs on a laptop.
+    def test_there_is_no_endpoint_substrate(self):
+        """A managed endpoint is not a deployment substrate.
 
-        Serving infrastructure off the reporting engine's data plane reports the cloud
-        that hosts the engine instead, which is wrong for every endpoint finding.
+        A laptop is `runs_on=unknown, platform=darwin`; the same laptop running the
+        agent in a container is `runs_on=docker, platform=darwin`. A single ENDPOINT
+        member could express only the first, and keeping it beside `platform` would
+        give a laptop two spellings.
         """
-        assert RunsOn.ENDPOINT.value == "endpoint"
+        assert "ENDPOINT" not in RunsOn.__members__
 
 
 class TestProvenance:
@@ -144,7 +146,7 @@ class TestProvenance:
                     address=SourceAddress(instance="splunk-prod", resource_id="rec-1"),
                 ),
             ],
-            runs_on=RunsOn.ENDPOINT,
+            runs_on=RunsOn.UNKNOWN,
         )
         assert [s.vendor for s in prov.sources] == ["jamf_pro", "splunk"]
         assert prov.sources[0].address.instance == "serial:X"

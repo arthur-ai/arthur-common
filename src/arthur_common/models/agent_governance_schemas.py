@@ -80,17 +80,11 @@ class RunsOn(str, Enum):
     GCP = "gcp"
     DOCKER = "docker"
     KUBERNETES = "kubernetes"
-    ENDPOINT = "endpoint"
-    """DEPRECATED. Use ``UNKNOWN`` with ``Platform.DARWIN`` (or linux/windows).
-
-    Deprecated and will be removed. It conflates the deployment substrate with the
-    device type, so it cannot express an agent in a container on a managed laptop --
-    that is ``runs_on=DOCKER, platform=DARWIN``, and this member forces one of the two
-    answers to be dropped. A laptop with nothing containerised is
-    ``runs_on=UNKNOWN, platform=DARWIN``, where UNKNOWN is the correct answer because
-    no substrate value is true of it.
-    """
-
+    # There is deliberately no ENDPOINT member. A managed endpoint is not a
+    # deployment substrate: a laptop is `runs_on=UNKNOWN, platform=DARWIN`, and the
+    # same laptop running the agent in a container is `runs_on=DOCKER,
+    # platform=DARWIN`. One member for "endpoint" could only express the first, and
+    # having it alongside `platform` would give a laptop two spellings.
     UNKNOWN = "unknown"
     """The sensor cannot tell which substrate, which for a SIEM row is usually
     permanent and for a managed laptop is simply correct -- no cloud value is true of
