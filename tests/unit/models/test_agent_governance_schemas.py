@@ -505,7 +505,7 @@ class TestObservationCapabilities:
         ],
     )
     def test_declared_fields_all_exist_on_the_observation_model(self, category):
-        """A typo in a capability set would silently widen or narrow evidence_level.
+        """A typo in a capability set would silently widen or narrow visibility.
 
         The declaration is only trustworthy if it cannot name a field that does not
         exist, so assert the two stay in step.

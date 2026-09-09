@@ -129,24 +129,45 @@ redeclaring three of its five members.
 """
 
 
-class EvidenceLevel(str, Enum):
-    """How much a source knows about an agent. Strongest to weakest.
+class Detection(str, Enum):
+    """How a source came to know the agent is there.
 
-    Answers "how far should I trust this row", not "how risky is this agent" -- a
-    thinly-evidenced finding can be the most alarming thing on the page.
-
-    Staleness is NOT a member; it is a separate ``is_stale`` flag on the evidence
-    record, so a Traced finding does not stop being Traced when its credential expires.
+    NOT RANKABLE AGAINST VISIBILITY, which is why they are two fields. An earlier
+    single band ordered "traced, inferred, thin" strongest to weakest, which put an
+    osquery-confirmed binary on disk *below* a name lifted from a log field --
+    inverted, because it was sorting two different questions on one scale.
     """
 
-    TRACED = "traced"
-    """Full instrumentation. Spans, tools, sub-agents and models all observed."""
+    OBSERVED = "observed"
+    """Seen directly: a process on a box, a row from a provider's list API, a span.
+
+    Displayed as "Detected". The value says *directly*, since an inference is also a
+    detection.
+    """
 
     INFERRED = "inferred"
-    """Identity derived rather than observed -- e.g. a name lifted from a log field."""
+    """Deduced from indirect evidence -- a name lifted from a proxy log, say."""
 
-    THIN = "thin"
-    """A device and a process, with no behavioural picture. An endpoint's ceiling."""
+    # UNKNOWN, for activity that cannot be tied to any agent, is deferred: those are
+    # the ownerless findings the epic puts out of scope for v1.
+
+
+class Visibility(str, Enum):
+    """How much of the agent the source can actually see.
+
+    Independent of Detection: a certain detection can carry almost no depth, which is
+    the normal case for an endpoint sweep, and is exactly the pairing the old single
+    band could not express.
+
+    Staleness is NOT a member; it is a separate ``is_stale`` flag on the evidence
+    record, so full visibility does not become limited when a credential expires.
+    """
+
+    FULL = "full"
+    """Instrumented: spans, tools, sub-agents and models are all available."""
+
+    LIMITED = "limited"
+    """Identity and a little metadata, with no behavioural picture."""
 
 
 # --- the two halves every finding carries ----------------------------------------
@@ -215,7 +236,7 @@ class AgentObservations(BaseModel):
 
     An absent field means the sensor cannot see it, not that collection failed. That
     promise is kept by each source declaring ``observable_fields()``, which is also
-    what lets evidence_level be computed without a per-vendor branch in consumers.
+    what lets visibility be computed without a per-vendor branch in consumers.
     """
 
     # --- the software on disk -----------------------------------------------------
@@ -293,11 +314,18 @@ class AgentCreationSourceBase(BaseModel):
     SOURCE_CLASS: ClassVar[SourceClass]
     """Where this source observes from. See SourceClass."""
 
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = None
-    """Strongest level this sensor could justify, or None if ungraded.
+    DETECTION: ClassVar[Optional[Detection]] = None
+    """How this class of source knows an agent is there. Fixed, not a ceiling.
 
-    A ceiling, not the answer: the TRACED upgrade needs spans, which the Platform holds
-    and this package does not. Manual tasks have no ceiling -- they are not findings.
+    A list API and an osquery sweep both observe directly; a SIEM infers from a log
+    field. None for manual tasks, which are not findings.
+    """
+
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = None
+    """The most this class of source could ever see, or None if ungraded.
+
+    A ceiling, not the answer: reaching FULL needs spans, which the Platform holds and
+    this package does not.
     """
 
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset()
@@ -314,9 +342,14 @@ class AgentCreationSourceBase(BaseModel):
         return cls.OBSERVABLE_FIELDS
 
     @classmethod
-    def evidence_ceiling(cls) -> Optional[EvidenceLevel]:
-        """See EVIDENCE_CEILING."""
-        return cls.EVIDENCE_CEILING
+    def detection(cls) -> Optional[Detection]:
+        """See DETECTION."""
+        return cls.DETECTION
+
+    @classmethod
+    def visibility_ceiling(cls) -> Optional[Visibility]:
+        """See VISIBILITY_CEILING."""
+        return cls.VISIBILITY_CEILING
 
 
 # --- pre-category sources ---------------------------------------------------------
@@ -350,7 +383,8 @@ class GCPAgentCreationSource(AgentCreationSourceBase):
     model_config = ConfigDict(json_schema_extra={"deprecated": True})
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
     type: Literal["GCP"] = "GCP"
@@ -396,7 +430,8 @@ class OTELAgentCreationSource(AgentCreationSourceBase):
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.OTEL
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.TRACED
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.FULL
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"service_names"})
 
     type: Literal["OTEL"] = "OTEL"
@@ -430,7 +465,6 @@ class ManualAgentCreationSource(AgentCreationSourceBase):
     """A hand-created task. Nothing to address, nothing observed, no evidence to grade."""
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.MANUAL
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = None
 
     type: Literal["MANUAL"] = "MANUAL"
 
@@ -491,7 +525,8 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         # `permissions` is where this category extends next -- action groups, service
         # account scopes -- once a connector is verified to fetch them.
@@ -513,7 +548,8 @@ class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.SIEM
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.INFERRED
+    DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {"host_name", "service_names"},
     )
@@ -558,7 +594,8 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.ENDPOINT
-    EVIDENCE_CEILING: ClassVar[Optional[EvidenceLevel]] = EvidenceLevel.THIN
+    DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             # collector, on disk
@@ -614,12 +651,17 @@ can check membership rather than hard-coding a tag.
 """
 
 
-def evidence_ceiling(source: AgentCreationSource) -> Optional[EvidenceLevel]:
-    """Strongest level this source's sensor class could justify.
+def detection_for(source: AgentCreationSource) -> Optional[Detection]:
+    """How this source knows the agent is there.
 
     Unwraps the RootModel so callers do not have to reach through it.
     """
-    return source.root.EVIDENCE_CEILING
+    return source.root.DETECTION
+
+
+def visibility_ceiling(source: AgentCreationSource) -> Optional[Visibility]:
+    """The most this source's class could ever see."""
+    return source.root.VISIBILITY_CEILING
 
 
 # --- provenance -------------------------------------------------------------------

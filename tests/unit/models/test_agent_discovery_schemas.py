@@ -11,7 +11,7 @@ from arthur_common.models.agent_discovery_schemas import DiscoveryOutputRecord, 
 from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     AgentObservations,
-    EvidenceLevel,
+    Detection,
     LLMModel,
     Provenance,
     ProvenanceSource,
@@ -19,7 +19,9 @@ from arthur_common.models.agent_governance_schemas import (
     SourceAddress,
     SourceClass,
     Tool,
-    evidence_ceiling,
+    Visibility,
+    detection_for,
+    visibility_ceiling,
 )
 
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
@@ -54,29 +56,54 @@ CLOUD_SOURCE = {
 }
 
 
-class TestEvidenceLevel:
-    def test_only_three_levels_ship_in_v1(self):
-        """PARTIAL and UNATTRIBUTED are deliberately absent (UP-4974).
+class TestDetectionAndVisibility:
+    """Two axes, because they answer different questions (UP-4974).
 
-        An earlier six-value band was removed for defining a cross-sensor vocabulary
-        before a second sensor existed to disagree with it. Reviving it for five sensors
-        is justified; reviving all six values is not. PARTIAL names a state THIN and
-        INFERRED already cover, and UNATTRIBUTED describes ownerless findings that the
-        Platform cannot yet hold.
+    An earlier single band ordered "traced, inferred, thin" strongest to weakest,
+    which sorted an osquery-confirmed binary on disk *below* a name lifted from a log
+    field. It was ranking two questions on one scale.
+    """
+
+    def test_the_axes_are_independent(self):
+        """The pairing the single band could not express.
+
+        A certain detection with almost no depth is the normal endpoint case.
         """
-        assert {level.value for level in EvidenceLevel} == {
-            "traced",
-            "inferred",
-            "thin",
-        }
+        assert set(Detection) == {Detection.OBSERVED, Detection.INFERRED}
+        assert set(Visibility) == {Visibility.FULL, Visibility.LIMITED}
 
-    def test_staleness_is_not_a_level(self):
-        """`STALE` was the sixth member of the removed enum, and that was the bug.
+    def test_an_endpoint_finding_is_observed_not_a_weak_signal(self):
+        """The inversion the split fixes.
 
-        Staleness is orthogonal to how well a sensor understood an agent, so it lives on
-        the evidence record as its own flag.
+        osquery seeing a binary is direct observation -- the same detection tier as a
+        span. What it lacks is depth, which is the other axis.
         """
-        assert "STALE" not in EvidenceLevel.__members__
+        endpoint = AgentCreationSource.model_validate(ENDPOINT_SOURCE)
+        otel = AgentCreationSource.model_validate(OTEL_SOURCE)
+        assert detection_for(endpoint) is detection_for(otel) is Detection.OBSERVED
+        assert visibility_ceiling(endpoint) is Visibility.LIMITED
+        assert visibility_ceiling(otel) is Visibility.FULL
+
+    def test_a_siem_finding_is_the_inferred_one(self):
+        """A name lifted from a proxy log is deduced, not seen."""
+        assert detection_for(AgentCreationSource.model_validate(SPLUNK_SOURCE)) is (
+            Detection.INFERRED
+        )
+
+    def test_neither_axis_carries_staleness(self):
+        """`is_stale` is the third independent fact, not a value on either scale."""
+        for axis in (Detection, Visibility):
+            assert "STALE" not in axis.__members__
+
+    def test_confidence_is_not_a_stored_third_axis(self):
+        """It would track detection exactly, so a stored copy could only disagree.
+
+        Nothing moves confidence independently today: staleness is already its own
+        flag, and there is no identity resolution in v1.
+        """
+        from arthur_common.models import agent_governance_schemas
+
+        assert not hasattr(agent_governance_schemas, "Confidence")
 
 
 class TestRunsOn:
@@ -249,43 +276,43 @@ class TestSourceClassDerivation:
             SourceClass.for_creation_source(AgentCreationSource.model_validate(payload))
 
 
-class TestEvidenceCeiling:
+class TestVisibilityCeiling:
     """Each source declares its own ceiling; there is no side table (UP-4974)."""
 
     @pytest.mark.parametrize(
         "payload,expected",
         [
-            (ENDPOINT_SOURCE, EvidenceLevel.THIN),
-            (SPLUNK_SOURCE, EvidenceLevel.INFERRED),
-            (CLOUD_SOURCE, EvidenceLevel.INFERRED),
-            (GCP_SOURCE, EvidenceLevel.INFERRED),
-            (OTEL_SOURCE, EvidenceLevel.TRACED),
+            (ENDPOINT_SOURCE, Visibility.LIMITED),
+            (SPLUNK_SOURCE, Visibility.LIMITED),
+            (CLOUD_SOURCE, Visibility.LIMITED),
+            (GCP_SOURCE, Visibility.LIMITED),
+            (OTEL_SOURCE, Visibility.FULL),
         ],
     )
-    def test_ceiling_per_sensor_class(self, payload, expected):
+    def test_ceiling_per_source_class(self, payload, expected):
         source = AgentCreationSource.model_validate(payload)
-        assert evidence_ceiling(source) is expected
+        assert visibility_ceiling(source) is expected
 
-    def test_endpoint_can_never_claim_traced(self):
-        """An endpoint sensor watches a machine, not a program's behaviour."""
+    def test_an_endpoint_can_never_see_everything(self):
+        """It watches a machine, not a program's behaviour."""
         source = AgentCreationSource.model_validate(ENDPOINT_SOURCE)
-        assert evidence_ceiling(source) is not EvidenceLevel.TRACED
+        assert visibility_ceiling(source) is not Visibility.FULL
 
     def test_manual_tasks_are_ungraded(self):
         """A hand-created task is not a discovery finding and has no evidence."""
         source = AgentCreationSource.model_validate(MANUAL_SOURCE)
-        assert evidence_ceiling(source) is None
+        assert visibility_ceiling(source) is None
+        assert detection_for(source) is None
 
-    def test_ceiling_is_a_ceiling_not_the_answer(self):
-        """The TRACED upgrade needs spans, which this package does not hold.
+    def test_the_ceiling_is_a_ceiling_not_the_answer(self):
+        """Reaching FULL needs spans, which this package does not hold.
 
-        A Cloud finding whose service_names match live traces is TRACED; the same
-        finding with no traces is INFERRED. Consumers cap their telemetry-aware answer
-        at the ceiling rather than reading it as final.
+        A Cloud finding whose service_names match live traces sees everything; the same
+        finding with no traces does not. Consumers cap their telemetry-aware answer at
+        the ceiling rather than reading it as final.
         """
         cloud = AgentCreationSource.model_validate(CLOUD_SOURCE)
-        assert evidence_ceiling(cloud) is EvidenceLevel.INFERRED
-        assert EvidenceLevel.TRACED in set(EvidenceLevel)
+        assert visibility_ceiling(cloud) is Visibility.LIMITED
 
     @pytest.mark.parametrize(
         "payload",
@@ -302,22 +329,20 @@ class TestEvidenceCeiling:
         """The guard that replaced the tag-keyed table.
 
         A side table can hold a tag the union does not have, or miss one it does, and
-        the failure is silent -- an ungraded level or a KeyError in a consumer. Declaring
-        it on the class makes the union and the classification the same thing; this
-        asserts no member forgot.
+        the failure is silent. Read through the documented accessors and assert the
+        class-level and source-level paths agree.
         """
         source = AgentCreationSource.model_validate(payload)
         root = source.root
         assert isinstance(root.SOURCE_CLASS, SourceClass)
 
-        # Read through the documented accessors, not the raw ClassVars, and assert the
-        # two access paths agree. There is a class-level view (for reflecting over the
-        # categories) and a source-level one (for callers holding an
-        # AgentCreationSource); if they could disagree, the level a consumer renders
-        # would depend on which one it happened to reach for.
-        ceiling = root.evidence_ceiling()
-        assert ceiling is None or isinstance(ceiling, EvidenceLevel)
-        assert evidence_ceiling(source) is ceiling
+        ceiling = root.visibility_ceiling()
+        assert ceiling is None or isinstance(ceiling, Visibility)
+        assert visibility_ceiling(source) is ceiling
+
+        detection = root.detection()
+        assert detection is None or isinstance(detection, Detection)
+        assert detection_for(source) is detection
 
         assert root.observable_fields() <= set(AgentObservations.model_fields)
 
@@ -327,24 +352,24 @@ class TestEvidence:
         kwargs: dict = {
             "creation_source": AgentCreationSource.model_validate(source),
             "external_id": "ext-1",
-            "evidence_level": EvidenceLevel.THIN,
+            "visibility": Visibility.LIMITED,
             "last_seen": NOW,
         }
         kwargs.update(overrides)
         return Evidence(**kwargs)  # type: ignore[arg-type]
 
-    def test_staleness_is_independent_of_evidence_level(self):
+    def test_staleness_is_independent_of_visibility(self):
         """The whole reason they are two fields (UP-4974).
 
         A Traced finding must not stop being Traced the moment its credential expires --
         that loses the more important of the two facts.
         """
-        traced = self._evidence(SPLUNK_SOURCE, evidence_level=EvidenceLevel.TRACED)
+        traced = self._evidence(OTEL_SOURCE, visibility=Visibility.FULL)
         assert traced.is_stale is False
 
         expired = traced.model_copy(update={"is_stale": True})
         assert expired.is_stale is True
-        assert expired.evidence_level is EvidenceLevel.TRACED
+        assert expired.visibility is Visibility.FULL
 
     def test_one_agent_holds_evidence_from_two_sensors(self):
         """Two sensors disagree about how much they know and when they last looked.
@@ -354,12 +379,12 @@ class TestEvidence:
         """
         endpoint = self._evidence(
             ENDPOINT_SOURCE,
-            evidence_level=EvidenceLevel.THIN,
+            visibility=Visibility.LIMITED,
             last_seen=NOW,
         )
         splunk = self._evidence(
             SPLUNK_SOURCE,
-            evidence_level=EvidenceLevel.INFERRED,
+            visibility=Visibility.LIMITED,
             last_seen=NOW - timedelta(days=3),
             is_stale=True,
         )
@@ -367,9 +392,9 @@ class TestEvidence:
         evidence = [endpoint, splunk]
         assert {e.creation_source.root.type for e in evidence} == {"ENDPOINT", "SIEM"}
         # each keeps its own answers
-        assert endpoint.evidence_level is EvidenceLevel.THIN
+        assert endpoint.detection is Detection.OBSERVED
         assert endpoint.is_stale is False
-        assert splunk.evidence_level is EvidenceLevel.INFERRED
+        assert splunk.detection is Detection.INFERRED
         assert splunk.is_stale is True
 
     def test_new_this_scan_derives_from_first_seen_and_run(self):
@@ -399,12 +424,12 @@ class TestEvidence:
         with pytest.raises(ValidationError):
             Evidence(
                 creation_source=AgentCreationSource.model_validate(ENDPOINT_SOURCE),
-                evidence_level=EvidenceLevel.THIN,
+                visibility=Visibility.LIMITED,
                 last_seen=NOW,
             )  # type: ignore[call-arg]
 
     def test_round_trips_as_json_with_its_creation_source(self):
-        ev = self._evidence(SPLUNK_SOURCE, evidence_level=EvidenceLevel.INFERRED)
+        ev = self._evidence(SPLUNK_SOURCE, visibility=Visibility.LIMITED)
         assert Evidence.model_validate_json(ev.model_dump_json()) == ev
 
 
@@ -508,7 +533,7 @@ class TestModuleBoundary:
 
     def test_task_facing_types_are_reachable_from_governance(self):
         """What D-09 needs in scope to put provenance on the task response."""
-        for name in ("Provenance", "SourceClass", "RunsOn", "EvidenceLevel"):
+        for name in ("Provenance", "SourceClass", "RunsOn", "Detection", "Visibility"):
             assert hasattr(agent_governance_schemas, name), name
 
     def test_this_module_holds_only_platform_side_types(self):

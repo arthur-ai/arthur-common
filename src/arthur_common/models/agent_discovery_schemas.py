@@ -17,15 +17,16 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     DataSource,
-    EvidenceLevel,
+    Detection,
     LLMModel,
     SubAgent,
     Tool,
+    Visibility,
 )
 
 
@@ -36,6 +37,11 @@ class Evidence(BaseModel):
     is a record rather than a set of fields on the agent: two sensors disagree about how
     much they know, when they last looked, and whether they are still reporting, and
     flattening them would force one of those answers to win arbitrarily.
+
+    Three independent facts, deliberately not one score: how the agent was detected,
+    how much of it is visible, and whether the source is still reporting. ``detection``
+    is derived from the creation source rather than stored, since the source class
+    determines it and a stored copy could disagree.
     """
 
     creation_source: AgentCreationSource = Field(
@@ -46,16 +52,16 @@ class Evidence(BaseModel):
         "identity for the finding. Never re-derived or reconciled across sensors -- "
         "whatever the source returned is what it is.",
     )
-    evidence_level: EvidenceLevel = Field(
-        description="How much this sensor knows. Computed server-side from which "
-        "fields the sensor could actually fill -- see the source category's "
-        "``observable_fields()`` and ``evidence_ceiling()`` -- never a UI heuristic.",
+    visibility: Visibility = Field(
+        description="How much of the agent this sensor can see. Computed server-side "
+        "from which fields it could actually fill -- see the source class's "
+        "``observable_fields()`` and ``visibility_ceiling()`` -- never a UI heuristic.",
     )
     is_stale: bool = Field(
         default=False,
         description="This source has stopped reporting, so the finding describes the "
-        "past. Independent of evidence_level: expiring a credential flips this without "
-        "changing how well the agent was understood while the source was live.",
+        "past. Independent of both other axes: expiring a credential flips this "
+        "without changing how the agent was detected or how well it was understood.",
     )
 
     last_seen: datetime = Field(
@@ -78,6 +84,17 @@ class Evidence(BaseModel):
         description="The Discovery Source behind this evidence. Per-record because two "
         "sources of the same vendor can both report one agent.",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def detection(self) -> Optional[Detection]:
+        """How this sensor knows the agent is there.
+
+        Derived from the creation source, not stored: the source class fixes it, so a
+        stored copy would be a second answer that could disagree. Serialized because it
+        is a column and a filter.
+        """
+        return self.creation_source.root.DETECTION
 
 
 class DiscoveryOutputRecord(BaseModel):
