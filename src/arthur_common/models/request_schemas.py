@@ -198,6 +198,18 @@ class NewRuleRequest(BaseModel):
                     "config": {"threshold": 0.5},
                 },
             },
+            "example10": {
+                "summary": "Prompt Injection Rule on response",
+                "description": "Prompt Injection Rule applied to LLM/tool responses instead of user "
+                "prompts. Useful for detecting injections embedded in tool-call outputs (e.g., web "
+                "fetch results) before they reach the LLM. No configuration required.",
+                "value": {
+                    "name": "Prompt Injection Rule (response)",
+                    "type": "PromptInjectionRule",
+                    "apply_to_prompt": False,
+                    "apply_to_response": True,
+                },
+            },
         },
     )
 
