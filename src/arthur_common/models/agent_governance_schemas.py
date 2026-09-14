@@ -18,7 +18,14 @@ from enum import Enum
 from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    computed_field,
+    model_validator,
+)
 
 from arthur_common.models.response_schemas import RuleResponse
 
@@ -233,6 +240,13 @@ class SourceAddress(BaseModel):
     several namespaces at once. Every cloud and SIEM vendor addresses exactly one kind
     of resource, so the kind is implied by the vendor and stays absent.
 
+    ``scope`` carries two readings this one name does not separate. For a cloud source
+    it addresses the *agent*: us-east-1 and us-west-2 hold different agents, so
+    ``CloudAgentCreationSource`` requires it. For a SIEM it addresses the *sighting*,
+    and one agent may surface under two indexes, so it stays optional there. Code
+    comparing addresses across sources has to read `source_class` to know which it is
+    looking at.
+
     Reused by Provenance rather than re-declared there, so a finding and the task it
     resolves to address the upstream system identically. A vendor needing to address a
     sub-resource -- a Bedrock alias, a Vertex version -- is one more optional field
@@ -246,7 +260,10 @@ class SourceAddress(BaseModel):
     scope: Optional[str] = Field(
         default=None,
         description="Subdivision queried, where the source has one: a cloud region, a "
-        "Splunk index, a Sentinel table, an Elastic data stream.",
+        "Splunk index, a Sentinel table, an Elastic data stream. Optional here because "
+        "endpoints have no subdivision and a SIEM query may span every index, but "
+        "required for CLOUD sources, which enforce it: there the region is part of the "
+        "agent's identity rather than of the query.",
     )
     resource_kind: Optional[str] = Field(
         default=None,
@@ -574,6 +591,28 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
     )
 
     type: Literal["CLOUD"] = "CLOUD"
+
+    @model_validator(mode="after")
+    def _region_is_part_of_the_address(self) -> "CloudAgentCreationSource":
+        """``scope`` is optional on the address but mandatory for this category.
+
+        A cloud agent has no identity without its region -- two regions of one account
+        hold two different agents -- and no provider API can be re-called without it.
+        Leaving it merely optional moved the problem downstream rather than removing
+        it: genai-engine had to paper a missing region over with ``or ""`` to satisfy
+        a legacy response model whose ``region`` is a required str. An empty string is
+        not a region. Reject it at the boundary instead of inventing one three repos
+        away, where the caller can no longer tell an unscanned source from a bug.
+
+        Tightening is free exactly now, while no CLOUD rows are stored. Once they are,
+        this same check fails them on read rather than on write.
+        """
+        if not self.address.scope:
+            raise ValueError(
+                "a CLOUD source must carry its region in address.scope "
+                f"(vendor={self.vendor!r}, instance={self.address.instance!r})",
+            )
+        return self
 
 
 class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
