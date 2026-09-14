@@ -651,6 +651,50 @@ class TestDiscoveryCreationSources:
         )
         assert migrated.SOURCE_CLASS is SourceClass.CLOUD
 
+    def test_a_cloud_source_must_carry_its_region(self):
+        """Region is identity for a cloud agent, not decoration.
+
+        Two regions of one account hold two different agents, and no provider API can
+        be re-called without it. The address type leaves ``scope`` optional because
+        endpoints have no subdivision, so the requirement has to be stated here.
+        """
+        with pytest.raises(ValidationError, match="address.scope"):
+            CloudAgentCreationSource(
+                vendor="aws_bedrock",
+                address=SourceAddress(instance="111122223333", resource_id="AGENT1"),
+            )
+
+    def test_an_empty_string_is_not_a_region(self):
+        """The specific shape the downstream workaround was producing.
+
+        genai-engine read this field into a legacy response whose ``region`` is a
+        required str, so a missing region arrived there as ``or ""``. Rejecting the
+        empty string is what lets that fallback be deleted rather than relocated: a
+        caller can no longer receive an agent claiming to run in region "".
+        """
+        with pytest.raises(ValidationError, match="address.scope"):
+            CloudAgentCreationSource(
+                vendor="aws_bedrock",
+                address=SourceAddress(
+                    instance="111122223333",
+                    resource_id="AGENT1",
+                    scope="",
+                ),
+            )
+
+    def test_a_siem_query_may_span_every_index(self):
+        """The asymmetry is deliberate, so it is asserted rather than assumed.
+
+        For a SIEM, ``scope`` addresses the sighting rather than the agent -- one
+        agent can surface under two indexes -- and a query legitimately spans all of
+        them. Requiring it there would reject a valid search.
+        """
+        src = SIEMAgentCreationSource(
+            vendor="splunk_es",
+            address=SourceAddress(instance="splunk-prod", resource_id="rec-1"),
+        )
+        assert src.address.scope is None
+
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
 
