@@ -24,6 +24,7 @@ from pydantic import (
     Field,
     RootModel,
     computed_field,
+    field_validator,
     model_validator,
 )
 
@@ -254,6 +255,7 @@ class SourceAddress(BaseModel):
     """
 
     instance: str = Field(
+        min_length=1,
         description="Instance that was scanned: an account, project, SIEM workspace or "
         "device. Part of the address, so two instances of one vendor stay distinct.",
     )
@@ -276,10 +278,28 @@ class SourceAddress(BaseModel):
         "vocabulary belongs to the collector's route registry, not to this schema.",
     )
     resource_id: str = Field(
+        min_length=1,
         description="The resource within that instance, in the namespace `resource_kind` "
         "names. For endpoints this is the software, with the device in `instance` -- "
         "the grain is per (software, device).",
     )
+    @field_validator("instance", "resource_id")
+    @classmethod
+    def _identity_must_not_be_blank(cls, value: str) -> str:
+        """Reject an identifier that is only whitespace.
+
+        These two ARE the address -- for an endpoint, `instance` is the device and
+        `resource_id` the software -- and `min_length` alone lets a single space
+        through. A blank half also survives being concatenated into a composite key:
+        `f"{instance}:{resource_id}"` on a blank instance reads as `":openclaw"`, which
+        is not blank, passes every downstream check, and collapses every such device
+        onto one identity. Caught here because here is the only place it is still
+        visibly empty.
+        """
+        if not value.strip():
+            raise ValueError("must contain a non-whitespace character")
+        return value
+
     query: Optional[str] = Field(
         default=None,
         description="Query text that produced this record, so a finding can be "
@@ -607,7 +627,7 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
         Tightening is free exactly now, while no CLOUD rows are stored. Once they are,
         this same check fails them on read rather than on write.
         """
-        if not self.address.scope:
+        if not (self.address.scope or "").strip():
             raise ValueError(
                 "a CLOUD source must carry its region in address.scope "
                 f"(vendor={self.vendor!r}, instance={self.address.instance!r})",
@@ -733,6 +753,27 @@ AgentCreationSourceUnion = Annotated[
 
 class AgentCreationSource(RootModel[AgentCreationSourceUnion]):
     pass
+
+
+# The creation sources a SCAN can report, narrower than the union a task can carry.
+# OTEL and MANUAL are not things a scan finds, and a record claiming to be either would
+# mint a task whose provenance says nobody discovered it; deprecated GCP is not an input
+# anyone should start using.
+#
+# Spelled out rather than validated after the fact so the OpenAPI schema -- and therefore
+# every generated client built from it -- states what it accepts. It also keeps the wide
+# union out of request bodies: `AgentCreationSource` carries computed fields, and FastAPI
+# splits a model that holds it into `-Input`/`-Output` variants, renaming a component that
+# an existing endpoint already returns. A fourth discovery category lands here as one more
+# member.
+DiscoveryCreationSourceUnion = Annotated[
+    Union[
+        CloudAgentCreationSource,
+        SIEMAgentCreationSource,
+        EndpointAgentCreationSource,
+    ],
+    Field(discriminator="type"),
+]
 
 
 DEPRECATED_CREATION_SOURCE_TAGS: frozenset[str] = frozenset({"GCP"})
