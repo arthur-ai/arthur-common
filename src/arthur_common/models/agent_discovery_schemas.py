@@ -17,12 +17,13 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     DataSource,
     Detection,
+    DiscoveryCreationSourceUnion,
     LLMModel,
     SubAgent,
     Tool,
@@ -119,10 +120,11 @@ class DiscoveryOutputRecord(BaseModel):
     """
 
     external_id: str = Field(
+        min_length=1,
         description="Stable identity from the source. Required, and canonical: no "
         "identity resolution runs across sensors in v1.",
     )
-    name: str = Field(description="Human-readable agent name.")
+    name: str = Field(min_length=1, description="Human-readable agent name.")
     last_seen: datetime = Field(
         description="When the source last observed this agent.",
     )
@@ -131,6 +133,25 @@ class DiscoveryOutputRecord(BaseModel):
     tools: Optional[list[Tool]] = Field(default=None)
     sub_agents: Optional[list[SubAgent]] = Field(default=None)
     data_sources: Optional[list[DataSource]] = Field(default=None)
+
+    @field_validator("external_id", "name")
+    @classmethod
+    def _must_not_be_blank(cls, value: str) -> str:
+        """Reject a value that is only whitespace.
+
+        `min_length` alone lets a single space through, and a space is not an identity:
+        two agents whose sources both report one would key to the same mapping and
+        collapse onto one task -- the failure `external_id` exists to prevent, arriving
+        through the backstop meant to stop it. A blank `name` would mint a task that
+        reads as nameless everywhere it is listed.
+
+        The value is returned unchanged rather than stripped: what the source calls the
+        agent is the source's to decide, and silently rewriting a key would make identity
+        depend on this library's idea of trailing space.
+        """
+        if not value.strip():
+            raise ValueError("must contain a non-whitespace character")
+        return value
 
     @classmethod
     def required_columns(cls) -> frozenset[str]:
@@ -150,3 +171,53 @@ class DiscoveryOutputRecord(BaseModel):
         return frozenset(
             name for name, field in cls.model_fields.items() if not field.is_required()
         )
+
+
+# Cap on one resolve request. A scan that finds more than this splits into several calls;
+# the limit exists so a runaway connector cannot hand the engine an unbounded batch, not
+# because any smaller batch is meaningful. Here rather than in the engine so the caller
+# chunking to it and the endpoint enforcing it read the same number.
+MAX_DISCOVERED_RECORDS_PER_REQUEST = 1000
+
+
+class DiscoveredAgentRecord(DiscoveryOutputRecord):
+    """One record from a discovery scan, on its way to becoming a task.
+
+    `DiscoveryOutputRecord` is what a source's QUERY must return; this is what a
+    CONNECTOR hands onward, which is the same columns plus the two things only the
+    connector knows. Modelled as an extension rather than a separate shape because that
+    is the actual relationship, and because the alternative -- putting `creation_source`
+    on the output contract itself -- would make a customer's SPL nominally owe a column
+    no query can produce, and would force `required_columns()` to be hand-listed rather
+    than derived.
+
+    **Column validation runs against `DiscoveryOutputRecord`, never against this.**
+    `required_columns()` is inherited and would answer for this model's fields too, so a
+    validator that reaches for it through a record instance gets the wrong answer.
+    """
+
+    creation_source: DiscoveryCreationSourceUnion = Field(
+        description="The sensor that reported this agent, its upstream address and what "
+        "it observed. Supplied by the connector, never by the source's query.",
+    )
+    task_id: Optional[str] = Field(
+        default=None,
+        description="Existing task to route this record to, when the caller already "
+        "knows it. Optional HERE AND ONLY HERE -- a SIEM does not know Arthur's task "
+        "IDs. Every record still comes back with one.",
+    )
+
+    @property
+    def task_creation_source(self) -> AgentCreationSource:
+        """The creation source in the shape a task stores it."""
+        return AgentCreationSource(root=self.creation_source)
+
+    @property
+    def service_names(self) -> list[str]:
+        """Service names this agent emits telemetry under, if the sensor saw any.
+
+        The link between a discovered agent and traces already arriving, and read off the
+        creation source rather than duplicated as a field of its own so there is one place
+        it can come from.
+        """
+        return list(self.creation_source.observations.service_names)
