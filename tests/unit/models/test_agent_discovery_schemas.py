@@ -244,6 +244,57 @@ class TestProvenanceFromCreationSource:
             assert ProvenanceSource.from_creation_source(source).address is None
 
 
+class TestProvenanceLastSeen:
+    """Each provenance entry carries its record's `last_seen` (UP-5066)."""
+
+    def test_carries_the_records_last_seen(self):
+        """Evidence recency, not when a scan last reported the agent."""
+        record = DiscoveredAgentRecord(
+            external_id="openclaw",
+            name="OpenClaw",
+            last_seen=NOW - timedelta(days=3),
+            creation_source=ENDPOINT_SOURCE,
+        )
+        entry = ProvenanceSource.from_creation_source(
+            record.task_creation_source,
+            source_id=uuid4(),
+            last_seen=record.last_seen,
+        )
+        assert entry.last_seen == NOW - timedelta(days=3)
+
+    def test_defaults_to_none(self):
+        """OTEL, manual and legacy GCP tasks have no discovery record behind them."""
+        for payload in (OTEL_SOURCE, MANUAL_SOURCE, GCP_SOURCE):
+            source = AgentCreationSource.model_validate(payload)
+            assert ProvenanceSource.from_creation_source(source).last_seen is None
+        assert ProvenanceSource(source_class=SourceClass.SIEM).last_seen is None
+
+    def test_each_source_keeps_its_own(self):
+        """Two sensors see one agent at different times."""
+        prov = Provenance(
+            sources=[
+                ProvenanceSource(source_class=SourceClass.ENDPOINT, last_seen=NOW),
+                ProvenanceSource(
+                    source_class=SourceClass.SIEM,
+                    last_seen=NOW - timedelta(days=1),
+                ),
+            ],
+        )
+        assert [s.last_seen for s in prov.sources] == [NOW, NOW - timedelta(days=1)]
+
+    def test_serialized_and_round_trips(self):
+        prov = Provenance(
+            sources=[ProvenanceSource(source_class=SourceClass.SIEM, last_seen=NOW)],
+        )
+        assert "last_seen" in prov.model_dump()["sources"][0]
+        assert Provenance.model_validate_json(prov.model_dump_json()) == prov
+
+    def test_payload_without_it_still_validates(self):
+        """Stored provenance written before the field existed must keep loading."""
+        entry = ProvenanceSource.model_validate({"source_class": "siem"})
+        assert entry.last_seen is None
+
+
 class TestSourceClassDerivation:
     """SourceClass mirrors the category tags so it cannot drift into a second taxonomy."""
 
@@ -643,7 +694,10 @@ class TestDiscoveredAgentRecord:
         """Rung three of the resolution ladder. Read through the creation source rather
         than held as a field of its own, so there is one place it can come from."""
         record = self._record(
-            creation_source={**ENDPOINT_SOURCE, "observations": {"service_names": ["claw"]}},
+            creation_source={
+                **ENDPOINT_SOURCE,
+                "observations": {"service_names": ["claw"]},
+            },
         )
         assert record.service_names == ["claw"]
 
@@ -722,6 +776,10 @@ class TestSourceAddressIdentity:
         """The guard must not have made the valid case unreachable."""
         source = CloudAgentCreationSource(
             vendor="aws_bedrock",
-            address={"instance": "acct", "resource_id": "agent-1", "scope": "us-east-1"},
+            address={
+                "instance": "acct",
+                "resource_id": "agent-1",
+                "scope": "us-east-1",
+            },
         )
         assert source.address.scope == "us-east-1"
