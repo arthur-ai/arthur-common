@@ -16,11 +16,12 @@ from arthur_common.models.agent_discovery_schemas import (
 from arthur_common.models.agent_governance_schemas import (
     DISCOVERY_SOURCE_CLASSES,
     AgentCreationSource,
-    CloudAgentCreationSource,
     AgentObservations,
+    CloudAgentCreationSource,
     Detection,
     DiscoveryCreationSourceUnion,
     LLMModel,
+    Platform,
     Provenance,
     ProvenanceSource,
     RunsOn,
@@ -515,9 +516,16 @@ class TestDiscoveryOutputRecord:
             {"external_id", "name", "last_seen"},
         )
 
-    def test_optional_columns_are_the_enrichment_four(self):
+    def test_optional_columns_are_the_enrichment_four_and_the_location_two(self):
         assert DiscoveryOutputRecord.optional_columns() == frozenset(
-            {"llm_models", "tools", "sub_agents", "data_sources"},
+            {
+                "llm_models",
+                "tools",
+                "sub_agents",
+                "data_sources",
+                "runs_on",
+                "platform",
+            },
         )
 
     def test_column_sets_are_derived_from_the_model_not_hand_listed(self):
@@ -571,8 +579,76 @@ class TestDiscoveryOutputRecord:
             name="agent",
             last_seen=NOW,
             tools=[Tool(name="search")],
+            runs_on=RunsOn.ENDPOINT,
+            platform=Platform.DARWIN,
         )
         assert DiscoveryOutputRecord.model_validate_json(rec.model_dump_json()) == rec
+
+
+class TestDiscoveryOutputRecordLocation:
+    """`runs_on` and `platform`: where the machine is and which OS it runs (UP-4991).
+
+    Without them nothing on the path from a finding to its task can say where the agent
+    runs, so every discovered agent's provenance reads UNKNOWN and a Jamf laptop is
+    indistinguishable from a SIEM row.
+    """
+
+    def _record(self, **overrides: object) -> DiscoveryOutputRecord:
+        fields: dict = {"external_id": "i-0abc", "name": "agent", "last_seen": NOW}
+        fields.update(overrides)
+        return DiscoveryOutputRecord.model_validate(fields)
+
+    def test_absent_when_the_source_says_nothing(self):
+        """None, not UNKNOWN: a record that is silent about location is not a record
+        claiming it cannot tell. Provenance is where UNKNOWN becomes the total answer.
+        """
+        rec = self._record()
+        assert rec.runs_on is None
+        assert rec.platform is None
+
+    def test_a_query_supplies_them_as_plain_strings(self):
+        """A query returns column values, not enum members."""
+        rec = self._record(runs_on="endpoint", platform="darwin")
+        assert rec.runs_on is RunsOn.ENDPOINT
+        assert rec.platform is Platform.DARWIN
+
+    def test_a_source_can_say_it_cannot_tell(self):
+        assert self._record(runs_on="unknown").runs_on is RunsOn.UNKNOWN
+
+    def test_either_can_be_supplied_without_the_other(self):
+        """Neither implies the other: a darwin machine can be a laptop or an EC2 Mac."""
+        assert self._record(platform="darwin").runs_on is None
+        assert self._record(runs_on="aws").platform is None
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("platform", "macos"),
+            ("platform", "macOS"),
+            ("runs_on", "AWS"),
+            ("runs_on", "docker"),
+        ],
+    )
+    def test_a_value_outside_the_vocabulary_is_refused(self, field: str, value: str):
+        """Enumerated on purpose: "macos" for "darwin" would silently break a filter,
+        and `docker` answers a different question than where the machine is. Mapping a
+        vendor's spelling onto these values is the query's or connector's job."""
+        with pytest.raises(ValidationError):
+            self._record(**{field: value})
+
+    def test_serialized_as_their_values(self):
+        dumped = self._record(runs_on=RunsOn.ENDPOINT, platform=Platform.DARWIN)
+        assert dumped.model_dump(mode="json")["runs_on"] == "endpoint"
+        assert dumped.model_dump(mode="json")["platform"] == "darwin"
+
+    def test_a_payload_without_them_still_validates(self):
+        """Records from engines that predate these columns must keep resolving."""
+        payload = {
+            "external_id": "i-0abc",
+            "name": "agent",
+            "last_seen": NOW.isoformat(),
+        }
+        assert DiscoveryOutputRecord.model_validate(payload).runs_on is None
 
 
 class TestModuleBoundary:
@@ -655,6 +731,16 @@ class TestDiscoveredAgentRecord:
         assert "creation_source" in DiscoveredAgentRecord.required_columns()
         assert DiscoveredAgentRecord.required_columns() != (
             DiscoveryOutputRecord.required_columns()
+        )
+
+    def test_a_connector_can_declare_where_the_agent_runs(self):
+        """The Jamf connector knows every finding is on a managed laptop; the record
+        is how that reaches the task instead of the engine's own cloud."""
+        record = self._record(runs_on="endpoint", platform="darwin")
+        assert record.runs_on is RunsOn.ENDPOINT
+        assert record.platform is Platform.DARWIN
+        assert DiscoveredAgentRecord.model_validate_json(record.model_dump_json()) == (
+            record
         )
 
     def test_a_scan_cannot_report_a_source_no_scan_finds(self):
