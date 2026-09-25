@@ -283,6 +283,7 @@ class SourceAddress(BaseModel):
         "names. For endpoints this is the software, with the device in `instance` -- "
         "the grain is per (software, device).",
     )
+
     @field_validator("instance", "resource_id")
     @classmethod
     def _identity_must_not_be_blank(cls, value: str) -> str:
@@ -831,6 +832,15 @@ class ProvenanceSource(BaseModel):
         "carries, so a finding and its task address the system identically. Absent for "
         "OTEL and manual agents.",
     )
+    last_seen: Optional[datetime] = Field(
+        default=None,
+        description="When this source last observed the agent -- the discovered "
+        "record's own `last_seen`, not when a scan last reported it. Evidence recency "
+        "rather than scan recency: a source can keep reporting an agent it has not "
+        "actually seen for weeks. Only ever moves forward, so an out-of-order batch "
+        "cannot make an agent look staler than it is. Absent for OTEL, manual and "
+        "legacy GCP agents, which carry no discovery record.",
+    )
 
     @classmethod
     def from_creation_source(
@@ -838,19 +848,22 @@ class ProvenanceSource(BaseModel):
         source: AgentCreationSource,
         *,
         source_id: Optional[UUID] = None,
+        last_seen: Optional[datetime] = None,
     ) -> "ProvenanceSource":
         """Build an entry from the finding that produced it.
 
         The single place a creation source becomes a provenance entry, so source_class,
         vendor and address cannot be derived one way here and another in a consumer.
-        Only ``source_id`` has to be supplied: it identifies the configured source,
-        which the finding itself does not carry.
+        Only ``source_id`` and ``last_seen`` have to be supplied: they come from the
+        configured source and the discovered record, which the creation source itself
+        does not carry.
         """
         return cls(
             source_class=source.root.SOURCE_CLASS,
             source_id=source_id,
             vendor=source.root.vendor,
             address=source.root.address,
+            last_seen=last_seen,
         )
 
 
