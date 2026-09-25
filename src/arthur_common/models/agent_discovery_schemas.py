@@ -19,6 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
+from arthur_common.models import agent_governance_schemas as governance
 from arthur_common.models.agent_governance_schemas import (
     AgentCreationSource,
     DataSource,
@@ -133,6 +134,23 @@ class DiscoveryOutputRecord(BaseModel):
     tools: Optional[list[Tool]] = Field(default=None)
     sub_agents: Optional[list[SubAgent]] = Field(default=None)
     data_sources: Optional[list[DataSource]] = Field(default=None)
+
+    # Qualified rather than imported by name: RunsOn moved to governance so the task
+    # response could carry it, and a bare name here would re-export it from this module.
+    runs_on: Optional[governance.RunsOn] = Field(
+        default=None,
+        description="Where the machine hosting the agent is, when the source can tell. "
+        "Feeds the task's `provenance.runs_on`. Per finding rather than per vendor, as "
+        "`RunsOn` explains: a managed-endpoint connector always knows the answer, a "
+        "SIEM query over host-enriched data can project it, and one over proxy logs "
+        "cannot. Absent rather than defaulted to UNKNOWN, so a record that says "
+        "nothing about location is told apart from one that says it cannot tell.",
+    )
+    platform: Optional[governance.Platform] = Field(
+        default=None,
+        description="OS the agent runs on, when the source can tell. Feeds the task's "
+        "`provenance.platform`, and is paired with `runs_on` rather than implied by it.",
+    )
 
     @field_validator("external_id", "name")
     @classmethod
