@@ -23,3 +23,7 @@ DEFAULT_TOXICITY_RULE_THRESHOLD = 0.5
 DEFAULT_PII_RULE_CONFIDENCE_SCORE_THRESHOLD = 0
 NEGATIVE_BLOOD_EXAMPLE = "John has O negative blood group"
 HALLUCINATION_RULE_NAME = "Hallucination Rule"
+
+# Header ml-engine sends on every platform request. The platform treats a data
+# plane that omits it as predating dataset consolidation.
+ENGINE_VERSION_HEADER = "X-Arthur-Engine-Version"
