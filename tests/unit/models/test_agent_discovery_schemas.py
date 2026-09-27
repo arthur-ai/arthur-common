@@ -131,10 +131,10 @@ class TestRunsOn:
 
 class TestProvenance:
     def test_sources_accumulate_one_entry_per_sensor(self):
-        """A list of contributions, not scalars beside a list of sensor classes.
+        """A list of contributions, not scalars beside a list of source classes.
 
-        With scalars, an agent corroborated by two sensors has two entries in found_by
-        but one source_id and one address, and nothing says which sensor they describe.
+        With scalars, an agent corroborated by two sources has two entries in found_by
+        but one source_id and one address, and nothing says which source they describe.
         """
         prov = Provenance(
             sources=[
@@ -170,7 +170,7 @@ class TestProvenance:
         ]
 
     def test_found_by_dedupes_while_keeping_first_seen_order(self):
-        """Two Splunk instances are two sources but one sensor class."""
+        """Two Splunk instances are two sources but one source class."""
         prov = Provenance(
             sources=[
                 ProvenanceSource(source_class=SourceClass.SIEM, vendor="splunk"),
@@ -189,7 +189,7 @@ class TestProvenance:
         assert prov.runs_on is RunsOn.UNKNOWN
 
     def test_runs_on_stays_scalar(self):
-        """Where an agent runs is one fact, even when several sensors report it."""
+        """Where an agent runs is one fact, even when several sources report it."""
         assert Provenance.model_fields["runs_on"].annotation is RunsOn
 
     def test_no_flat_infrastructure_or_location_field(self):
@@ -208,7 +208,7 @@ class TestProvenance:
 
 
 class TestProvenanceFromCreationSource:
-    """One place turns a finding into a provenance entry (UP-4974)."""
+    """One place turns a record into a provenance entry (UP-4974)."""
 
     @pytest.mark.parametrize(
         "payload,expected_found_by",
@@ -227,7 +227,7 @@ class TestProvenanceFromCreationSource:
         assert entry.source_class is expected_found_by
 
     def test_carries_the_address_across_unchanged(self):
-        """The finding and the task must address upstream identically."""
+        """The record and the task must address upstream identically."""
         source = AgentCreationSource.model_validate(SPLUNK_SOURCE)
         entry = ProvenanceSource.from_creation_source(source)
         assert entry.address == source.root.address
@@ -271,7 +271,7 @@ class TestProvenanceLastSeen:
         assert ProvenanceSource(source_class=SourceClass.SIEM).last_seen is None
 
     def test_each_source_keeps_its_own(self):
-        """Two sensors see one agent at different times."""
+        """Two sources see one agent at different times."""
         prov = Provenance(
             sources=[
                 ProvenanceSource(source_class=SourceClass.ENDPOINT, last_seen=NOW),
@@ -355,7 +355,7 @@ class TestVisibilityCeiling:
         assert visibility_ceiling(source) is not Visibility.FULL
 
     def test_manual_tasks_are_ungraded(self):
-        """A hand-created task is not a discovery finding and has no evidence."""
+        """A hand-created task is not a discovery record and has no evidence."""
         source = AgentCreationSource.model_validate(MANUAL_SOURCE)
         assert visibility_ceiling(source) is None
         assert detection_for(source) is None
@@ -363,8 +363,8 @@ class TestVisibilityCeiling:
     def test_the_ceiling_is_a_ceiling_not_the_answer(self):
         """Reaching FULL needs spans, which this package does not hold.
 
-        A Cloud finding whose service_names match live traces sees everything; the same
-        finding with no traces does not. Consumers cap their telemetry-aware answer at
+        A Cloud record whose service_names match live traces sees everything; the same
+        record with no traces does not. Consumers cap their telemetry-aware answer at
         the ceiling rather than reading it as final.
         """
         cloud = AgentCreationSource.model_validate(CLOUD_SOURCE)
@@ -428,7 +428,7 @@ class TestEvidence:
     def test_going_stale_does_not_change_the_other_axes(self):
         """The property the old flag was protecting, preserved by the timestamp.
 
-        A fully visible finding stays fully visible when its source stops reporting;
+        A fully visible record stays fully visible when its source stops reporting;
         only last_scanned falls behind.
         """
         fresh = self._evidence(
@@ -444,7 +444,7 @@ class TestEvidence:
         assert gone_quiet.last_scanned < fresh.last_scanned
 
     def test_one_agent_holds_evidence_from_two_sensors(self):
-        """Two sensors disagree about how much they know and when they last looked.
+        """Two sources disagree about how much they know and when they last looked.
 
         Flattening them onto the agent would force one of those answers to win
         arbitrarily, which is what a singular creation_source did.
@@ -483,7 +483,7 @@ class TestEvidence:
         assert "status" not in Evidence.model_fields
 
     def test_first_seen_is_per_sensor_not_per_agent(self):
-        """A finding can be new to one source and months old to another."""
+        """A record can be new to one source and months old to another."""
         endpoint = self._evidence(
             ENDPOINT_SOURCE,
             first_seen=NOW - timedelta(days=200),
@@ -588,7 +588,7 @@ class TestDiscoveryOutputRecord:
 class TestDiscoveryOutputRecordLocation:
     """`runs_on` and `platform`: where the machine is and which OS it runs (UP-4991).
 
-    Without them nothing on the path from a finding to its task can say where the agent
+    Without them nothing on the path from a record to its task can say where the agent
     runs, so every discovered agent's provenance reads UNKNOWN and a Jamf laptop is
     indistinguishable from a SIEM row.
     """
@@ -734,7 +734,7 @@ class TestDiscoveredAgentRecord:
         )
 
     def test_a_connector_can_declare_where_the_agent_runs(self):
-        """The Jamf connector knows every finding is on a managed laptop; the record
+        """The Jamf connector knows every record is on a managed laptop; the record
         is how that reaches the task instead of the engine's own cloud."""
         record = self._record(runs_on="endpoint", platform="darwin")
         assert record.runs_on is RunsOn.ENDPOINT
@@ -834,7 +834,7 @@ class TestSourceAddressIdentity:
     def test_a_blank_half_survives_concatenation_which_is_why_it_is_caught_here(self):
         """The reason this is worth a validator rather than a downstream check.
 
-        The endpoint connector keys findings `f"{instance}:{resource_id}"`. On a blank
+        The endpoint connector keys records `f"{instance}:{resource_id}"`. On a blank
         instance that reads as ":openclaw" -- not blank, so every later guard passes,
         while every device with an unreadable id collapses onto one identity. Here is
         the last place the emptiness is still visible.
