@@ -204,7 +204,7 @@ class Visibility(str, Enum):
     """How much of the agent the source can actually see.
 
     Independent of Detection: a certain detection can carry almost no depth, which is
-    the normal case for an endpoint sweep, and is exactly the pairing the old single
+    the normal case for an endpoint scan, and is exactly the pairing the old single
     band could not express.
 
     Staleness is NOT a member; it is a separate ``is_stale`` flag on the evidence
@@ -395,7 +395,7 @@ class AgentCreationSourceBase(BaseModel):
     DETECTION: ClassVar[Optional[Detection]] = None
     """How this class of source knows an agent is there. Fixed, not a ceiling.
 
-    A list API and an osquery sweep both observe directly; a SIEM infers from a log
+    A list API and an osquery scan both observe directly; a SIEM infers from a log
     field. None for manual tasks, which are not records.
     """
 
@@ -703,7 +703,7 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     ``scan`` rows must never arrive: that kind marks a branch that could not look, not
     an agent that was found.
 
-    A one-shot sweep sees the machine, not behaviour over time. Anything needing
+    A one-shot scan sees the machine, not behaviour over time. Anything needing
     persistent event capture -- outbound destinations, connection counts -- is out of
     reach until osqueryd runs with the audit subsystem, which would put code signing,
     notarization and PPPC on the critical path.
