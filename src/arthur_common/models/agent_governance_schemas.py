@@ -1,12 +1,12 @@
 """Schemas for agent task governance: what a task is and how it was found.
 
 Tools and sub-agents, the creation-source union (how an agent came to be known --
-self-instrumented, hand-created, or discovered by one of three sensor categories),
+self-instrumented, hand-created, or discovered by one of three source categories),
 provenance (where it was found and what it runs on), and the enriched task responses
 built from them.
 
 Everything the *task* carries lives here. What the Platform computes on top -- the
-per-sensor evidence record and the connector output contract -- is in
+per-source evidence record and the connector output contract -- is in
 agent_discovery_schemas, which imports from this module and is never imported by it.
 
 Shared across app_plane, ML Engine and GenAI Engine, and backing the
@@ -79,7 +79,7 @@ class DataSource(BaseModel):
 class RunsOn(str, Enum):
     """Where the machine hosting a discovered agent is. ONE AXIS: location.
 
-    Lives on Provenance rather than being derived from the source type: a Jamf finding
+    Lives on Provenance rather than being derived from the source type: a Jamf record
     runs on a laptop, not on the cloud hosting the engine that reported it.
 
     Deliberately NOT a place for `docker` or `kubernetes`. Those answer a different
@@ -92,7 +92,7 @@ class RunsOn(str, Enum):
     runs. If the packaging axis starts mattering, it wants its own field.
 
     ``on_prem`` is the natural next member on this axis and is left out only because
-    nothing in v1 can fill it: on-prem findings arrive through a SIEM, which cannot see
+    nothing in v1 can fill it: on-prem records arrive through a SIEM, which cannot see
     the machine, so UNKNOWN is already the honest answer there.
     """
 
@@ -108,13 +108,13 @@ class RunsOn(str, Enum):
     """
 
     UNKNOWN = "unknown"
-    """The sensor cannot tell where the machine is.
+    """The source cannot tell where the machine is.
 
     The default, because absence of evidence is the safe assumption. NOT a property of
     any source class: a SIEM query over proxy logs cannot say where the machine is, but
     one over host-enriched data can -- ECS carries ``cloud.provider`` and Sentinel's
     Heartbeat table carries ``ComputerEnvironment``. Which applies depends on what the
-    customer indexes and projects, so this is per finding rather than per vendor.
+    customer indexes and projects, so this is per record rather than per vendor.
 
     An explicit member rather than a null, so consumers have something total to switch
     on instead of failing on an unmapped value.
@@ -161,7 +161,7 @@ class SourceClass(str, Enum):
 
     @classmethod
     def for_creation_source(cls, source: "AgentCreationSource") -> "SourceClass":
-        """Read the source class off the finding itself."""
+        """Read the source class off the record itself."""
         return source.root.SOURCE_CLASS
 
 
@@ -197,14 +197,14 @@ class Detection(str, Enum):
     """Deduced from indirect evidence -- a name lifted from a proxy log, say."""
 
     # UNKNOWN, for activity that cannot be tied to any agent, is deferred: those are
-    # the ownerless findings the epic puts out of scope for v1.
+    # the ownerless records the epic puts out of scope for v1.
 
 
 class Visibility(str, Enum):
     """How much of the agent the source can actually see.
 
     Independent of Detection: a certain detection can carry almost no depth, which is
-    the normal case for an endpoint sweep, and is exactly the pairing the old single
+    the normal case for an endpoint scan, and is exactly the pairing the old single
     band could not express.
 
     Staleness is NOT a member; it is a separate ``is_stale`` flag on the evidence
@@ -218,16 +218,16 @@ class Visibility(str, Enum):
     """Identity and a little metadata, with no behavioural picture."""
 
 
-# --- the two halves every finding carries ----------------------------------------
+# --- the two halves every record carries ----------------------------------------
 
 
 class SourceAddress(BaseModel):
     """How to find a discovered agent again in the system that reported it.
 
-    One shape for every sensor, widest to narrowest:
+    One shape for every source, widest to narrowest:
 
     ==============  ================  ==================  ==========  ============
-    sensor          instance          scope               kind        resource_id
+    source          instance          scope               kind        resource_id
     ==============  ================  ==================  ==========  ============
     Bedrock         AWS account       region              --          agent id
     Vertex          GCP project       region              --          engine id
@@ -237,7 +237,7 @@ class SourceAddress(BaseModel):
     Jamf / osquery  device key        --                  npm, app…   software key
     ==============  ================  ==================  ==========  ============
 
-    Only endpoints fill ``resource_kind``: they are the one sensor whose ids come from
+    Only endpoints fill ``resource_kind``: they are the one source whose ids come from
     several namespaces at once. Every cloud and SIEM vendor addresses exactly one kind
     of resource, so the kind is implied by the vendor and stays absent.
 
@@ -248,7 +248,7 @@ class SourceAddress(BaseModel):
     comparing addresses across sources has to read `source_class` to know which it is
     looking at.
 
-    Reused by Provenance rather than re-declared there, so a finding and the task it
+    Reused by Provenance rather than re-declared there, so a record and the task it
     resolves to address the upstream system identically. A vendor needing to address a
     sub-resource -- a Bedrock alias, a Vertex version -- is one more optional field
     here, not a new shape.
@@ -303,16 +303,16 @@ class SourceAddress(BaseModel):
 
     query: Optional[str] = Field(
         default=None,
-        description="Query text that produced this record, so a finding can be "
+        description="Query text that produced this record, so it can be "
         "explained and reproduced. Absent for sources that are enumerated rather than "
         "searched. Never parsed here -- only the output columns are contracted.",
     )
 
 
 class AgentObservations(BaseModel):
-    """What a sensor could see about an agent. Shared across categories, all optional.
+    """What a source could see about an agent. Shared across categories, all optional.
 
-    An absent field means the sensor cannot see it, not that collection failed. That
+    An absent field means the source cannot see it, not that collection failed. That
     promise is kept by each source declaring ``observable_fields()``, which is also
     what lets visibility be computed without a per-vendor branch in consumers.
     """
@@ -347,7 +347,7 @@ class AgentObservations(BaseModel):
     assigned_user: Optional[str] = Field(
         default=None,
         description="User the source attributes the host to. PERSONAL DATA: this is "
-        "the field that makes a finding attributable to an individual, and is subject "
+        "the field that makes a record attributable to an individual, and is subject "
         "to works-council and DPIA review before EU deployment. Omit it where that "
         "review has not happened.",
     )
@@ -395,8 +395,8 @@ class AgentCreationSourceBase(BaseModel):
     DETECTION: ClassVar[Optional[Detection]] = None
     """How this class of source knows an agent is there. Fixed, not a ceiling.
 
-    A list API and an osquery sweep both observe directly; a SIEM infers from a log
-    field. None for manual tasks, which are not findings.
+    A list API and an osquery scan both observe directly; a SIEM infers from a log
+    field. None for manual tasks, which are not records.
     """
 
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = None
@@ -433,7 +433,7 @@ class AgentCreationSourceBase(BaseModel):
 # --- pre-category sources ---------------------------------------------------------
 #
 # OTEL and MANUAL are permanent: a self-instrumented agent and a hand-created task are
-# not discovery findings. GCP is deprecated -- see its docstring.
+# not discovery records. GCP is deprecated -- see its docstring.
 #
 # All three expose `address` and `observations` as computed fields, not plain
 # properties, so they reach the OpenAPI serialization schema and therefore the
@@ -443,7 +443,7 @@ class AgentCreationSourceBase(BaseModel):
 class GCPAgentCreationSource(AgentCreationSourceBase):
     """DEPRECATED. Use ``CloudAgentCreationSource`` with ``cloud=gcp_vertex``.
 
-    Deprecated and to be removed. A Vertex finding is a cloud finding, and nothing
+    Deprecated and to be removed. A Vertex record is a cloud record, and nothing
     about GCP warrants its own union member now that Cloud exists.
 
     It cannot go yet because ``tasks_repository.find_by_gcp_engine_id`` reads
@@ -590,7 +590,7 @@ class DiscoveryAgentCreationSource(AgentCreationSourceBase):
     )
     observations: AgentObservations = Field(
         default_factory=AgentObservations,
-        description="What the sensor could see. Only fields in `observable_fields()` "
+        description="What the source could see. Only fields in `observable_fields()` "
         "are ever populated by this category.",
     )
 
@@ -662,7 +662,7 @@ class SIEMAgentCreationSource(DiscoveryAgentCreationSource):
     It stops being fixed per class if an inventory feed is ever queried -- Defender for
     Endpoint through Sentinel, or Elastic Agent data -- because that record was
     directly observed and merely transported by the SIEM. At that point detection
-    becomes per finding, and this ClassVar becomes a ceiling like the two below.
+    becomes per record, and this ClassVar becomes a ceiling like the two below.
     """
 
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
@@ -697,13 +697,13 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     ========  =============================================
 
     ``extra`` means a different thing per kind (browser type, image size, deb arch,
-    unit state, listening address) and a field here means one thing for every sensor.
+    unit state, listening address) and a field here means one thing for every source.
     The listening address is the one value in it worth its own field eventually.
 
     ``scan`` rows must never arrive: that kind marks a branch that could not look, not
     an agent that was found.
 
-    A one-shot sweep sees the machine, not behaviour over time. Anything needing
+    A one-shot scan sees the machine, not behaviour over time. Anything needing
     persistent event capture -- outbound destinations, connection counts -- is out of
     reach until osqueryd runs with the audit subsystem, which would put code signing,
     notarization and PPPC on the critical path.
@@ -805,11 +805,11 @@ def visibility_ceiling(source: AgentCreationSource) -> Optional[Visibility]:
 
 
 class ProvenanceSource(BaseModel):
-    """One sensor's contribution to a task's provenance.
+    """One source's contribution to a task's provenance.
 
-    Provenance holds a list of these rather than scalars beside a list of sensor
-    classes: with scalars, an agent corroborated by two sensors has two entries in
-    found_by but one address, and nothing says which sensor it belongs to.
+    Provenance holds a list of these rather than scalars beside a list of source
+    classes: with scalars, an agent corroborated by two sources has two entries in
+    found_by but one address, and nothing says which source it belongs to.
     """
 
     source_class: SourceClass = Field(
@@ -823,13 +823,13 @@ class ProvenanceSource(BaseModel):
     vendor: Optional[str] = Field(
         default=None,
         description="Upstream product behind this contribution, e.g. "
-        "'splunk_enterprise'. Same value and same registry as the finding's `vendor`. "
+        "'splunk_enterprise'. Same value and same registry as the record's `vendor`. "
         "Absent for OTEL and manual agents, which have no upstream product.",
     )
     address: Optional[SourceAddress] = Field(
         default=None,
         description="Where upstream this came from -- the same type the creation source "
-        "carries, so a finding and its task address the system identically. Absent for "
+        "carries, so a record and its task address the system identically. Absent for "
         "OTEL and manual agents.",
     )
     last_seen: Optional[datetime] = Field(
@@ -850,7 +850,7 @@ class ProvenanceSource(BaseModel):
         source_id: Optional[UUID] = None,
         last_seen: Optional[datetime] = None,
     ) -> "ProvenanceSource":
-        """Build an entry from the finding that produced it.
+        """Build an entry from the record that produced it.
 
         The single place a creation source becomes a provenance entry, so source_class,
         vendor and address cannot be derived one way here and another in a consumer.
@@ -877,13 +877,13 @@ class Provenance(BaseModel):
 
     sources: list[ProvenanceSource] = Field(
         min_length=1,
-        description="Every sensor that has reported this agent, one entry each. Grows "
-        "as sensors corroborate.",
+        description="Every source that has reported this agent, one entry each. Grows "
+        "as sources corroborate.",
     )
     runs_on: RunsOn = Field(
         default=RunsOn.UNKNOWN,
         description="Deployment substrate the agent runs on. Scalar, unlike sources: "
-        "where an agent runs is one fact even when several sensors report it, and the "
+        "where an agent runs is one fact even when several sources report it, and the "
         "more specific answer wins. Defaults to UNKNOWN, which for a SIEM row is "
         "usually the honest answer and for a managed laptop is simply correct.",
     )

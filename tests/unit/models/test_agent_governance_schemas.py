@@ -350,7 +350,7 @@ BEDROCK_ADDRESS = SourceAddress(
 
 
 class TestSourceAddress:
-    """One address shape for every sensor (UP-4974)."""
+    """One address shape for every source (UP-4974)."""
 
     def test_resource_kind_disambiguates_the_identity_namespace(self):
         """Without it, endpoint resource_ids are strings from colliding namespaces.
@@ -391,7 +391,7 @@ class TestSourceAddress:
         """Grain is per (software, device): the device is the instance.
 
         The Discovery list shows a row per machine, so the device is part of the
-        finding's identity rather than a count attached to it.
+        record's identity rather than a count attached to it.
         """
         assert ENDPOINT_ADDRESS.instance.startswith("serial:")
         assert ENDPOINT_ADDRESS.resource_id == "openclaw"
@@ -408,7 +408,7 @@ class TestSourceAddress:
         assert BEDROCK_ADDRESS.query is None
 
     def test_instance_and_resource_are_required(self):
-        """Without both, a finding cannot be located again upstream."""
+        """Without both, a record cannot be located again upstream."""
         with pytest.raises(ValidationError):
             SourceAddress(instance="only-half")  # type: ignore[call-arg]
 
@@ -425,7 +425,7 @@ class TestObservationCapabilities:
     def test_endpoint_sees_declared_permissions(self):
         """The collector's `perms` column, carried as a cross-category observation.
 
-        Only browser extensions declare them, so most endpoint findings leave it empty
+        Only browser extensions declare them, so most endpoint records leave it empty
         -- the third level of the same ceiling idea, below category and vendor.
         """
         assert "permissions" in EndpointAgentCreationSource.observable_fields()
@@ -451,7 +451,7 @@ class TestObservationCapabilities:
 
         Browser type, image size, deb arch, unit state, listening address. The
         listening address is the one worth its own field eventually -- 0.0.0.0 is a
-        materially different finding from 127.0.0.1.
+        materially different record from 127.0.0.1.
         """
         for absent in ("extra", "browser_type", "listen_address"):
             assert absent not in AgentObservations.model_fields
@@ -466,7 +466,7 @@ class TestObservationCapabilities:
         """Every field must be fillable by at least one source.
 
         A field no source declares would be permanently null, which reads as "not
-        collected yet" rather than "this sensor cannot see it" -- the ambiguity the
+        collected yet" rather than "this source cannot see it" -- the ambiguity the
         declaration exists to remove. Asserted as a set equality rather than against a
         list of known-bad names, so it catches the next one too.
         """
@@ -533,7 +533,7 @@ class TestObservationCapabilities:
         """The property that makes the contract extensible.
 
         A vendor is a string validated against app_plane's catalog, so a new endpoint
-        sensor inherits what the class can see without a schema change here -- no enum
+        source inherits what the class can see without a schema change here -- no enum
         member, no client regeneration, no grading branch. The declaration is a
         CEILING: a deployment with no MDM behind it reaches less than one with Jamf,
         and narrowing that is an instance-level concern, not a reason to fork the class.
@@ -570,11 +570,11 @@ class TestDiscoveryCreationSources:
         assert src.observations.version == "0.4.1"
 
     def test_a_finding_with_no_mdm_record_still_validates(self):
-        """The collector's output alone is a valid finding.
+        """The collector's output alone is a valid record.
 
         An endpoint deployment with no MDM behind it gets install_path and version but
         no device record, so the host and user fields stay empty. That is the ceiling
-        being a ceiling, not a malformed finding.
+        being a ceiling, not a malformed record.
         """
         src = EndpointAgentCreationSource(
             vendor="osquery",
@@ -586,7 +586,7 @@ class TestDiscoveryCreationSources:
         assert src.observations.assigned_user is None
 
     def test_uncatalogued_software_still_renders(self):
-        """Absent classification is a finding in its own right."""
+        """Absent classification is a record in its own right."""
         src = EndpointAgentCreationSource(
             vendor="jamf_pro",
             address=ENDPOINT_ADDRESS,
@@ -764,7 +764,7 @@ class TestPersonalData:
     def test_assigned_user_is_declared_once(self):
         """PII lives in one place so the DPIA obligation travels with the field.
 
-        A per-vendor model would carry a copy per endpoint sensor, with a separate
+        A per-vendor model would carry a copy per endpoint source, with a separate
         docstring to keep in step.
         """
         assert "assigned_user" in AgentObservations.model_fields
@@ -837,7 +837,7 @@ class TestUniformReadAccess:
     def test_every_member_exposes_vendor(self, payload):
         """So `from_creation_source` derives it rather than being handed it.
 
-        A vendor passed in by hand is a vendor that can disagree with the finding.
+        A vendor passed in by hand is a vendor that can disagree with the record.
         """
         root = AgentCreationSource.model_validate(payload).root
         vendor = root.vendor
@@ -1126,7 +1126,7 @@ class TestSiemHostEnrichment:
         """The contract must not encode "SIEMs cannot know this".
 
         What a SIEM reaches depends on what the customer indexes, so gating these on
-        the source class would make a correct finding unrepresentable.
+        the source class would make a correct record unrepresentable.
         """
         for source_class in SourceClass:
             prov = Provenance(

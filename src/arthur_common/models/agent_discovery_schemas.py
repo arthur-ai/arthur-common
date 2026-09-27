@@ -1,12 +1,12 @@
 """What the Platform computes and serves for a discovered agent.
 
 THIS MODULE IS A LEAF, deliberately. Anything the *task* carries -- the creation-source
-union, provenance, and the vocabulary for grading a sensor -- lives in
+union, provenance, and the vocabulary for grading a source -- lives in
 agent_governance_schemas, because the task response models are there and would
 otherwise have to import back from here. D-09 puts `provenance` on the task response;
 that only works if provenance sits beside the models it is going on.
 
-What is left here is the half the Platform owns and no engine reads: the per-sensor
+What is left here is the half the Platform owns and no engine reads: the per-source
 evidence record app_plane computes, and the output contract a connector's query must
 satisfy.
 
@@ -33,10 +33,10 @@ from arthur_common.models.agent_governance_schemas import (
 
 
 class Evidence(BaseModel):
-    """One sensor's report of one agent.
+    """One source's report of one agent.
 
-    An agent can hold SEVERAL of these, from different sensors, which is why evidence
-    is a record rather than a set of fields on the agent: two sensors disagree about how
+    An agent can hold SEVERAL of these, from different sources, which is why evidence
+    is a record rather than a set of fields on the agent: two sources disagree about how
     much they know, when they last looked, and whether they are still reporting, and
     flattening them would force one of those answers to win arbitrarily.
 
@@ -56,15 +56,15 @@ class Evidence(BaseModel):
     """
 
     creation_source: AgentCreationSource = Field(
-        description="The reporting sensor, its upstream address and what it observed.",
+        description="The reporting source, its upstream address and what it observed.",
     )
     external_id: str = Field(
         description="The source's own identifier for this agent, and the canonical "
-        "identity for the finding. Never re-derived or reconciled across sensors -- "
+        "identity for the record. Never re-derived or reconciled across sources -- "
         "whatever the source returned is what it is.",
     )
     visibility: Visibility = Field(
-        description="How much of the agent this sensor can see. Computed server-side "
+        description="How much of the agent this source can see. Computed server-side "
         "from which fields it could actually fill -- see the source class's "
         "``observable_fields()`` and ``visibility_ceiling()`` -- never a UI heuristic.",
     )
@@ -82,8 +82,8 @@ class Evidence(BaseModel):
     )
     first_seen: Optional[datetime] = Field(
         default=None,
-        description="When this sensor first reported it. Per-sensor rather than "
-        "per-agent: a finding can be new to a Splunk source and months old to the "
+        description="When this source first reported it. Per-source rather than "
+        "per-agent: a record can be new to a Splunk source and months old to the "
         "endpoint one.",
     )
     discovered_in_run: Optional[UUID] = Field(
@@ -101,7 +101,7 @@ class Evidence(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def detection(self) -> Optional[Detection]:
-        """How this sensor knows the agent is there.
+        """How this source knows the agent is there.
 
         Derived from the creation source, not stored: the source class fixes it, so a
         stored copy would be a second answer that could disagree. Serialized because it
@@ -117,13 +117,13 @@ class DiscoveryOutputRecord(BaseModel):
     validated -- only that what it returns has these columns. The optional columns are
     populated only where the source can genuinely supply them, and stay absent
     otherwise: an always-null column reads as "not collected yet" rather than "this
-    sensor cannot see it", which is the distinction the whole evidence model rests on.
+    source cannot see it", which is the distinction the whole evidence model rests on.
     """
 
     external_id: str = Field(
         min_length=1,
         description="Stable identity from the source. Required, and canonical: no "
-        "identity resolution runs across sensors in v1.",
+        "identity resolution runs across sources in v1.",
     )
     name: str = Field(min_length=1, description="Human-readable agent name.")
     last_seen: datetime = Field(
@@ -140,7 +140,7 @@ class DiscoveryOutputRecord(BaseModel):
     runs_on: Optional[governance.RunsOn] = Field(
         default=None,
         description="Where the machine hosting the agent is, when the source can tell. "
-        "Feeds the task's `provenance.runs_on`. Per finding rather than per vendor, as "
+        "Feeds the task's `provenance.runs_on`. Per record rather than per vendor, as "
         "`RunsOn` explains: a managed-endpoint connector always knows the answer, a "
         "SIEM query over host-enriched data can project it, and one over proxy logs "
         "cannot. Absent rather than defaulted to UNKNOWN, so a record that says "
@@ -215,7 +215,7 @@ class DiscoveredAgentRecord(DiscoveryOutputRecord):
     """
 
     creation_source: DiscoveryCreationSourceUnion = Field(
-        description="The sensor that reported this agent, its upstream address and what "
+        description="The source that reported this agent, its upstream address and what "
         "it observed. Supplied by the connector, never by the source's query.",
     )
     task_id: Optional[str] = Field(
@@ -232,7 +232,7 @@ class DiscoveredAgentRecord(DiscoveryOutputRecord):
 
     @property
     def service_names(self) -> list[str]:
-        """Service names this agent emits telemetry under, if the sensor saw any.
+        """Service names this agent emits telemetry under, if the source saw any.
 
         The link between a discovered agent and traces already arriving, and read off the
         creation source rather than duplicated as a field of its own so there is one place
