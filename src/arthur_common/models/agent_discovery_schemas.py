@@ -82,15 +82,18 @@ class Evidence(BaseModel):
     )
     first_seen: Optional[datetime] = Field(
         default=None,
-        description="When this source first reported it. Per-source rather than "
-        "per-agent: a record can be new to a Splunk source and months old to the "
-        "endpoint one.",
+        description="The earliest time this source reported seeing it: the earliest "
+        "`last_seen` the source has reported. Derived by the Platform as reports "
+        "arrive and never moved forward; a value sent in a request is ignored. "
+        "Per-source rather than per-agent: a record can be new to a Splunk source "
+        "and months old to the endpoint one.",
     )
     discovered_in_run: Optional[UUID] = Field(
         default=None,
-        description="The scan run that produced this evidence. With first_seen this is "
-        "what 'new this scan' derives from -- there is deliberately no 'new' status "
-        "field to fall out of date.",
+        description="The scan run that produced this evidence. Meant to be what 'new "
+        "this scan' derives from -- there is deliberately no 'new' status field to "
+        "fall out of date. `first_seen` cannot serve for it: it is the source's own "
+        "sighting, which can predate the scan that first reported the record.",
     )
     source_id: Optional[UUID] = Field(
         default=None,
