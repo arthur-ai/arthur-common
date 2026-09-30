@@ -841,6 +841,22 @@ class ProvenanceSource(BaseModel):
         "cannot make an agent look staler than it is. Absent for OTEL, manual and "
         "legacy GCP agents, which carry no discovery record.",
     )
+    external_id: Optional[str] = Field(
+        default=None,
+        description="The source's own identifier for the record behind this entry -- "
+        "the record's `external_id`, canonical and never reconciled across sources. "
+        "With `source_id` it names exactly one record, which is what a consumer keys "
+        "that record's evidence on. Absent for OTEL, manual and legacy GCP agents, "
+        "which carry no discovery record, and from producers that predate it.",
+    )
+    last_scanned: Optional[datetime] = Field(
+        default=None,
+        description="When a scan of this source last reported the record: scan "
+        "recency on the reporting engine's clock, where `last_seen` is evidence "
+        "recency on the source's. The same fact as `Evidence.last_scanned`, which "
+        "staleness is derived from. Absent for OTEL, manual and legacy GCP agents, "
+        "and from producers that predate it.",
+    )
 
     @classmethod
     def from_creation_source(
@@ -849,14 +865,16 @@ class ProvenanceSource(BaseModel):
         *,
         source_id: Optional[UUID] = None,
         last_seen: Optional[datetime] = None,
+        external_id: Optional[str] = None,
+        last_scanned: Optional[datetime] = None,
     ) -> "ProvenanceSource":
         """Build an entry from the record that produced it.
 
         The single place a creation source becomes a provenance entry, so source_class,
         vendor and address cannot be derived one way here and another in a consumer.
-        Only ``source_id`` and ``last_seen`` have to be supplied: they come from the
-        configured source and the discovered record, which the creation source itself
-        does not carry.
+        The keyword arguments are what the creation source itself does not carry: the
+        configured source, the discovered record's identifier and sighting, and when a
+        scan last reported it.
         """
         return cls(
             source_class=source.root.SOURCE_CLASS,
@@ -864,6 +882,8 @@ class ProvenanceSource(BaseModel):
             vendor=source.root.vendor,
             address=source.root.address,
             last_seen=last_seen,
+            external_id=external_id,
+            last_scanned=last_scanned,
         )
 
 

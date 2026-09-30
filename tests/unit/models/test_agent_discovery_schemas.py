@@ -296,6 +296,75 @@ class TestProvenanceLastSeen:
         assert entry.last_seen is None
 
 
+class TestProvenanceRecordIdentity:
+    """Each provenance entry names its record and when a scan last reported it, so a
+    consumer can key that record's evidence and judge its staleness (UP-4993)."""
+
+    def test_carries_the_records_external_id_and_scan_time(self):
+        record = DiscoveredAgentRecord(
+            external_id="jamf-openclaw-4471",
+            name="OpenClaw",
+            last_seen=NOW - timedelta(days=3),
+            creation_source=ENDPOINT_SOURCE,
+        )
+        entry = ProvenanceSource.from_creation_source(
+            record.task_creation_source,
+            source_id=uuid4(),
+            last_seen=record.last_seen,
+            external_id=record.external_id,
+            last_scanned=NOW,
+        )
+        assert entry.external_id == "jamf-openclaw-4471"
+        assert entry.last_scanned == NOW
+        # Evidence recency and scan recency stay two facts.
+        assert entry.last_seen == NOW - timedelta(days=3)
+
+    def test_one_source_reporting_two_records_keeps_them_apart(self):
+        """One Jamf source finds one agent on two devices: two records, one source."""
+        source_id = uuid4()
+        prov = Provenance(
+            sources=[
+                ProvenanceSource(
+                    source_class=SourceClass.ENDPOINT,
+                    source_id=source_id,
+                    external_id=external_id,
+                )
+                for external_id in ("jamf-openclaw-4471", "jamf-openclaw-5000")
+            ],
+        )
+        assert {(s.source_id, s.external_id) for s in prov.sources} == {
+            (source_id, "jamf-openclaw-4471"),
+            (source_id, "jamf-openclaw-5000"),
+        }
+
+    def test_serialized_and_round_trips(self):
+        prov = Provenance(
+            sources=[
+                ProvenanceSource(
+                    source_class=SourceClass.SIEM,
+                    external_id="splunk-rec-9",
+                    last_scanned=NOW,
+                )
+            ],
+        )
+        dumped = prov.model_dump()["sources"][0]
+        assert dumped["external_id"] == "splunk-rec-9"
+        assert dumped["last_scanned"] == NOW
+        assert Provenance.model_validate_json(prov.model_dump_json()) == prov
+
+    def test_absent_for_sources_with_no_record_and_for_older_payloads(self):
+        """OTEL, manual and legacy GCP tasks have no discovery record behind them, and
+        stored provenance written before the fields existed must keep loading."""
+        for payload in (OTEL_SOURCE, MANUAL_SOURCE, GCP_SOURCE):
+            source = AgentCreationSource.model_validate(payload)
+            entry = ProvenanceSource.from_creation_source(source)
+            assert entry.external_id is None
+            assert entry.last_scanned is None
+        entry = ProvenanceSource.model_validate({"source_class": "siem"})
+        assert entry.external_id is None
+        assert entry.last_scanned is None
+
+
 class TestSourceClassDerivation:
     """SourceClass mirrors the category tags so it cannot drift into a second taxonomy."""
 
