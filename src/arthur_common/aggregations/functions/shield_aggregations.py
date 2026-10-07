@@ -1,9 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-import pandas as pd
 from duckdb import DuckDBPyConnection
-from litellm import cost_per_token
 
 from arthur_common.aggregations.aggregator import (
     NumericAggregationFunction,
@@ -21,6 +19,7 @@ from arthur_common.models.schema_definitions import (
     MetricColumnParameterAnnotation,
     MetricDatasetParameterAnnotation,
 )
+from arthur_common.tools.llm_cost import per_token_rates
 
 USER_CONVERSATION_SEGMENTATION_FF = "INFERENCE_USER_CONVERSATION_SEGMENTATION"
 
@@ -967,36 +966,8 @@ class ShieldInferenceRuleLatencyAggregation(SketchAggregationFunction):
 
 class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
     METRIC_NAME = "token_count"
+    COST_METRIC_NAME = "token_cost"
     FEATURE_FLAG_NAME = USER_CONVERSATION_SEGMENTATION_FF
-    SUPPORTED_MODELS = [
-        # Anthropic
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        # OpenAI
-        "gpt-5.2",
-        "gpt-5.3-codex",
-        "o3",
-        # Google
-        "gemini/gemini-3.1-pro-preview",
-        "gemini/gemini-3-flash-preview",
-        # xAI
-        "xai/grok-4",
-        "xai/grok-4-1-fast",
-        # DeepSeek
-        "deepseek/deepseek-v3.2",
-        "deepseek/deepseek-v3",
-        "deepseek/deepseek-r1",
-        # Meta
-        "meta.llama4-maverick-17b-instruct-v1:0",
-        "meta.llama4-scout-17b-instruct-v1:0",
-        # Alibaba
-        "qwen.qwen3-32b-v1:0",
-        # Moonshot
-        "moonshot/kimi-k2.5",
-        # Mistral
-        "mistral/mistral-large-latest",
-    ]
 
     @staticmethod
     def id() -> UUID:
@@ -1008,27 +979,19 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
 
     @staticmethod
     def description() -> str:
-        return "Metric that reports the number of tokens in the Shield response and prompt schemas, and their estimated cost."
-
-    @staticmethod
-    def _series_name_from_model_name(model_name: str) -> str:
-        """Calculates name of reported series based on the model name considered."""
-        return f"token_cost.{model_name}"
+        return "Metric that reports the number of tokens in the Shield response and prompt schemas, and their cost for the model the inference used."
 
     @staticmethod
     def reported_aggregations() -> list[BaseReportedAggregation]:
-        base_token_count_agg = BaseReportedAggregation(
-            metric_name=ShieldInferenceTokenCountAggregation.METRIC_NAME,
-            description=f"Metric that reports the number of tokens in the Shield response and prompt schemas.",
-        )
-        return [base_token_count_agg] + [
+        return [
             BaseReportedAggregation(
-                metric_name=ShieldInferenceTokenCountAggregation._series_name_from_model_name(
-                    model_name,
-                ),
-                description=f"Metric that reports the estimated cost for the {model_name} model of the tokens in the Shield response and prompt schemas.",
-            )
-            for model_name in ShieldInferenceTokenCountAggregation.SUPPORTED_MODELS
+                metric_name=ShieldInferenceTokenCountAggregation.METRIC_NAME,
+                description="Metric that reports the number of tokens in the Shield response and prompt schemas.",
+            ),
+            BaseReportedAggregation(
+                metric_name=ShieldInferenceTokenCountAggregation.COST_METRIC_NAME,
+                description="Metric that reports the cost in USD of the tokens in the Shield response and prompt schemas, priced for the model the inference used. Inferences without a model, or with a model litellm can't price, are not reported.",
+            ),
         ]
 
     def aggregate(
@@ -1106,56 +1069,27 @@ class ShieldInferenceTokenCountAggregation(NumericAggregationFunction):
             group_by_dims,
             "ts",
         )
-        metric = self.series_to_metric(self.METRIC_NAME, series)
-        resp = [metric]
-
-        # Compute Cost for each model
-        for model in self.SUPPORTED_MODELS:
-            try:
-                # Use litellm's cost_per_token for cost calculation
-                # For each row, set prompt_tokens or completion_tokens based on location
-                cost_values = []
-                for tokens, location in zip(results["tokens"], results["location"]):
-                    if location == "prompt":
-                        prompt_cost, _ = cost_per_token(
-                            model=model,
-                            prompt_tokens=int(tokens),
-                            completion_tokens=0,
-                        )
-                        cost_values.append(prompt_cost)
-                    else:  # response
-                        _, completion_cost = cost_per_token(
-                            model=model,
-                            prompt_tokens=0,
-                            completion_tokens=int(tokens),
-                        )
-                        cost_values.append(completion_cost)
-            except Exception:
-                # Skip models not supported by litellm
-                continue
-
-            model_df_dict = {
-                "ts": results["ts"],
-                "cost": cost_values,
-                "location": results["location"],
-                "model_name": results["model_name"],
-            }
-            if self.is_feature_flag_enabled(self.FEATURE_FLAG_NAME):
-                model_df_dict["conversation_id"] = results["conversation_id"]
-                model_df_dict["user_id"] = results["user_id"]
-
-            model_df = pd.DataFrame(model_df_dict)
-
-            model_series = self.group_query_results_to_numeric_metrics(
-                model_df,
-                "cost",
-                group_by_dims,
-                "ts",
+        # Price each row for the model the inference reported; rows whose model is
+        # missing or unknown to litellm get no cost and are skipped
+        results["cost"] = [
+            (
+                tokens * rates[0 if location == "prompt" else 1]
+                if (rates := per_token_rates(model_name))
+                else None
             )
-            resp.append(
-                self.series_to_metric(
-                    self._series_name_from_model_name(model),
-                    model_series,
-                ),
+            for tokens, location, model_name in zip(
+                results["tokens"],
+                results["location"],
+                results["model_name"],
             )
-        return resp
+        ]
+        cost_series = self.group_query_results_to_numeric_metrics(
+            results[results["cost"].notna()],
+            "cost",
+            group_by_dims,
+            "ts",
+        )
+        return [
+            self.series_to_metric(self.METRIC_NAME, series),
+            self.series_to_metric(self.COST_METRIC_NAME, cost_series),
+        ]
