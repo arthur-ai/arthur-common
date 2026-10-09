@@ -1,0 +1,45 @@
+# Requires human review (any Arthur engineer)
+#
+# Any PR touching a path below needs approval from one member of
+# @arthur-ai/arthur-engineers before it can merge. This only takes effect once
+# "Require review from Code Owners" is enabled on `main-ruleset`.
+#
+# There is intentionally no "*" default owner: paths not listed here are NOT
+# gated, so ordinary PRs are left to the automated reviewer.
+#
+# Before adding or changing a line, read .claude/skills/maintain-codeowners:
+# it has the bar for gating a path and the audit procedure.
+#
+# Patterns starting with "/" are anchored to the repo root.
+
+# --- this file + ci/cd ---
+# Covers CODEOWNERS itself and every workflow: arthur-common-release.yml
+# publishes to PyPI via OIDC (id-token: write, shared-protected-branch-secrets);
+# arthur-common-version-bump.yml and renovate-autofix.yml mint a token from
+# ARTHUR_GH_AUTOMATOR_APP_PRIVATE_KEY, an app that bypasses main-ruleset;
+# renovate-auto-approve.yml is the only non-human approver.
+/.github/**                                                       @arthur-ai/arthur-engineers
+# bump2version rewrites the version in pyproject.toml/uv.lock from this file;
+# that is the version the release workflow publishes to PyPI and tags.
+/.bumpversion.cfg                                                 @arthur-ai/arthur-engineers
+# The automerge-safe label rule is the only gate renovate-auto-approve.yml
+# checks before approving; minimumReleaseAge is the supply-chain soak.
+/renovate.json                                                    @arthur-ai/arthur-engineers
+
+# --- auth (consumed by genai-engine and arthur-scope) ---
+# APIKeysRolesEnum: the roles genai-engine's create_api_key lets a caller mint.
+# UserPermissionAction/UserPermissionResource: keys of genai-engine's
+# ROLE_NAMES_TO_PERMISSIONS. Also RuleType and PIIEntityTypes (guardrails).
+/src/arthur_common/models/enums.py                                @arthur-ai/arthur-engineers
+# Role strings stored on API keys (ORG_ADMIN, TENANT_USER, ...), the Keycloak
+# password policy, and the default toxicity / PII rule thresholds.
+/src/arthur_common/models/constants.py                            @arthur-ai/arthur-engineers
+# NewApiKeyRequest's default role (VALIDATION_USER), the password_meets_security
+# policy, and set_config_type / check_prompt_or_response for guardrail rules.
+/src/arthur_common/models/request_schemas.py                      @arthur-ai/arthur-engineers
+
+# --- guardrails ---
+# ToxicityConfig.validate_toxicity_threshold and PIIConfig.validate_pii_entities
+# decide what genai-engine stores on a guardrail rule; UserPermission's
+# __hash__/__eq__ decide membership in ROLE_NAMES_TO_PERMISSIONS.
+/src/arthur_common/models/common_schemas.py                       @arthur-ai/arthur-engineers

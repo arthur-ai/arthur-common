@@ -73,6 +73,10 @@ pre-commit run --all-files    # Run all pre-commit hooks manually
    - Creates git tag
    - Pushes to PyPI
 
+### CODEOWNERS
+
+`.github/CODEOWNERS` is the human-review gate for sensitive paths. `maintain-codeowners` has the bar for gating a path and the audit procedure; use it before adding a line or when a comment there goes stale.
+
 ## Architecture
 
 The library is organized into four main modules:
