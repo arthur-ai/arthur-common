@@ -734,6 +734,39 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     type: Literal["ENDPOINT"] = "ENDPOINT"
 
 
+class NetworkDestination(BaseModel):
+    """One inference destination a network source was seen calling.
+
+    Aggregated over the scan's window, so one entry per destination rather than one
+    per log line. The provider is the connector's name for who serves the host -- its
+    catalog's, or the source's own entry for a host or range it added -- and free text
+    for the same reason ``vendor`` is.
+    """
+
+    host: str = Field(
+        min_length=1,
+        description="Destination as the log named it: a hostname, lowercased and "
+        "without a trailing dot, or an IP address.",
+    )
+    provider: str = Field(
+        min_length=1,
+        description="Who serves it, e.g. 'OpenAI', 'Amazon Bedrock', or the source's "
+        "own host or CIDR entry it matched.",
+    )
+    count: int = Field(
+        ge=1,
+        description="Lookups or connections to it in the scan's window.",
+    )
+    first_seen: Optional[datetime] = Field(
+        default=None,
+        description="Earliest call in the window, when the log carries a time.",
+    )
+    last_seen: Optional[datetime] = Field(
+        default=None,
+        description="Latest call in the window, when the log carries a time.",
+    )
+
+
 class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     """An internal source seen sending traffic to a host that serves model inference.
 
@@ -751,6 +784,10 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     Addressed by account (``instance``), network (``scope``, a VPC id when the log
     carries one) and the instance id or address (``resource_id``). An address is weaker
     identity than an instance -- containers and functions share and reuse addresses.
+
+    ``destinations`` is what the source called, which only this class can see and
+    which is the evidence itself, so it is a field of the class rather than of the
+    shared AgentObservations. Empty by default, so a record without it still validates.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
@@ -761,6 +798,11 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     )
 
     type: Literal["NETWORK"] = "NETWORK"
+    destinations: List[NetworkDestination] = Field(
+        default_factory=list,
+        description="Inference destinations this source called in the scan's window, "
+        "with who serves each, how often and when.",
+    )
 
 
 # Union type for creation source. The north star is six members -- CLOUD, SIEM,

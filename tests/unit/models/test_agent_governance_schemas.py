@@ -19,6 +19,7 @@ from arthur_common.models.agent_governance_schemas import (
     LLMModel,
     ManualAgentCreationSource,
     NetworkAgentCreationSource,
+    NetworkDestination,
     OTELAgentCreationSource,
     Platform,
     Provenance,
@@ -519,9 +520,10 @@ class TestObservationCapabilities:
         assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
-        """Destination hostname and connection counts are not modelled at all.
+        """Destination hostname and connection counts are not shared observations.
 
-        Reverse DNS is unreliable against CDN and anycast ranges; connection counts
+        A network source reads them straight off its logs and carries them as its own
+        ``destinations``; no other class can fill them. Reverse DNS is unreliable against CDN and anycast ranges; connection counts
         need osqueryd running persistently with the audit subsystem, which puts code
         signing, notarization and PPPC back on the critical path. Neither is a nullable
         field, on purpose -- an always-null column reads as "not collected yet".
@@ -741,6 +743,52 @@ class TestDiscoveryCreationSources:
             "host_name",
             "host_group",
         }
+
+    def test_a_network_finding_carries_the_destinations_it_called(self):
+        """Host, provider, count and the window's first and last call, round-tripped."""
+        first = datetime(2026, 10, 14, 1, 0, tzinfo=timezone.utc)
+        last = datetime(2026, 10, 14, 5, 0, tzinfo=timezone.utc)
+        src = NetworkAgentCreationSource(
+            vendor="aws_cloudwatch_logs",
+            address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
+            destinations=[
+                NetworkDestination(
+                    host="api.openai.com",
+                    provider="OpenAI",
+                    count=37,
+                    first_seen=first,
+                    last_seen=last,
+                ),
+                NetworkDestination(host="10.50.3.4", provider="10.50.0.0/16", count=2),
+            ],
+        )
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert isinstance(restored, NetworkAgentCreationSource)
+        assert restored.destinations == src.destinations
+        assert restored.destinations[1].first_seen is None
+
+    def test_destinations_default_to_empty_for_older_producers(self):
+        src = AgentCreationSource.model_validate(
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {"instance": "111122223333", "resource_id": "i-0abc"},
+            },
+        ).root
+        assert src.destinations == []
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"host": "", "provider": "OpenAI", "count": 1},
+            {"host": "api.openai.com", "provider": "OpenAI", "count": 0},
+        ],
+    )
+    def test_a_destination_needs_a_host_and_a_call(self, bad):
+        with pytest.raises(ValidationError):
+            NetworkDestination(**bad)
 
     def test_a_network_source_needs_no_scope(self):
         """Flow and DNS logs need not name a VPC, so unlike CLOUD it stays optional."""
