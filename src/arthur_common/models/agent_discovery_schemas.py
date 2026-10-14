@@ -116,10 +116,10 @@ class Evidence(BaseModel):
 class DiscoveryOutputRecord(BaseModel):
     """The output contract every discovery source must satisfy, whatever its category.
 
-    IDENTICAL across Cloud, SIEM and Endpoint. The query text itself is never parsed or
-    validated -- only that what it returns has these columns. The optional columns are
-    populated only where the source can genuinely supply them, and stay absent
-    otherwise: an always-null column reads as "not collected yet" rather than "this
+    IDENTICAL across Cloud, SIEM, Endpoint and Network. The query text itself is never
+    parsed or validated -- only that what it returns has these columns. The optional
+    columns are populated only where the source can genuinely supply them, and stay
+    absent otherwise: an always-null column reads as "not collected yet" rather than "this
     source cannot see it", which is the distinction the whole evidence model rests on.
     """
 

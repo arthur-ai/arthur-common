@@ -63,6 +63,11 @@ CLOUD_SOURCE = {
     "vendor": "aws_bedrock",
     "address": {"instance": "1", "resource_id": "a", "scope": "us-east-1"},
 }
+NETWORK_SOURCE = {
+    "type": "NETWORK",
+    "vendor": "aws_cloudwatch_logs",
+    "address": {"instance": "1", "resource_id": "i-0abc", "scope": "vpc-1"},
+}
 
 
 class TestDetectionAndVisibility:
@@ -98,6 +103,12 @@ class TestDetectionAndVisibility:
         assert detection_for(AgentCreationSource.model_validate(SPLUNK_SOURCE)) is (
             Detection.INFERRED
         )
+
+    def test_a_network_finding_is_inferred_too(self):
+        """A lookup of a provider's host says something called it, not what."""
+        source = AgentCreationSource.model_validate(NETWORK_SOURCE)
+        assert detection_for(source) is Detection.INFERRED
+        assert visibility_ceiling(source) is Visibility.LIMITED
 
     def test_neither_axis_carries_staleness(self):
         """`is_stale` is the third independent fact, not a value on either scale."""
@@ -216,6 +227,7 @@ class TestProvenanceFromCreationSource:
             (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
             (SPLUNK_SOURCE, SourceClass.SIEM),
             (CLOUD_SOURCE, SourceClass.CLOUD),
+            (NETWORK_SOURCE, SourceClass.NETWORK),
             (OTEL_SOURCE, SourceClass.OTEL),
             (MANUAL_SOURCE, SourceClass.MANUAL),
             (GCP_SOURCE, SourceClass.CLOUD),
@@ -373,6 +385,7 @@ class TestSourceClassDerivation:
         [
             (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
             (SPLUNK_SOURCE, SourceClass.SIEM),
+            (NETWORK_SOURCE, SourceClass.NETWORK),
             (OTEL_SOURCE, SourceClass.OTEL),
             (MANUAL_SOURCE, SourceClass.MANUAL),
         ],
@@ -396,8 +409,14 @@ class TestSourceClassDerivation:
             member["$ref"].rsplit("/", 1)[-1]
             for member in AgentCreationSource.model_json_schema()["oneOf"]
         }
-        assert len(tags) == 6
-        for payload in (ENDPOINT_SOURCE, SPLUNK_SOURCE, OTEL_SOURCE, MANUAL_SOURCE):
+        assert len(tags) == 7
+        for payload in (
+            ENDPOINT_SOURCE,
+            SPLUNK_SOURCE,
+            NETWORK_SOURCE,
+            OTEL_SOURCE,
+            MANUAL_SOURCE,
+        ):
             SourceClass.for_creation_source(AgentCreationSource.model_validate(payload))
 
 
@@ -410,6 +429,7 @@ class TestVisibilityCeiling:
             (ENDPOINT_SOURCE, Visibility.LIMITED),
             (SPLUNK_SOURCE, Visibility.LIMITED),
             (CLOUD_SOURCE, Visibility.LIMITED),
+            (NETWORK_SOURCE, Visibility.LIMITED),
             (GCP_SOURCE, Visibility.LIMITED),
             (OTEL_SOURCE, Visibility.FULL),
         ],
@@ -870,11 +890,11 @@ class TestDiscoveredAgentRecord:
 
         DISCOVERY_SOURCE_CLASSES already says which classes a configured source can
         have, and says in its own docstring that it exists "so there is one vocabulary
-        and app_plane validates against it instead of redeclaring three of its five
+        and app_plane validates against it instead of redeclaring four of its six
         members". A pydantic union cannot BE a frozenset -- parsing a request body and
         generating an OpenAPI schema need model classes, which is why genai-engine spelled
         the members out rather than validating after the fact. So the union stays, and
-        this asserts it agrees. A fourth discovery category that lands in one and not the
+        this asserts it agrees. A new discovery category that lands in one and not the
         other fails here rather than in whichever consumer notices first.
         """
         import typing

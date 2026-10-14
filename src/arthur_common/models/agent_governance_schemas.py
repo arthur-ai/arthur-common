@@ -1,7 +1,7 @@
 """Schemas for agent task governance: what a task is and how it was found.
 
 Tools and sub-agents, the creation-source union (how an agent came to be known --
-self-instrumented, hand-created, or discovered by one of three source categories),
+self-instrumented, hand-created, or discovered by one of four source categories),
 provenance (where it was found and what it runs on), and the enriched task responses
 built from them.
 
@@ -153,6 +153,7 @@ class SourceClass(str, Enum):
     CLOUD = "cloud"
     SIEM = "siem"
     ENDPOINT = "endpoint"
+    NETWORK = "network"
     OTEL = "otel"
     """Not a discovery source: the agent instrumented itself."""
 
@@ -166,14 +167,14 @@ class SourceClass(str, Enum):
 
 
 DISCOVERY_SOURCE_CLASSES: frozenset[SourceClass] = frozenset(
-    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT},
+    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT, SourceClass.NETWORK},
 )
 """The classes a configured discovery source can have.
 
 OTEL and MANUAL are members of SourceClass because a task's provenance has to name
 them, but neither is something anyone configures. Exported as a subset rather than a
 second enum, so there is one vocabulary and app_plane validates against it instead of
-redeclaring three of its five members.
+redeclaring four of its six members.
 """
 
 
@@ -234,6 +235,7 @@ class SourceAddress(BaseModel):
     Splunk          instance          index+sourcetype    --          record id
     Sentinel        LA workspace      table               --          record id
     Elastic         deployment        data stream         --          record id
+    CloudWatch      AWS account       VPC                 --          instance or IP
     Jamf / osquery  device key        --                  npm, app…   software key
     ==============  ================  ==================  ==========  ============
 
@@ -566,8 +568,8 @@ class ManualAgentCreationSource(AgentCreationSourceBase):
 # --- discovery sources ------------------------------------------------------------
 #
 # Organised by CATEGORY, not by vendor: a new vendor is an enum member, and only a new
-# category costs a class. The three are the epic's own -- Cloud, SIEM and Endpoint --
-# with Network & Gateway the known fourth.
+# category costs a class. Cloud, SIEM and Endpoint are the epic's own; Network is the
+# fourth.
 
 
 class DiscoveryAgentCreationSource(AgentCreationSourceBase):
@@ -732,8 +734,37 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     type: Literal["ENDPOINT"] = "ENDPOINT"
 
 
-# Union type for creation source. The north star is five members -- CLOUD, SIEM,
-# ENDPOINT, OTEL, MANUAL -- plus deprecated GCP.
+class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
+    """An internal source seen sending traffic to a host that serves model inference.
+
+    Read off network logs -- DNS query logs, flow logs, proxy or firewall logs -- by a
+    connector that extracts a source and a destination from each line and matches the
+    destination against known inference hosts. The record is the SOURCE (an instance,
+    else an address), not the agent: a network log shows that something called a
+    provider, never which process did or what it is.
+
+    NOT A SIEM, though both read logs. A SIEM source runs the customer's own query and
+    reports whatever columns it projects; a network source owns the matching and reads
+    one fixed kind of evidence, a connection or a lookup, so what it can fill is
+    narrower and fixed by the class: the host it saw and the network that host is in.
+
+    Addressed by account (``instance``), network (``scope``, a VPC id when the log
+    carries one) and the instance id or address (``resource_id``). An address is weaker
+    identity than an instance -- containers and functions share and reuse addresses.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
+    DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"host_name", "host_group"},
+    )
+
+    type: Literal["NETWORK"] = "NETWORK"
+
+
+# Union type for creation source. The north star is six members -- CLOUD, SIEM,
+# ENDPOINT, NETWORK, OTEL, MANUAL -- plus deprecated GCP.
 #
 # The discriminator is EXPLICIT. Without it, a payload with an unknown tag, or one
 # whose fields happen to fit a neighbour, validates as the wrong member and silently
@@ -747,6 +778,7 @@ AgentCreationSourceUnion = Annotated[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
@@ -765,13 +797,14 @@ class AgentCreationSource(RootModel[AgentCreationSourceUnion]):
 # every generated client built from it -- states what it accepts. It also keeps the wide
 # union out of request bodies: `AgentCreationSource` carries computed fields, and FastAPI
 # splits a model that holds it into `-Input`/`-Output` variants, renaming a component that
-# an existing endpoint already returns. A fourth discovery category lands here as one more
+# an existing endpoint already returns. A new discovery category lands here as one more
 # member.
 DiscoveryCreationSourceUnion = Annotated[
     Union[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
