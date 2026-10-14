@@ -12,6 +12,11 @@ reviewer. The file only works if every line is still true and the list stays
 short enough that ordinary PRs are not slowed down. This skill keeps it that
 way.
 
+A PR authored outside the team (a fork, or a bot other than Renovate) needs a
+team approval on every path, whatever CODEOWNERS says. That is enforced by
+`.github/workflows/team-approval-gate.yml`, not by this file, so do not add
+paths here to cover outside contributors.
+
 The same skill exists in arthur-engine, arthur-scope and unify-frontend; the
 bar is shared, the details below are this repo's.
 

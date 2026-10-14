@@ -6,7 +6,10 @@
 # it, GitHub requests the team's review but does not block the merge.
 #
 # There is intentionally no "*" default owner: paths not listed here are NOT
-# gated, so ordinary PRs are left to the automated reviewer.
+# gated, so ordinary PRs are left to the automated reviewer. The exception is
+# a PR authored outside the team (a fork, or a bot other than Renovate): it
+# needs a team approval on every path, enforced by
+# .github/workflows/team-approval-gate.yml.
 #
 # Before adding or changing a line, read .claude/skills/maintain-codeowners:
 # it has the bar for gating a path and the audit procedure.
