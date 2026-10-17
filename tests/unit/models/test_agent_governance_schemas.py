@@ -10,6 +10,7 @@ from arthur_common.models.agent_governance_schemas import (
     AgentObservations,
     CloudAgentCreationSource,
     DataSource,
+    Detection,
     DiscoveryAgentCreationSource,
     EndpointAgentCreationSource,
     EnrichedAgentMetadata,
@@ -17,6 +18,8 @@ from arthur_common.models.agent_governance_schemas import (
     GCPAgentCreationSource,
     LLMModel,
     ManualAgentCreationSource,
+    NetworkAgentCreationSource,
+    NetworkDestination,
     OTELAgentCreationSource,
     Platform,
     Provenance,
@@ -29,6 +32,7 @@ from arthur_common.models.agent_governance_schemas import (
     TaskMetadata,
     Tool,
     ToolArgument,
+    Visibility,
 )
 
 
@@ -178,6 +182,18 @@ class TestCreationSource:
                 },
                 CloudAgentCreationSource,
             ),
+            (
+                {
+                    "type": "NETWORK",
+                    "vendor": "aws_cloudwatch_logs",
+                    "address": {
+                        "instance": "111122223333",
+                        "resource_id": "i-0abc1234def567890",
+                        "scope": "vpc-0a1b2c3d",
+                    },
+                },
+                NetworkAgentCreationSource,
+            ),
         ],
     )
     def test_discriminated_union_deserialization(self, json_data, expected_type):
@@ -217,7 +233,7 @@ class TestCreationSource:
         schema = AgentCreationSource.model_json_schema()
         assert schema["discriminator"]["propertyName"] == "type"
         assert "anyOf" not in schema
-        assert len(schema["oneOf"]) == 6
+        assert len(schema["oneOf"]) == 7
 
 
 class TestTaskMetadata:
@@ -480,6 +496,7 @@ class TestObservationCapabilities:
             CloudAgentCreationSource,
             SIEMAgentCreationSource,
             EndpointAgentCreationSource,
+            NetworkAgentCreationSource,
         ):
             declared |= category.observable_fields()
         assert declared == set(AgentObservations.model_fields)
@@ -505,9 +522,10 @@ class TestObservationCapabilities:
         assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
-        """Destination hostname and connection counts are not modelled at all.
+        """Destination hostname and connection counts are not shared observations.
 
-        Reverse DNS is unreliable against CDN and anycast ranges; connection counts
+        A network source reads them straight off its logs and carries them as its own
+        ``destinations``; no other class can fill them. Reverse DNS is unreliable against CDN and anycast ranges; connection counts
         need osqueryd running persistently with the audit subsystem, which puts code
         signing, notarization and PPPC back on the critical path. Neither is a nullable
         field, on purpose -- an always-null column reads as "not collected yet".
@@ -521,6 +539,7 @@ class TestObservationCapabilities:
             CloudAgentCreationSource,
             SIEMAgentCreationSource,
             EndpointAgentCreationSource,
+            NetworkAgentCreationSource,
         ],
     )
     def test_declared_fields_all_exist_on_the_observation_model(self, category):
@@ -721,15 +740,99 @@ class TestDiscoveryCreationSources:
         )
         assert src.address.scope is None
 
+    def test_a_network_finding_addresses_a_source_in_an_account_and_network(self):
+        """The record is the internal source that called a provider, not the agent."""
+        src = NetworkAgentCreationSource(
+            vendor="aws_cloudwatch_logs",
+            address=SourceAddress(
+                instance="111122223333",
+                scope="vpc-0a1b2c3d",
+                resource_id="i-0abc1234def567890",
+            ),
+            observations=AgentObservations(
+                host_name="i-0abc1234def567890",
+                host_group="vpc-0a1b2c3d",
+            ),
+        )
+        assert src.type == "NETWORK"
+        assert src.SOURCE_CLASS is SourceClass.NETWORK
+        assert src.address.query is None
+
+    def test_a_network_finding_is_inferred_and_limited(self):
+        """A lookup or a connection says something called a provider, not what."""
+        assert NetworkAgentCreationSource.detection() is Detection.INFERRED
+        assert NetworkAgentCreationSource.visibility_ceiling() is Visibility.LIMITED
+
+    def test_a_network_source_sees_the_host_and_its_network_only(self):
+        """No log line reaches the software on the host or who uses it."""
+        assert NetworkAgentCreationSource.observable_fields() == {
+            "host_name",
+            "host_group",
+        }
+
+    def test_a_network_finding_carries_the_destinations_it_called(self):
+        """Host, provider, count and the window's first and last call, round-tripped."""
+        first = datetime(2026, 10, 14, 1, 0, tzinfo=timezone.utc)
+        last = datetime(2026, 10, 14, 5, 0, tzinfo=timezone.utc)
+        src = NetworkAgentCreationSource(
+            vendor="aws_cloudwatch_logs",
+            address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
+            destinations=[
+                NetworkDestination(
+                    host="api.openai.com",
+                    provider="OpenAI",
+                    count=37,
+                    first_seen=first,
+                    last_seen=last,
+                ),
+                NetworkDestination(host="10.50.3.4", provider="10.50.0.0/16", count=2),
+            ],
+        )
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert isinstance(restored, NetworkAgentCreationSource)
+        assert restored.destinations == src.destinations
+        assert restored.destinations[1].first_seen is None
+
+    def test_destinations_default_to_empty_for_older_producers(self):
+        src = AgentCreationSource.model_validate(
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {"instance": "111122223333", "resource_id": "i-0abc"},
+            },
+        ).root
+        assert src.destinations == []
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"host": "", "provider": "OpenAI", "count": 1},
+            {"host": "api.openai.com", "provider": "OpenAI", "count": 0},
+        ],
+    )
+    def test_a_destination_needs_a_host_and_a_call(self, bad):
+        with pytest.raises(ValidationError):
+            NetworkDestination(**bad)
+
+    def test_a_network_source_needs_no_scope(self):
+        """Flow and DNS logs need not name a VPC, so unlike CLOUD it stays optional."""
+        src = NetworkAgentCreationSource(
+            vendor="aws_cloudwatch_logs",
+            address=SourceAddress(instance="us-east-1", resource_id="10.0.1.23"),
+        )
+        assert src.address.scope is None
+
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
 
-        Six union members cover every vendor, present and future, because the vendor is
-        a string. A Jamf- or Splunk-specific class would mean a schema release and a
+        Seven union members cover every vendor, present and future, because the vendor
+        is a string. A Jamf- or Splunk-specific class would mean a schema release and a
         regeneration of every generated client per vendor.
         """
         members = AgentCreationSource.model_json_schema()["oneOf"]
-        assert len(members) == 6
+        assert len(members) == 7
         assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str
 
     @pytest.mark.parametrize(
@@ -759,6 +862,19 @@ class TestDiscoveryCreationSources:
                 "vendor": "jamf_pro",
                 "address": {"instance": "serial:X", "resource_id": "openclaw"},
                 "observations": {"assigned_user": "someone@arthur.ai"},
+            },
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {
+                    "instance": "111122223333",
+                    "resource_id": "10.0.1.23",
+                    "scope": "vpc-0a1b2c3d",
+                },
+                "observations": {
+                    "host_name": "10.0.1.23",
+                    "host_group": "vpc-0a1b2c3d",
+                },
             },
         ],
     )
@@ -794,7 +910,11 @@ class TestPersonalData:
         docstring to keep in step.
         """
         assert "assigned_user" in AgentObservations.model_fields
-        for category in (CloudAgentCreationSource, SIEMAgentCreationSource):
+        for category in (
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+            NetworkAgentCreationSource,
+        ):
             assert "assigned_user" not in category.observable_fields()
 
     def test_only_endpoint_sources_can_attribute_to_a_person(self):
@@ -846,6 +966,14 @@ ALL_SOURCE_PAYLOADS = [
             "address": {"instance": "serial:X", "resource_id": "openclaw"},
         },
         id="ENDPOINT",
+    ),
+    pytest.param(
+        {
+            "type": "NETWORK",
+            "vendor": "aws_cloudwatch_logs",
+            "address": {"instance": "111122223333", "resource_id": "i-0abc"},
+        },
+        id="NETWORK",
     ),
 ]
 
@@ -1032,6 +1160,7 @@ class TestDeprecations:
             "CloudAgentCreationSource",
             "SIEMAgentCreationSource",
             "EndpointAgentCreationSource",
+            "NetworkAgentCreationSource",
             "OTELAgentCreationSource",
             "ManualAgentCreationSource",
         ):
