@@ -446,6 +446,11 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             ),
             DatasetColumn(
                 id=uuid4(),
+                source_name="ingest_bytes",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
                 source_name="created_at",
                 definition=create_dataset_scalar_type(DType.TIMESTAMP),
             ),
