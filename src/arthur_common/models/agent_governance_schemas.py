@@ -276,18 +276,26 @@ class SourceAddress(BaseModel):
     Elastic         deployment        data stream         --          record id
     CloudWatch      AWS account       VPC                 --          instance or IP
     Jamf / osquery  device key        --                  npm, app…   software key
+    Compute Engine  VM instance id    project/zone        deb, npm…   software key
     ==============  ================  ==================  ==========  ============
 
-    Only endpoints fill ``resource_kind``: they are the one source whose ids come from
-    several namespaces at once. Every cloud and SIEM vendor addresses exactly one kind
-    of resource, so the kind is implied by the vendor and stays absent.
+    Only sources that read a machine's software inventory fill ``resource_kind``:
+    endpoints, and cloud sources that read a VM's (Compute Engine, and EC2 after it).
+    Their ids come from several namespaces at once. Every other cloud vendor and every
+    SIEM addresses exactly one kind of resource, so the kind is implied by the vendor
+    and stays absent.
+
+    A VM-hosted cloud record is addressed per (software, VM), like an endpoint: the VM
+    in ``instance``, never the project. Records are told apart by ``instance``, so a
+    project there would make every VM in it one agent.
 
     ``scope`` carries two readings this one name does not separate. For a cloud source
     it addresses the *agent*: us-east-1 and us-west-2 hold different agents, so
-    ``CloudAgentCreationSource`` requires it. For a SIEM it addresses the *sighting*,
-    and one agent may surface under two indexes, so it stays optional there. Code
-    comparing addresses across sources has to read `source_class` to know which it is
-    looking at.
+    ``CloudAgentCreationSource`` requires it -- a region, or for a VM where the machine
+    is (project and zone; account and region on EC2). For a SIEM it addresses the
+    *sighting*, and one agent may surface under two indexes, so it stays optional
+    there. Code comparing addresses across sources has to read `source_class` to know
+    which it is looking at.
 
     Reused by Provenance rather than re-declared there, so a record and the task it
     resolves to address the upstream system identically. A vendor needing to address a
@@ -297,16 +305,17 @@ class SourceAddress(BaseModel):
 
     instance: str = Field(
         min_length=1,
-        description="Instance that was scanned: an account, project, SIEM workspace or "
-        "device. Part of the address, so two instances of one vendor stay distinct.",
+        description="Instance that was scanned: an account, project, SIEM workspace, "
+        "device or cloud VM. Part of the address, so two instances of one vendor stay "
+        "distinct.",
     )
     scope: Optional[str] = Field(
         default=None,
-        description="Subdivision queried, where the source has one: a cloud region, a "
-        "Splunk index, a Sentinel table, an Elastic data stream. Optional here because "
-        "endpoints have no subdivision and a SIEM query may span every index, but "
-        "required for CLOUD sources, which enforce it: there the region is part of the "
-        "agent's identity rather than of the query.",
+        description="Subdivision queried, where the source has one: a cloud region (a "
+        "VM's project and zone), a Splunk index, a Sentinel table, an Elastic data "
+        "stream. Optional here because endpoints have no subdivision and a SIEM query "
+        "may span every index, but required for CLOUD sources, which enforce it: there "
+        "it is part of the agent's identity rather than of the query.",
     )
     resource_kind: Optional[str] = Field(
         default=None,
@@ -314,15 +323,16 @@ class SourceAddress(BaseModel):
         "launchd label, listening port, browser extension id. Identity rather than "
         "observation, and needed because '8788' and 'openclaw' are otherwise "
         "indistinguishable strings from colliding namespaces. Absent for sources with "
-        "one kind of resource, which is every cloud and SIEM vendor -- there the vendor "
-        "implies the kind, so carrying it would duplicate `vendor`. Free text: the "
-        "vocabulary belongs to the collector's route registry, not to this schema.",
+        "one kind of resource, which is every SIEM and every cloud vendor except those "
+        "reading a VM's software inventory -- there the vendor implies the kind, so "
+        "carrying it would duplicate `vendor`. Free text: the vocabulary belongs to the "
+        "collector's route registry, not to this schema.",
     )
     resource_id: str = Field(
         min_length=1,
         description="The resource within that instance, in the namespace `resource_kind` "
-        "names. For endpoints this is the software, with the device in `instance` -- "
-        "the grain is per (software, device).",
+        "names. For endpoints and cloud VMs this is the software, with the machine in "
+        "`instance` -- the grain is per (software, machine).",
     )
 
     @field_validator("instance", "resource_id")
@@ -647,19 +657,40 @@ class DiscoveryAgentCreationSource(AgentCreationSourceBase):
 
 
 class CloudAgentCreationSource(DiscoveryAgentCreationSource):
-    """An agent read out of a cloud provider's agent runtime.
+    """An agent a cloud provider enumerates: in its agent runtime, or on one of its VMs.
 
-    Enumerated rather than searched, so ``address.query`` is absent. Account and region
-    are part of the address because scanning is multi-account and multi-region.
+    - AN AGENT RUNTIME (Bedrock, Vertex AI Agent Engine) lists the agents themselves:
+      account or project in ``instance``, region in ``scope``, the agent's id in
+      ``resource_id``.
+    - A VM (Compute Engine, and EC2 after it) is listed by the provider and carries its
+      own software inventory, the payload an endpoint's collector writes, decoded the
+      same way. The VM is in ``instance``, where it is (project and zone) in ``scope``,
+      and the software in ``resource_kind`` and ``resource_id``: per (software, VM),
+      as on an endpoint, so two VMs are never one agent.
+
+    Enumerated rather than searched, so ``address.query`` is absent. Where the agent is
+    within the provider is part of the address because scanning is multi-account and
+    multi-region.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
     DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        # `permissions` is where this category extends next -- action groups, service
-        # account scopes -- once a connector is verified to fetch them.
-        {"version", "service_names", "host_group"},
+        {
+            # an agent runtime's own description of the agent
+            "version",
+            "service_names",
+            "host_group",
+            # a VM's software inventory, and the provider's record of the VM. An agent
+            # runtime's action groups or service account scopes would be `permissions`
+            # too, once a connector is verified to fetch them.
+            "install_path",
+            "host_name",
+            "os_version",
+            "permissions",
+            "classification",
+        },
     )
 
     type: Literal["CLOUD"] = "CLOUD"
@@ -670,6 +701,7 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
 
         A cloud agent has no identity without its region -- two regions of one account
         hold two different agents -- and no provider API can be re-called without it.
+        A VM's scope is its project and zone, for the same reason.
         Leaving it merely optional moved the problem downstream rather than removing
         it: genai-engine had to paper a missing region over with ``or ""`` to satisfy
         a legacy response model whose ``region`` is a required str. An empty string is
@@ -681,7 +713,8 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
         """
         if not (self.address.scope or "").strip():
             raise ValueError(
-                "a CLOUD source must carry its region in address.scope "
+                "a CLOUD source must carry its region (a VM's project and zone) in "
+                "address.scope "
                 f"(vendor={self.vendor!r}, instance={self.address.instance!r})",
             )
         return self

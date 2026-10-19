@@ -447,13 +447,15 @@ class TestObservationCapabilities:
         """
         assert "permissions" in EndpointAgentCreationSource.observable_fields()
 
-    def test_permissions_are_not_claimed_where_unverified(self):
-        """Cloud is where the concept extends next, once a connector fetches them.
+    def test_permissions_are_claimed_where_a_collector_reads_them(self):
+        """Wherever the endpoint collector's inventory is read, and nowhere else.
 
-        A Bedrock agent's action groups answer the same question, but the declaration
-        follows what a connector actually collects, not what it could.
+        A cloud VM carries that inventory, so Cloud declares them. A SIEM query does
+        not read it. A Bedrock agent's action groups would answer the same question,
+        but the declaration follows what a connector actually collects, not what it
+        could.
         """
-        assert "permissions" not in CloudAgentCreationSource.observable_fields()
+        assert "permissions" in CloudAgentCreationSource.observable_fields()
         assert "permissions" not in SIEMAgentCreationSource.observable_fields()
 
     def test_permissions_are_a_list_not_the_collectors_joined_string(self):
@@ -670,6 +672,30 @@ class TestDiscoveryCreationSources:
             ),
         )
         assert migrated.SOURCE_CLASS is SourceClass.CLOUD
+
+    def test_a_vm_hosted_cloud_finding_is_addressed_per_software_and_vm(self):
+        """Compute Engine: the provider lists the VM, the VM carries its inventory.
+
+        The VM is the instance, never the project -- records are told apart by
+        instance, so a project there would merge every VM in it into one agent.
+        """
+        src = CloudAgentCreationSource(
+            vendor="gcp_compute_engine",
+            address=SourceAddress(
+                instance="4278289283885961105",
+                scope="sandbox-471015/us-central1-a",
+                resource_kind="deb",
+                resource_id="curl",
+            ),
+            observations=AgentObservations(
+                host_name="build-1",
+                version="7.88.1",
+                install_path="/usr/bin/curl",
+            ),
+        )
+        assert src.SOURCE_CLASS is SourceClass.CLOUD
+        assert src.address.resource_kind == "deb"
+        assert {"host_name", "version", "install_path"} <= src.observable_fields()
 
     def test_a_cloud_source_must_carry_its_region(self):
         """Region is identity for a cloud agent, not decoration.
