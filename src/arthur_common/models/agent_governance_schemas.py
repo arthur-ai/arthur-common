@@ -13,9 +13,18 @@ Shared across app_plane, ML Engine and GenAI Engine, and backing the
 /api/v2/agent-tasks endpoint.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
+from typing import (
+    Annotated,
+    ClassVar,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    get_args,
+)
 from uuid import UUID
 
 from pydantic import (
@@ -29,6 +38,31 @@ from pydantic import (
 )
 
 from arthur_common.models.response_schemas import RuleResponse
+
+MAX_CLIENT_ADDRESSES = 100
+"""Most client addresses one network record carries. A connector caps and logs past it."""
+
+MAX_NETWORK_DESTINATIONS = 100
+"""Most destinations one network record carries. A connector caps and logs past it."""
+
+RAW_CREDENTIAL_PREFIXES: tuple[str, ...] = (
+    "sk-",
+    "sk_",
+    "rk_",
+    "pk_",
+    "xoxb-",
+    "xoxp-",
+    "ghp_",
+    "github_pat_",
+    "AKIA",
+    "ASIA",
+)
+"""Prefixes of live secrets (provider API keys, Slack, GitHub, AWS access keys).
+
+A network record identified by a credential must carry the gateway's id for it -- a
+hash, a consumer id -- never the secret, because the address is stored, served and
+shown. A value starting with one of these is refused as a likely leaked key.
+"""
 
 # Component schemas for agent tools and sub-agents
 
@@ -402,7 +436,25 @@ class AgentObservations(BaseModel):
         "never a destination. An address is where a call came from, not which machine "
         "made it -- NAT, a shared egress or a pod's ephemeral IP all stand between the "
         "two -- which is why it is not `host_name`.",
+        max_length=MAX_CLIENT_ADDRESSES,
     )
+
+    @field_validator("client_addresses")
+    @classmethod
+    def _addresses_are_distinct_and_not_blank(cls, value: List[str]) -> List[str]:
+        """Strip each address, reject a blank one, and keep the first of duplicates.
+
+        A blank entry would read as a real address; a duplicate makes one caller look
+        like it came from more places than it did.
+        """
+        out: List[str] = []
+        for raw in value:
+            address = raw.strip()
+            if not address:
+                raise ValueError("a client address must not be blank")
+            if address not in out:
+                out.append(address)
+        return out
 
     # --- attribution --------------------------------------------------------------
     assigned_user: Optional[str] = Field(
@@ -848,6 +900,49 @@ class NetworkDestination(BaseModel):
         description="Latest call in the window, when the log carries a time.",
     )
 
+    @field_validator("host")
+    @classmethod
+    def _host_is_canonical(cls, value: str) -> str:
+        """Lowercase, without a trailing dot, so one destination is one entry.
+
+        `API.OpenAI.com.` and `api.openai.com` are the same host; kept apart, they
+        would split one destination's count and break grouping by host.
+        """
+        host = value.strip().rstrip(".").lower()
+        if not host:
+            raise ValueError("a destination host must not be blank")
+        return host
+
+    @field_validator("provider")
+    @classmethod
+    def _provider_must_not_be_blank(cls, value: str) -> str:
+        provider = value.strip()
+        if not provider:
+            raise ValueError("a destination provider must not be blank")
+        return provider
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def _times_are_naive_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        """One convention, naive UTC, so destinations can be compared and maxed.
+
+        A producer mixing aware and naive values would make any later comparison
+        raise; an aware value is converted to UTC and its offset dropped.
+        """
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    @model_validator(mode="after")
+    def _first_call_is_not_after_the_last(self) -> "NetworkDestination":
+        if (
+            self.first_seen is not None
+            and self.last_seen is not None
+            and self.first_seen > self.last_seen
+        ):
+            raise ValueError("first_seen must not be after last_seen")
+        return self
+
 
 class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     """An internal source seen sending traffic to a host that serves model inference.
@@ -911,7 +1006,41 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
         default_factory=list,
         description="Inference destinations this source called in the scan's window, "
         "with who serves each, how often and when.",
+        max_length=MAX_NETWORK_DESTINATIONS,
     )
+
+    @field_validator("destinations")
+    @classmethod
+    def _one_entry_per_destination(
+        cls,
+        value: List[NetworkDestination],
+    ) -> List[NetworkDestination]:
+        """Destinations are aggregated per host, so a host appears once."""
+        hosts = [d.host for d in value]
+        if len(hosts) != len(set(hosts)):
+            raise ValueError("destinations must name each host once")
+        return value
+
+    @model_validator(mode="after")
+    def _a_credential_is_never_the_identity_itself(
+        self,
+    ) -> "NetworkAgentCreationSource":
+        """A caller identified by a credential carries the gateway's id for it.
+
+        The address is persisted, served and displayed, so a connector that copied a
+        key instead of its hash would leak a live secret everywhere it goes.
+        """
+        if (
+            self.identity_basis is IdentityBasis.CREDENTIAL
+            and self.address.resource_id.startswith(
+                RAW_CREDENTIAL_PREFIXES,
+            )
+        ):
+            raise ValueError(
+                "resource_id looks like a raw credential; use the gateway's id or a "
+                "hash of the key",
+            )
+        return self
 
 
 # Union type for creation source. The north star is six members -- CLOUD, SIEM,
@@ -959,6 +1088,20 @@ DiscoveryCreationSourceUnion = Annotated[
     ],
     Field(discriminator="type"),
 ]
+
+
+def _creation_source_types() -> dict[SourceClass, str]:
+    members = get_args(get_args(DiscoveryCreationSourceUnion)[0])
+    return {m.SOURCE_CLASS: m.model_fields["type"].default for m in members}
+
+
+CREATION_SOURCE_TYPE_BY_CLASS: dict[SourceClass, str] = _creation_source_types()
+"""The creation-source ``type`` tag each configurable source class reports as.
+
+Derived from DiscoveryCreationSourceUnion, so a consumer that rebuilds a creation
+source from a provenance entry's ``source_class`` reads it here rather than keeping its
+own copy, which would silently drop a class added later.
+"""
 
 
 DEPRECATED_CREATION_SOURCE_TAGS: frozenset[str] = frozenset({"GCP"})

@@ -5,7 +5,11 @@ import pytest
 from pydantic import ValidationError
 
 from arthur_common.models.agent_governance_schemas import (
+    CREATION_SOURCE_TYPE_BY_CLASS,
     DEPRECATED_CREATION_SOURCE_TAGS,
+    DISCOVERY_SOURCE_CLASSES,
+    MAX_CLIENT_ADDRESSES,
+    MAX_NETWORK_DESTINATIONS,
     AgentCreationSource,
     AgentObservations,
     CloudAgentCreationSource,
@@ -838,6 +842,128 @@ class TestDiscoveryCreationSources:
             "claimed_agent",
             "client_address",
         ]
+
+    def test_a_destination_host_is_canonical(self):
+        """`API.OpenAI.com.` and `api.openai.com` are one destination."""
+        d = NetworkDestination(host=" API.OpenAI.com. ", provider=" OpenAI ", count=1)
+        assert d.host == "api.openai.com"
+        assert d.provider == "OpenAI"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"host": "   ", "provider": "OpenAI", "count": 1},
+            {"host": ".", "provider": "OpenAI", "count": 1},
+            {"host": "api.openai.com", "provider": "  ", "count": 1},
+        ],
+    )
+    def test_a_destination_rejects_blank_text(self, bad):
+        with pytest.raises(ValidationError):
+            NetworkDestination(**bad)
+
+    def test_a_destinations_first_call_is_not_after_its_last(self):
+        with pytest.raises(ValidationError):
+            NetworkDestination(
+                host="api.openai.com",
+                provider="OpenAI",
+                count=2,
+                first_seen=datetime(2026, 10, 14, 5, 0),
+                last_seen=datetime(2026, 10, 14, 1, 0),
+            )
+
+    def test_destination_times_are_naive_utc(self):
+        """Aware and naive values from one producer still compare."""
+        d = NetworkDestination(
+            host="api.openai.com",
+            provider="OpenAI",
+            count=2,
+            first_seen=datetime(2026, 10, 14, 1, 0),
+            last_seen=datetime(2026, 10, 14, 7, 0, tzinfo=timezone.utc),
+        )
+        assert d.last_seen == datetime(2026, 10, 14, 7, 0)
+        assert d.first_seen is not None and d.first_seen < d.last_seen
+
+    def test_destinations_name_each_host_once(self):
+        with pytest.raises(ValidationError):
+            NetworkAgentCreationSource(
+                vendor="aws_cloudwatch_logs",
+                address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
+                destinations=[
+                    NetworkDestination(
+                        host="api.openai.com",
+                        provider="OpenAI",
+                        count=1,
+                    ),
+                    NetworkDestination(
+                        host="API.openai.com.",
+                        provider="OpenAI",
+                        count=2,
+                    ),
+                ],
+            )
+
+    def test_destinations_and_client_addresses_are_bounded(self):
+        many = [
+            NetworkDestination(host=f"h{i}.example.test", provider="x", count=1)
+            for i in range(MAX_NETWORK_DESTINATIONS + 1)
+        ]
+        with pytest.raises(ValidationError):
+            NetworkAgentCreationSource(
+                vendor="aws_cloudwatch_logs",
+                address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
+                destinations=many,
+            )
+        with pytest.raises(ValidationError):
+            AgentObservations(
+                client_addresses=[
+                    f"10.0.0.{i}" for i in range(MAX_CLIENT_ADDRESSES + 1)
+                ],
+            )
+
+    def test_client_addresses_are_stripped_and_distinct(self):
+        obs = AgentObservations(client_addresses=[" 10.0.0.5", "10.0.0.5", "10.0.0.9"])
+        assert obs.client_addresses == ["10.0.0.5", "10.0.0.9"]
+        with pytest.raises(ValidationError):
+            AgentObservations(client_addresses=["10.0.0.5", "  "])
+
+    @pytest.mark.parametrize(
+        "secret",
+        ["sk-proj-abcdef0123456789", "sk-ant-api03-abc", "AKIAIOSFODNN7EXAMPLE"],
+    )
+    def test_a_credential_identity_is_never_a_raw_key(self, secret):
+        with pytest.raises(ValidationError):
+            NetworkAgentCreationSource(
+                vendor="litellm_proxy",
+                identity_basis=IdentityBasis.CREDENTIAL,
+                address=SourceAddress(
+                    instance="gateway.example.test:4000",
+                    resource_kind="virtual_key",
+                    resource_id=secret,
+                ),
+            )
+
+    def test_a_hashed_credential_identity_is_accepted(self):
+        src = NetworkAgentCreationSource(
+            vendor="litellm_proxy",
+            identity_basis=IdentityBasis.CREDENTIAL,
+            address=SourceAddress(
+                instance="gateway.example.test:4000",
+                resource_kind="virtual_key",
+                resource_id="88f1c0ffee" * 6,
+            ),
+        )
+        assert src.address.resource_id.startswith("88f1")
+
+    def test_each_configurable_class_maps_to_its_creation_source_type(self):
+        """Consumers rebuild a creation source from a provenance entry's class; this is
+        the one table they should read, derived from the union."""
+        assert CREATION_SOURCE_TYPE_BY_CLASS == {
+            SourceClass.CLOUD: "CLOUD",
+            SourceClass.SIEM: "SIEM",
+            SourceClass.ENDPOINT: "ENDPOINT",
+            SourceClass.NETWORK: "NETWORK",
+        }
+        assert set(CREATION_SOURCE_TYPE_BY_CLASS) == DISCOVERY_SOURCE_CLASSES
 
     def test_only_a_network_source_fills_client_addresses(self):
         for category in (
