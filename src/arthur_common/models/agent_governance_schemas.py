@@ -219,6 +219,45 @@ class Visibility(str, Enum):
     """Identity and a little metadata, with no behavioural picture."""
 
 
+class IdentityBasis(str, Enum):
+    """What a gateway caller record's identity rests on. Strongest first.
+
+    A gateway sees calls, and has to decide which calls are one agent. What it groups
+    them by is a claim of a different strength depending on who issued it, and a
+    consumer deciding whether two records might be the same agent -- or whether one
+    record might be several -- needs to know which claim it is reading.
+
+    Not a Detection or a Visibility. Detection says how the agent was found (for this
+    class, always inferred from traffic); visibility says how much of it can be seen.
+    This says what the record's boundary is drawn around, and is per record, because
+    one gateway scan yields records of every strength. A host record read off DNS or
+    flow logs has no caller identity and leaves it unset.
+    """
+
+    REGISTERED_AGENT = "registered_agent"
+    """An agent id the gateway's own agent registry issued and still lists."""
+
+    CREDENTIAL = "credential"
+    """A credential the gateway issued: a virtual key, a consumer, a token subject.
+
+    Authenticated, but a credential is not an agent. Several agents sharing one key are
+    one record, and one agent rotating keys is several.
+    """
+
+    CLAIMED_AGENT = "claimed_agent"
+    """An agent id the caller sent, not matched to the gateway's registry.
+
+    Either the gateway did not issue it, or the scan's credential could not see the
+    registry entry -- gateways narrow their registry to what a key was granted, so the
+    two cannot always be told apart. The most specific identity a call can carry and
+    the least verified: anything able to call the gateway can send any id.
+    """
+
+    CLIENT_ADDRESS = "client_address"
+    """Only the address the calls came from: an unauthenticated gateway, or a log
+    that kept nothing else. Weakest, since one address can front a whole subnet."""
+
+
 # --- the two halves every record carries ----------------------------------------
 
 
@@ -343,6 +382,16 @@ class AgentObservations(BaseModel):
     os_version: Optional[str] = Field(
         default=None,
         description="Guest OS version, e.g. 'macOS 15.3 (24D60)'.",
+    )
+
+    # --- where its traffic comes from --------------------------------------------
+    client_addresses: List[str] = Field(
+        default_factory=list,
+        description="Addresses the agent's calls arrived from, as the gateway it called "
+        "recorded them. The caller's side of a connection the gateway terminated, so "
+        "never a destination. An address is where a call came from, not which machine "
+        "made it -- NAT, a shared egress or a pod's ephemeral IP all stand between the "
+        "two -- which is why it is not `host_name`.",
     )
 
     # --- attribution --------------------------------------------------------------
@@ -788,16 +837,43 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     ``destinations`` is what the source called, which only this class can see and
     which is the evidence itself, so it is a field of the class rather than of the
     shared AgentObservations. Empty by default, so a record without it still validates.
+
+    AN AI GATEWAY'S CALLER IS THE SAME CLASS, ONE RECORD SHAPE. A gateway (an LLM proxy
+    holding the provider keys) also learns of an agent from its traffic, but sees the
+    caller rather than its host: the key, consumer or agent id it authenticated, the
+    addresses the calls came from, and sometimes the end user. Such a record sets
+    ``identity_basis`` and is addressed by the gateway host (``instance``), the team or
+    workspace the caller belongs to (``scope``), the gateway's own namespace for the
+    identity (``resource_kind``, e.g. ``virtual_key``, ``consumer``, ``agent_id``) and
+    the id that ``external_id`` is built from (``resource_id``). Never a raw credential.
+    ``client_addresses``, ``host_group`` (the team) and ``assigned_user`` (the end user
+    a gateway attributes calls to) are what it can observe. A host record leaves
+    ``identity_basis`` unset and fills ``host_name``/``host_group`` instead.
+
+    Never carries a prompt or a response, though most gateways can log both.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
     DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"host_name", "host_group"},
+        {
+            # a host record: the instance or address that called out, and its network
+            "host_name",
+            "host_group",
+            # a gateway caller record: where its calls came from, and the end user
+            # the gateway attributes them to (PERSONAL DATA, see the field)
+            "client_addresses",
+            "assigned_user",
+        },
     )
 
     type: Literal["NETWORK"] = "NETWORK"
+    identity_basis: Optional[IdentityBasis] = Field(
+        default=None,
+        description="What a gateway caller record's identity rests on; see "
+        "IdentityBasis. Unset on a host record, whose identity is the host.",
+    )
     destinations: List[NetworkDestination] = Field(
         default_factory=list,
         description="Inference destinations this source called in the scan's window, "

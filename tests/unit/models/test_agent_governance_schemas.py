@@ -16,6 +16,7 @@ from arthur_common.models.agent_governance_schemas import (
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
+    IdentityBasis,
     LLMModel,
     ManualAgentCreationSource,
     NetworkAgentCreationSource,
@@ -737,12 +738,88 @@ class TestDiscoveryCreationSources:
         assert NetworkAgentCreationSource.detection() is Detection.INFERRED
         assert NetworkAgentCreationSource.visibility_ceiling() is Visibility.LIMITED
 
-    def test_a_network_source_sees_the_host_and_its_network_only(self):
-        """No log line reaches the software on the host or who uses it."""
-        assert NetworkAgentCreationSource.observable_fields() == {
+    def test_a_network_source_sees_the_host_or_the_caller_never_the_software(self):
+        """A host record names the host and its network; a gateway caller record the
+        addresses its calls came from and the end user. Neither reaches the software."""
+        observable = NetworkAgentCreationSource.observable_fields()
+        assert observable == {
             "host_name",
             "host_group",
+            "client_addresses",
+            "assigned_user",
         }
+        assert {"install_path", "version", "os_version"}.isdisjoint(observable)
+
+    def test_a_host_record_has_no_caller_identity(self):
+        """A record without the gateway fields still validates and round-trips."""
+        src = AgentCreationSource.model_validate(
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {"instance": "111122223333", "resource_id": "i-0abc"},
+                "observations": {"host_name": "i-0abc"},
+            },
+        ).root
+        assert isinstance(src, NetworkAgentCreationSource)
+        assert src.identity_basis is None
+        assert src.observations.client_addresses == []
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert restored == src
+
+    def test_a_gateway_caller_is_a_network_record(self):
+        """One class, one shape: a gateway caller sets identity_basis and fills the
+        caller's observations, addressed by gateway, team, namespace and id."""
+        src = NetworkAgentCreationSource(
+            vendor="litellm_proxy",
+            identity_basis=IdentityBasis.CREDENTIAL,
+            address=SourceAddress(
+                instance="gateway.example.test:4000",
+                scope="customer-support",
+                resource_kind="virtual_key",
+                resource_id="88f1c0ffee",
+            ),
+            observations=AgentObservations(
+                client_addresses=["10.0.0.5", "10.0.0.9"],
+                host_group="customer-support",
+                assigned_user="someone@example.test",
+            ),
+        )
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert isinstance(restored, NetworkAgentCreationSource)
+        assert restored.identity_basis is IdentityBasis.CREDENTIAL
+        assert restored.observations.client_addresses == ["10.0.0.5", "10.0.0.9"]
+        assert restored.destinations == []
+        assert SourceClass.for_creation_source(AgentCreationSource(root=restored)) is (
+            SourceClass.NETWORK
+        )
+
+    def test_an_unknown_identity_basis_is_rejected(self):
+        with pytest.raises(ValidationError):
+            NetworkAgentCreationSource(
+                vendor="litellm_proxy",
+                identity_basis="api_key",
+                address=SourceAddress(instance="gw:4000", resource_id="k"),
+            )
+
+    def test_identity_basis_is_ordered_strongest_first(self):
+        assert [b.value for b in IdentityBasis] == [
+            "registered_agent",
+            "credential",
+            "claimed_agent",
+            "client_address",
+        ]
+
+    def test_only_a_network_source_fills_client_addresses(self):
+        for category in (
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+            EndpointAgentCreationSource,
+        ):
+            assert "client_addresses" not in category.observable_fields()
 
     def test_a_network_finding_carries_the_destinations_it_called(self):
         """Host, provider, count and the window's first and last call, round-tripped."""
@@ -887,12 +964,13 @@ class TestPersonalData:
         for category in (
             CloudAgentCreationSource,
             SIEMAgentCreationSource,
-            NetworkAgentCreationSource,
         ):
             assert "assigned_user" not in category.observable_fields()
 
-    def test_only_endpoint_sources_can_attribute_to_a_person(self):
+    def test_only_endpoint_and_network_sources_can_attribute_to_a_person(self):
+        """An MDM's assigned user, or the end user a gateway attributes calls to."""
         assert "assigned_user" in EndpointAgentCreationSource.observable_fields()
+        assert "assigned_user" in NetworkAgentCreationSource.observable_fields()
 
 
 ALL_SOURCE_PAYLOADS = [
