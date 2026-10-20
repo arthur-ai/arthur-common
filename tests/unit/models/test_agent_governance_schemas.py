@@ -8,7 +8,6 @@ from arthur_common.models.agent_governance_schemas import (
     CREATION_SOURCE_TYPE_BY_CLASS,
     DEPRECATED_CREATION_SOURCE_TAGS,
     DISCOVERY_SOURCE_CLASSES,
-    MAX_CLIENT_ADDRESSES,
     MAX_NETWORK_DESTINATIONS,
     AgentCreationSource,
     AgentObservations,
@@ -20,11 +19,11 @@ from arthur_common.models.agent_governance_schemas import (
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
-    IdentityBasis,
     LLMModel,
     ManualAgentCreationSource,
     NetworkAgentCreationSource,
     NetworkDestination,
+    NetworkHostKind,
     OTELAgentCreationSource,
     Platform,
     Provenance,
@@ -192,9 +191,10 @@ class TestCreationSource:
                     "type": "NETWORK",
                     "vendor": "aws_cloudwatch_logs",
                     "address": {
-                        "instance": "111122223333",
+                        "instance": "i-0abc1234def567890",
+                        "resource_kind": "instance",
                         "resource_id": "i-0abc1234def567890",
-                        "scope": "vpc-0a1b2c3d",
+                        "scope": "111122223333/us-east-1",
                     },
                 },
                 NetworkAgentCreationSource,
@@ -745,17 +745,25 @@ class TestDiscoveryCreationSources:
         )
         assert src.address.scope is None
 
-    def test_a_network_finding_addresses_a_source_in_an_account_and_network(self):
-        """The record is the internal source that called a provider, not the agent."""
-        src = NetworkAgentCreationSource(
+    @staticmethod
+    def _host(kind="instance", instance="i-0abc", resource_id="i-0abc", **kw):
+        return NetworkAgentCreationSource(
             vendor="aws_cloudwatch_logs",
             address=SourceAddress(
-                instance="111122223333",
-                scope="vpc-0a1b2c3d",
-                resource_id="i-0abc1234def567890",
+                instance=instance,
+                scope=kw.pop("scope", "111122223333/us-east-1"),
+                resource_kind=kind,
+                resource_id=resource_id,
             ),
+            **kw,
+        )
+
+    def test_a_network_finding_addresses_the_host_where_it_is(self):
+        """The record is the internal host that called a provider, not the agent: the
+        host in instance and resource_id, where it is in scope, its VPC observed."""
+        src = self._host(
             observations=AgentObservations(
-                host_name="i-0abc1234def567890",
+                host_name="i-0abc",
                 host_group="vpc-0a1b2c3d",
             ),
         )
@@ -768,191 +776,115 @@ class TestDiscoveryCreationSources:
         assert NetworkAgentCreationSource.detection() is Detection.INFERRED
         assert NetworkAgentCreationSource.visibility_ceiling() is Visibility.LIMITED
 
-    def test_a_network_source_sees_the_host_or_the_caller_never_the_software(self):
-        """A host record names the host and its network; a gateway caller record the
-        addresses its calls came from and the end user. Neither reaches the software."""
+    def test_a_network_source_sees_the_host_never_the_software(self):
         observable = NetworkAgentCreationSource.observable_fields()
-        assert observable == {
-            "host_name",
-            "host_group",
-            "client_addresses",
-            "assigned_user",
-        }
-        assert {"install_path", "version", "os_version"}.isdisjoint(observable)
+        assert observable == {"host_name", "host_group"}
+        assert {"install_path", "version", "os_version", "assigned_user"}.isdisjoint(
+            observable,
+        )
 
-    def test_a_host_record_has_no_caller_identity(self):
-        """A record without the gateway fields still validates and round-trips."""
-        src = AgentCreationSource.model_validate(
-            {
-                "type": "NETWORK",
-                "vendor": "aws_cloudwatch_logs",
-                "address": {"instance": "111122223333", "resource_id": "i-0abc"},
-                "observations": {"host_name": "i-0abc"},
-            },
-        ).root
-        assert isinstance(src, NetworkAgentCreationSource)
-        assert src.identity_basis is None
-        assert src.observations.client_addresses == []
+    def test_host_kinds_are_ordered_strongest_first(self):
+        assert [k.value for k in NetworkHostKind] == ["instance", "eni", "ip"]
+
+    @pytest.mark.parametrize("kind", [None, "virtual_key", "consumer", "vpc"])
+    def test_the_host_kind_is_required_and_closed(self, kind):
+        """An instance id and an address are otherwise indistinguishable strings, and
+        a record of any other kind is not a host record."""
+        with pytest.raises(ValidationError, match="resource_kind"):
+            self._host(kind=kind)
+
+    @pytest.mark.parametrize("scope", [None, "", "  "])
+    def test_where_the_host_is_is_required(self, scope):
+        """Part of identity, so it cannot be present in one scan and absent in the
+        next; account and region are on every line, unlike the VPC."""
+        with pytest.raises(ValidationError, match="address.scope"):
+            self._host(scope=scope)
+
+    def test_one_host_seen_in_two_logs_is_one_address(self):
+        """Route 53 resolver logs carry the VPC and default flow logs do not; with the
+        VPC kept out of the address, both report the same identity."""
+        resolver = self._host(observations=AgentObservations(host_group="vpc-0a1"))
+        flow = self._host()
+        assert resolver.address == flow.address
+
+    @pytest.mark.parametrize("kind", ["instance", "eni"])
+    def test_an_instance_or_interface_is_its_own_instance(self, kind):
+        """Never the account: records are told apart by instance, so an account there
+        would make every host in it look alike."""
+        with pytest.raises(ValidationError, match="address.instance"):
+            self._host(kind=kind, instance="111122223333", resource_id="i-0abc")
+        assert self._host(kind=kind, instance="eni-1", resource_id="eni-1")
+
+    def test_an_address_is_placed_in_its_network(self):
+        src = self._host(kind="ip", instance="vpc-0a1", resource_id="10.0.1.23")
+        assert src.address.instance == "vpc-0a1"
+        with pytest.raises(ValidationError, match="address.instance"):
+            self._host(kind="ip", instance="10.0.1.23", resource_id="10.0.1.23")
+
+    def test_a_record_round_trips(self):
+        src = self._host(
+            destinations=[NetworkDestination(host="api.openai.com", provider="OpenAI")],
+        )
         restored = AgentCreationSource.model_validate_json(
             AgentCreationSource(root=src).model_dump_json(),
         ).root
         assert restored == src
 
-    def test_a_gateway_caller_is_a_network_record(self):
-        """One class, one shape: a gateway caller sets identity_basis and fills the
-        caller's observations, addressed by gateway, team, namespace and id."""
-        src = NetworkAgentCreationSource(
-            vendor="litellm_proxy",
-            identity_basis=IdentityBasis.CREDENTIAL,
-            address=SourceAddress(
-                instance="gateway.example.test:4000",
-                scope="customer-support",
-                resource_kind="virtual_key",
-                resource_id="88f1c0ffee",
-            ),
-            observations=AgentObservations(
-                client_addresses=["10.0.0.5", "10.0.0.9"],
-                host_group="customer-support",
-                assigned_user="someone@example.test",
-            ),
-        )
-        restored = AgentCreationSource.model_validate_json(
-            AgentCreationSource(root=src).model_dump_json(),
-        ).root
-        assert isinstance(restored, NetworkAgentCreationSource)
-        assert restored.identity_basis is IdentityBasis.CREDENTIAL
-        assert restored.observations.client_addresses == ["10.0.0.5", "10.0.0.9"]
-        assert restored.destinations == []
-        assert SourceClass.for_creation_source(AgentCreationSource(root=restored)) is (
-            SourceClass.NETWORK
-        )
-
-    def test_an_unknown_identity_basis_is_rejected(self):
-        with pytest.raises(ValidationError):
-            NetworkAgentCreationSource(
-                vendor="litellm_proxy",
-                identity_basis="api_key",
-                address=SourceAddress(instance="gw:4000", resource_id="k"),
-            )
-
-    def test_identity_basis_is_ordered_strongest_first(self):
-        assert [b.value for b in IdentityBasis] == [
-            "registered_agent",
-            "credential",
-            "claimed_agent",
-            "client_address",
-        ]
+    def test_a_destination_carries_nothing_that_changes_per_scan(self):
+        """The creation source is frozen at the first report, so a count or a time
+        here would be served unchanged forever; recency is provenance's."""
+        assert set(NetworkDestination.model_fields) == {"host", "provider"}
 
     def test_a_destination_host_is_canonical(self):
         """`API.OpenAI.com.` and `api.openai.com` are one destination."""
-        d = NetworkDestination(host=" API.OpenAI.com. ", provider=" OpenAI ", count=1)
+        d = NetworkDestination(host=" API.OpenAI.com. ", provider=" OpenAI ")
         assert d.host == "api.openai.com"
         assert d.provider == "OpenAI"
 
     @pytest.mark.parametrize(
         "bad",
         [
-            {"host": "   ", "provider": "OpenAI", "count": 1},
-            {"host": ".", "provider": "OpenAI", "count": 1},
-            {"host": "api.openai.com", "provider": "  ", "count": 1},
+            {"host": "", "provider": "OpenAI"},
+            {"host": "   ", "provider": "OpenAI"},
+            {"host": ".", "provider": "OpenAI"},
+            {"host": "api.openai.com", "provider": "  "},
         ],
     )
     def test_a_destination_rejects_blank_text(self, bad):
         with pytest.raises(ValidationError):
             NetworkDestination(**bad)
 
-    def test_a_destinations_first_call_is_not_after_its_last(self):
-        with pytest.raises(ValidationError):
-            NetworkDestination(
-                host="api.openai.com",
-                provider="OpenAI",
-                count=2,
-                first_seen=datetime(2026, 10, 14, 5, 0),
-                last_seen=datetime(2026, 10, 14, 1, 0),
-            )
-
-    def test_destination_times_are_naive_utc(self):
-        """Aware and naive values from one producer still compare."""
-        d = NetworkDestination(
-            host="api.openai.com",
-            provider="OpenAI",
-            count=2,
-            first_seen=datetime(2026, 10, 14, 1, 0),
-            last_seen=datetime(2026, 10, 14, 7, 0, tzinfo=timezone.utc),
-        )
-        assert d.last_seen == datetime(2026, 10, 14, 7, 0)
-        assert d.first_seen is not None and d.first_seen < d.last_seen
-
     def test_destinations_name_each_host_once(self):
         with pytest.raises(ValidationError):
-            NetworkAgentCreationSource(
-                vendor="aws_cloudwatch_logs",
-                address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
+            self._host(
                 destinations=[
-                    NetworkDestination(
-                        host="api.openai.com",
-                        provider="OpenAI",
-                        count=1,
-                    ),
-                    NetworkDestination(
-                        host="API.openai.com.",
-                        provider="OpenAI",
-                        count=2,
-                    ),
+                    NetworkDestination(host="api.openai.com", provider="OpenAI"),
+                    NetworkDestination(host="API.openai.com.", provider="OpenAI"),
                 ],
             )
 
-    def test_destinations_and_client_addresses_are_bounded(self):
+    def test_destinations_are_bounded(self):
         many = [
-            NetworkDestination(host=f"h{i}.example.test", provider="x", count=1)
+            NetworkDestination(host=f"h{i}.example.test", provider="x")
             for i in range(MAX_NETWORK_DESTINATIONS + 1)
         ]
         with pytest.raises(ValidationError):
-            NetworkAgentCreationSource(
-                vendor="aws_cloudwatch_logs",
-                address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
-                destinations=many,
-            )
-        with pytest.raises(ValidationError):
-            AgentObservations(
-                client_addresses=[
-                    f"10.0.0.{i}" for i in range(MAX_CLIENT_ADDRESSES + 1)
-                ],
-            )
+            self._host(destinations=many)
 
-    def test_client_addresses_are_stripped_and_distinct(self):
-        obs = AgentObservations(client_addresses=[" 10.0.0.5", "10.0.0.5", "10.0.0.9"])
-        assert obs.client_addresses == ["10.0.0.5", "10.0.0.9"]
-        with pytest.raises(ValidationError):
-            AgentObservations(client_addresses=["10.0.0.5", "  "])
-
-    @pytest.mark.parametrize(
-        "secret",
-        ["sk-proj-abcdef0123456789", "sk-ant-api03-abc", "AKIAIOSFODNN7EXAMPLE"],
-    )
-    def test_a_credential_identity_is_never_a_raw_key(self, secret):
-        with pytest.raises(ValidationError):
-            NetworkAgentCreationSource(
-                vendor="litellm_proxy",
-                identity_basis=IdentityBasis.CREDENTIAL,
-                address=SourceAddress(
-                    instance="gateway.example.test:4000",
-                    resource_kind="virtual_key",
-                    resource_id=secret,
-                ),
-            )
-
-    def test_a_hashed_credential_identity_is_accepted(self):
-        src = NetworkAgentCreationSource(
-            vendor="litellm_proxy",
-            identity_basis=IdentityBasis.CREDENTIAL,
-            address=SourceAddress(
-                instance="gateway.example.test:4000",
-                resource_kind="virtual_key",
-                resource_id="88f1c0ffee" * 6,
-            ),
-        )
-        assert src.address.resource_id.startswith("88f1")
+    def test_destinations_default_to_empty(self):
+        src = AgentCreationSource.model_validate(
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {
+                    "instance": "i-0abc",
+                    "scope": "111122223333/us-east-1",
+                    "resource_kind": "instance",
+                    "resource_id": "i-0abc",
+                },
+            },
+        ).root
+        assert src.destinations == []
 
     def test_each_configurable_class_maps_to_its_creation_source_type(self):
         """Consumers rebuild a creation source from a provenance entry's class; this is
@@ -965,67 +897,9 @@ class TestDiscoveryCreationSources:
         }
         assert set(CREATION_SOURCE_TYPE_BY_CLASS) == DISCOVERY_SOURCE_CLASSES
 
-    def test_only_a_network_source_fills_client_addresses(self):
-        for category in (
-            CloudAgentCreationSource,
-            SIEMAgentCreationSource,
-            EndpointAgentCreationSource,
-        ):
-            assert "client_addresses" not in category.observable_fields()
-
-    def test_a_network_finding_carries_the_destinations_it_called(self):
-        """Host, provider, count and the window's first and last call, round-tripped."""
-        first = datetime(2026, 10, 14, 1, 0, tzinfo=timezone.utc)
-        last = datetime(2026, 10, 14, 5, 0, tzinfo=timezone.utc)
-        src = NetworkAgentCreationSource(
-            vendor="aws_cloudwatch_logs",
-            address=SourceAddress(instance="111122223333", resource_id="i-0abc"),
-            destinations=[
-                NetworkDestination(
-                    host="api.openai.com",
-                    provider="OpenAI",
-                    count=37,
-                    first_seen=first,
-                    last_seen=last,
-                ),
-                NetworkDestination(host="10.50.3.4", provider="10.50.0.0/16", count=2),
-            ],
-        )
-        restored = AgentCreationSource.model_validate_json(
-            AgentCreationSource(root=src).model_dump_json(),
-        ).root
-        assert isinstance(restored, NetworkAgentCreationSource)
-        assert restored.destinations == src.destinations
-        assert restored.destinations[1].first_seen is None
-
-    def test_destinations_default_to_empty_for_older_producers(self):
-        src = AgentCreationSource.model_validate(
-            {
-                "type": "NETWORK",
-                "vendor": "aws_cloudwatch_logs",
-                "address": {"instance": "111122223333", "resource_id": "i-0abc"},
-            },
-        ).root
-        assert src.destinations == []
-
-    @pytest.mark.parametrize(
-        "bad",
-        [
-            {"host": "", "provider": "OpenAI", "count": 1},
-            {"host": "api.openai.com", "provider": "OpenAI", "count": 0},
-        ],
-    )
-    def test_a_destination_needs_a_host_and_a_call(self, bad):
-        with pytest.raises(ValidationError):
-            NetworkDestination(**bad)
-
-    def test_a_network_source_needs_no_scope(self):
-        """Flow and DNS logs need not name a VPC, so unlike CLOUD it stays optional."""
-        src = NetworkAgentCreationSource(
-            vendor="aws_cloudwatch_logs",
-            address=SourceAddress(instance="us-east-1", resource_id="10.0.1.23"),
-        )
-        assert src.address.scope is None
+    def test_shared_observations_gain_no_network_field(self):
+        """Every other class's records serialize exactly as before."""
+        assert "client_addresses" not in AgentObservations.model_fields
 
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
@@ -1070,9 +944,10 @@ class TestDiscoveryCreationSources:
                 "type": "NETWORK",
                 "vendor": "aws_cloudwatch_logs",
                 "address": {
-                    "instance": "111122223333",
+                    "instance": "vpc-0a1b2c3d",
+                    "resource_kind": "ip",
                     "resource_id": "10.0.1.23",
-                    "scope": "vpc-0a1b2c3d",
+                    "scope": "111122223333/us-east-1",
                 },
                 "observations": {
                     "host_name": "10.0.1.23",
@@ -1119,10 +994,10 @@ class TestPersonalData:
         ):
             assert "assigned_user" not in category.observable_fields()
 
-    def test_only_endpoint_and_network_sources_can_attribute_to_a_person(self):
-        """An MDM's assigned user, or the end user a gateway attributes calls to."""
+    def test_only_endpoint_sources_can_attribute_to_a_person(self):
+        """An MDM's assigned user. A network log names a host, never its owner."""
         assert "assigned_user" in EndpointAgentCreationSource.observable_fields()
-        assert "assigned_user" in NetworkAgentCreationSource.observable_fields()
+        assert "assigned_user" not in NetworkAgentCreationSource.observable_fields()
 
 
 ALL_SOURCE_PAYLOADS = [
@@ -1175,7 +1050,12 @@ ALL_SOURCE_PAYLOADS = [
         {
             "type": "NETWORK",
             "vendor": "aws_cloudwatch_logs",
-            "address": {"instance": "111122223333", "resource_id": "i-0abc"},
+            "address": {
+                "instance": "i-0abc",
+                "resource_kind": "instance",
+                "resource_id": "i-0abc",
+                "scope": "111122223333/us-east-1",
+            },
         },
         id="NETWORK",
     ),

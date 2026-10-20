@@ -66,7 +66,12 @@ CLOUD_SOURCE = {
 NETWORK_SOURCE = {
     "type": "NETWORK",
     "vendor": "aws_cloudwatch_logs",
-    "address": {"instance": "1", "resource_id": "i-0abc", "scope": "vpc-1"},
+    "address": {
+        "instance": "i-0abc",
+        "resource_id": "i-0abc",
+        "resource_kind": "instance",
+        "scope": "1/us-east-1",
+    },
 }
 
 
@@ -356,7 +361,7 @@ class TestProvenanceRecordIdentity:
                     source_class=SourceClass.SIEM,
                     external_id="splunk-rec-9",
                     last_scanned=NOW,
-                )
+                ),
             ],
         )
         dumped = prov.model_dump()["sources"][0]

@@ -13,7 +13,7 @@ Shared across app_plane, ML Engine and GenAI Engine, and backing the
 /api/v2/agent-tasks endpoint.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import (
     Annotated,
@@ -39,30 +39,8 @@ from pydantic import (
 
 from arthur_common.models.response_schemas import RuleResponse
 
-MAX_CLIENT_ADDRESSES = 100
-"""Most client addresses one network record carries. A connector caps and logs past it."""
-
 MAX_NETWORK_DESTINATIONS = 100
 """Most destinations one network record carries. A connector caps and logs past it."""
-
-RAW_CREDENTIAL_PREFIXES: tuple[str, ...] = (
-    "sk-",
-    "sk_",
-    "rk_",
-    "pk_",
-    "xoxb-",
-    "xoxp-",
-    "ghp_",
-    "github_pat_",
-    "AKIA",
-    "ASIA",
-)
-"""Prefixes of live secrets (provider API keys, Slack, GitHub, AWS access keys).
-
-A network record identified by a credential must carry the gateway's id for it -- a
-hash, a consumer id -- never the secret, because the address is stored, served and
-shown. A value starting with one of these is refused as a likely leaked key.
-"""
 
 # Component schemas for agent tools and sub-agents
 
@@ -253,43 +231,27 @@ class Visibility(str, Enum):
     """Identity and a little metadata, with no behavioural picture."""
 
 
-class IdentityBasis(str, Enum):
-    """What a gateway caller record's identity rests on. Strongest first.
+class NetworkHostKind(str, Enum):
+    """What a network host record's ``resource_id`` names. Strongest first.
 
-    A gateway sees calls, and has to decide which calls are one agent. What it groups
-    them by is a claim of a different strength depending on who issued it, and a
-    consumer deciding whether two records might be the same agent -- or whether one
-    record might be several -- needs to know which claim it is reading.
-
-    Not a Detection or a Visibility. Detection says how the agent was found (for this
-    class, always inferred from traffic); visibility says how much of it can be seen.
-    This says what the record's boundary is drawn around, and is per record, because
-    one gateway scan yields records of every strength. A host record read off DNS or
-    flow logs has no caller identity and leaves it unset.
+    A network log names the source of a call in whatever terms it kept: an instance id
+    when the platform stamped one, a network interface when only that was logged, else
+    an address. These are identities of very different strength -- an instance outlives
+    its addresses, while containers and functions share and reuse them -- and the
+    record's id is frozen once a task is minted from it, so a consumer has to be able
+    to tell which one it is reading without parsing the string. A connector uses the
+    strongest the line carries.
     """
 
-    REGISTERED_AGENT = "registered_agent"
-    """An agent id the gateway's own agent registry issued and still lists."""
+    INSTANCE = "instance"
+    """A VM or instance id, e.g. ``i-0abc`` or a Compute Engine instance id."""
 
-    CREDENTIAL = "credential"
-    """A credential the gateway issued: a virtual key, a consumer, a token subject.
+    ENI = "eni"
+    """A network interface id, e.g. ``eni-0abc``, when the log names no instance."""
 
-    Authenticated, but a credential is not an agent. Several agents sharing one key are
-    one record, and one agent rotating keys is several.
-    """
-
-    CLAIMED_AGENT = "claimed_agent"
-    """An agent id the caller sent, not matched to the gateway's registry.
-
-    Either the gateway did not issue it, or the scan's credential could not see the
-    registry entry -- gateways narrow their registry to what a key was granted, so the
-    two cannot always be told apart. The most specific identity a call can carry and
-    the least verified: anything able to call the gateway can send any id.
-    """
-
-    CLIENT_ADDRESS = "client_address"
-    """Only the address the calls came from: an unauthenticated gateway, or a log
-    that kept nothing else. Weakest, since one address can front a whole subnet."""
+    IP = "ip"
+    """Only an address. Weakest: a restart can give the host a new one, and a reused
+    address can belong to a different workload. Meaningful only within its network."""
 
 
 # --- the two halves every record carries ----------------------------------------
@@ -308,16 +270,18 @@ class SourceAddress(BaseModel):
     Splunk          instance          index+sourcetype    --          record id
     Sentinel        LA workspace      table               --          record id
     Elastic         deployment        data stream         --          record id
-    CloudWatch      AWS account       VPC                 --          instance or IP
+    CloudWatch      host (VM, ENI,    account/region      instance,   VM, ENI or IP
+                    else network)                         eni, ip
     Jamf / osquery  device key        --                  npm, app…   software key
     Compute Engine  VM instance id    project/zone        deb, npm…   software key
     ==============  ================  ==================  ==========  ============
 
     Only sources that read a machine's software inventory fill ``resource_kind``:
     endpoints, and cloud sources that read a VM's (Compute Engine, and EC2 after it).
-    Their ids come from several namespaces at once. Every other cloud vendor and every
-    SIEM addresses exactly one kind of resource, so the kind is implied by the vendor
-    and stays absent.
+    Their ids come from several namespaces at once. So do network host records, which
+    name a VM, an interface or an address (see NetworkHostKind). Every other cloud
+    vendor and every SIEM addresses exactly one kind of resource, so the kind is
+    implied by the vendor and stays absent.
 
     A VM-hosted cloud record is addressed per (software, VM), like an endpoint: the VM
     in ``instance``, never the project. Records are told apart by ``instance``, so a
@@ -328,7 +292,8 @@ class SourceAddress(BaseModel):
     ``CloudAgentCreationSource`` requires it -- a region, or for a VM where the machine
     is (project and zone; account and region on EC2). For a SIEM it addresses the
     *sighting*, and one agent may surface under two indexes, so it stays optional
-    there. Code comparing addresses across sources has to read `source_class` to know
+    there. A network host record reads it like a VM does -- where the host is, its
+    account and region or its project -- and requires it. Code comparing addresses across sources has to read `source_class` to know
     which it is looking at.
 
     Reused by Provenance rather than re-declared there, so a record and the task it
@@ -427,34 +392,6 @@ class AgentObservations(BaseModel):
         default=None,
         description="Guest OS version, e.g. 'macOS 15.3 (24D60)'.",
     )
-
-    # --- where its traffic comes from --------------------------------------------
-    client_addresses: List[str] = Field(
-        default_factory=list,
-        description="Addresses the agent's calls arrived from, as the gateway it called "
-        "recorded them. The caller's side of a connection the gateway terminated, so "
-        "never a destination. An address is where a call came from, not which machine "
-        "made it -- NAT, a shared egress or a pod's ephemeral IP all stand between the "
-        "two -- which is why it is not `host_name`.",
-        max_length=MAX_CLIENT_ADDRESSES,
-    )
-
-    @field_validator("client_addresses")
-    @classmethod
-    def _addresses_are_distinct_and_not_blank(cls, value: List[str]) -> List[str]:
-        """Strip each address, reject a blank one, and keep the first of duplicates.
-
-        A blank entry would read as a real address; a duplicate makes one caller look
-        like it came from more places than it did.
-        """
-        out: List[str] = []
-        for raw in value:
-            address = raw.strip()
-            if not address:
-                raise ValueError("a client address must not be blank")
-            if address not in out:
-                out.append(address)
-        return out
 
     # --- attribution --------------------------------------------------------------
     assigned_user: Optional[str] = Field(
@@ -871,10 +808,14 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
 class NetworkDestination(BaseModel):
     """One inference destination a network source was seen calling.
 
-    Aggregated over the scan's window, so one entry per destination rather than one
-    per log line. The provider is the connector's name for who serves the host -- its
-    catalog's, or the source's own entry for a host or range it added -- and free text
-    for the same reason ``vendor`` is.
+    Only what stays true of the destination between scans: the host and who serves it.
+    A record's creation source is kept as first reported -- GenAI Engine never rewrites
+    a task's creation source from a later scan -- so a per-scan count or time here
+    would be served unchanged forever. When the source last called anything is the
+    record's provenance ``last_seen``, which moves with every scan. The provider is
+    the connector's name for who serves the host -- its catalog's, or the source's own
+    entry for a host or range it added -- and free text for the same reason ``vendor``
+    is.
     """
 
     host: str = Field(
@@ -887,18 +828,6 @@ class NetworkDestination(BaseModel):
         description="Who serves it, e.g. 'OpenAI', 'Amazon Bedrock', or the source's "
         "own host or CIDR entry it matched.",
     )
-    count: int = Field(
-        ge=1,
-        description="Lookups or connections to it in the scan's window.",
-    )
-    first_seen: Optional[datetime] = Field(
-        default=None,
-        description="Earliest call in the window, when the log carries a time.",
-    )
-    last_seen: Optional[datetime] = Field(
-        default=None,
-        description="Latest call in the window, when the log carries a time.",
-    )
 
     @field_validator("host")
     @classmethod
@@ -906,7 +835,7 @@ class NetworkDestination(BaseModel):
         """Lowercase, without a trailing dot, so one destination is one entry.
 
         `API.OpenAI.com.` and `api.openai.com` are the same host; kept apart, they
-        would split one destination's count and break grouping by host.
+        would list one destination twice and break grouping by host.
         """
         host = value.strip().rstrip(".").lower()
         if not host:
@@ -921,91 +850,71 @@ class NetworkDestination(BaseModel):
             raise ValueError("a destination provider must not be blank")
         return provider
 
-    @field_validator("first_seen", "last_seen")
-    @classmethod
-    def _times_are_naive_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
-        """One convention, naive UTC, so destinations can be compared and maxed.
-
-        A producer mixing aware and naive values would make any later comparison
-        raise; an aware value is converted to UTC and its offset dropped.
-        """
-        if value is not None and value.tzinfo is not None:
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
-
-    @model_validator(mode="after")
-    def _first_call_is_not_after_the_last(self) -> "NetworkDestination":
-        if (
-            self.first_seen is not None
-            and self.last_seen is not None
-            and self.first_seen > self.last_seen
-        ):
-            raise ValueError("first_seen must not be after last_seen")
-        return self
-
 
 class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
-    """An internal source seen sending traffic to a host that serves model inference.
+    """An internal host seen sending traffic to a host that serves model inference.
 
     Read off network logs -- DNS query logs, flow logs, proxy or firewall logs -- by a
     connector that extracts a source and a destination from each line and matches the
-    destination against known inference hosts. The record is the SOURCE (an instance,
-    else an address), not the agent: a network log shows that something called a
-    provider, never which process did or what it is.
+    destination against known inference hosts. The record is the SOURCE HOST, not the
+    agent: a network log shows that something called a provider, never which process
+    did or what it is.
 
     NOT A SIEM, though both read logs. A SIEM source runs the customer's own query and
     reports whatever columns it projects; a network source owns the matching and reads
     one fixed kind of evidence, a connection or a lookup, so what it can fill is
     narrower and fixed by the class: the host it saw and the network that host is in.
 
-    Addressed by account (``instance``), network (``scope``, a VPC id when the log
-    carries one) and the instance id or address (``resource_id``). An address is weaker
-    identity than an instance -- containers and functions share and reuse addresses.
+    THE ADDRESS IS THE HOST, AND EVERY PART OF IT IS STABLE. The creation source is
+    frozen when a task is minted, and GenAI Engine and the ML engine match a later
+    report to it on the whole address, so a field that differs between two logs of
+    one host would split it in two:
 
-    ``destinations`` is what the source called, which only this class can see and
-    which is the evidence itself, so it is a field of the class rather than of the
-    shared AgentObservations. Empty by default, so a record without it still validates.
+    =============  =======================  ==================  ================
+    resource_kind  instance                 scope               resource_id
+    =============  =======================  ==================  ================
+    instance       the VM id                account/region, or  the VM id
+                                            the project
+    eni            the interface id         same                the interface id
+    ip             the network (VPC) id     same                the address
+    =============  =======================  ==================  ================
 
-    AN AI GATEWAY'S CALLER IS THE SAME CLASS, ONE RECORD SHAPE. A gateway (an LLM proxy
-    holding the provider keys) also learns of an agent from its traffic, but sees the
-    caller rather than its host: the key, consumer or agent id it authenticated, the
-    addresses the calls came from, and sometimes the end user. Such a record sets
-    ``identity_basis`` and is addressed by the gateway host (``instance``), the team or
-    workspace the caller belongs to (``scope``), the gateway's own namespace for the
-    identity (``resource_kind``, e.g. ``virtual_key``, ``consumer``, ``agent_id``) and
-    the id that ``external_id`` is built from (``resource_id``). Never a raw credential.
-    ``client_addresses``, ``host_group`` (the team) and ``assigned_user`` (the end user
-    a gateway attributes calls to) are what it can observe. A host record leaves
-    ``identity_basis`` unset and fills ``host_name``/``host_group`` instead.
+    - ``resource_kind`` is required: an instance id and an address are otherwise
+      indistinguishable strings of very different strength (see NetworkHostKind).
+    - ``instance`` is the host itself, as on a VM-hosted cloud record, never the
+      account: records are told apart by ``instance``, so an account there would make
+      every host in it look alike. Only an address, which means nothing outside its
+      network, is placed in its network.
+    - ``scope`` is required and is where the host is -- account and region, or project
+      -- which every log line of the host agrees on. Never the VPC for an instance or
+      an interface: some logs carry it and others do not, and a scope present in one
+      scan and absent in the next makes the same host two records. A line naming only
+      an address and no network cannot be placed, and the connector drops it rather
+      than guess.
 
-    Never carries a prompt or a response, though most gateways can log both.
+    The VPC a host is in is ``host_group``, an observation, so it can be shown without
+    being identity. ``destinations`` is what the source called, which only this class
+    can see and which is the evidence itself, so it is a field of the class rather than
+    of the shared AgentObservations. Empty by default, so a record without it still
+    validates.
+
+    An AI gateway's callers (an LLM proxy's keys, consumers or agents) are learned
+    from traffic too, but are a different record with different identity rules, and
+    are not this shape.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
     DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {
-            # a host record: the instance or address that called out, and its network
-            "host_name",
-            "host_group",
-            # a gateway caller record: where its calls came from, and the end user
-            # the gateway attributes them to (PERSONAL DATA, see the field)
-            "client_addresses",
-            "assigned_user",
-        },
+        {"host_name", "host_group"},
     )
 
     type: Literal["NETWORK"] = "NETWORK"
-    identity_basis: Optional[IdentityBasis] = Field(
-        default=None,
-        description="What a gateway caller record's identity rests on; see "
-        "IdentityBasis. Unset on a host record, whose identity is the host.",
-    )
     destinations: List[NetworkDestination] = Field(
         default_factory=list,
-        description="Inference destinations this source called in the scan's window, "
-        "with who serves each, how often and when.",
+        description="Inference destinations this host called, with who serves each. "
+        "As first reported; when the host last called is provenance's last_seen.",
         max_length=MAX_NETWORK_DESTINATIONS,
     )
 
@@ -1022,23 +931,30 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
         return value
 
     @model_validator(mode="after")
-    def _a_credential_is_never_the_identity_itself(
-        self,
-    ) -> "NetworkAgentCreationSource":
-        """A caller identified by a credential carries the gateway's id for it.
-
-        The address is persisted, served and displayed, so a connector that copied a
-        key instead of its hash would leak a live secret everywhere it goes.
-        """
-        if (
-            self.identity_basis is IdentityBasis.CREDENTIAL
-            and self.address.resource_id.startswith(
-                RAW_CREDENTIAL_PREFIXES,
-            )
-        ):
+    def _the_address_names_the_host(self) -> "NetworkAgentCreationSource":
+        """Enforce the address rules above, which identity matching depends on."""
+        address = self.address
+        kinds = [k.value for k in NetworkHostKind]
+        if address.resource_kind not in kinds:
             raise ValueError(
-                "resource_id looks like a raw credential; use the gateway's id or a "
-                "hash of the key",
+                f"a network record's address.resource_kind must be one of {kinds} "
+                f"(got {address.resource_kind!r})",
+            )
+        if not (address.scope or "").strip():
+            raise ValueError(
+                "a network record must carry address.scope: where the host is, its "
+                "account and region or its project",
+            )
+        is_address = address.resource_kind == NetworkHostKind.IP.value
+        if not is_address and address.instance != address.resource_id:
+            raise ValueError(
+                "a network record for an instance or interface carries the host in "
+                "address.instance as well as address.resource_id, not the account",
+            )
+        if is_address and address.instance == address.resource_id:
+            raise ValueError(
+                "a network record for an address carries its network in "
+                "address.instance, since an address means nothing outside it",
             )
         return self
 
