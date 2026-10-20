@@ -106,11 +106,11 @@ class Evidence(BaseModel):
     def detection(self) -> Optional[Detection]:
         """How this source knows the agent is there.
 
-        Derived from the creation source, not stored: the source class fixes it, so a
-        stored copy would be a second answer that could disagree. Serialized because it
-        is a column and a filter.
+        Derived from the creation source, not stored: the record fixes it (its class,
+        or for a gateway caller its identity basis), so a stored copy would be a second
+        answer that could disagree. Serialized because it is a column and a filter.
         """
-        return self.creation_source.root.DETECTION
+        return self.creation_source.root.record_detection()
 
 
 class DiscoveryOutputRecord(BaseModel):

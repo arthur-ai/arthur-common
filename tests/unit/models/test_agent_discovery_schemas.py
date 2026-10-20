@@ -563,6 +563,24 @@ class TestEvidence:
         assert splunk.detection is Detection.INFERRED
         assert splunk.last_scanned == NOW - timedelta(days=3)
 
+    def test_a_gateway_callers_detection_is_its_own(self):
+        """Evidence reads the record, not only its class: a registry-listed caller is
+        observed, a caller that only claimed an id is inferred."""
+        caller = {
+            "type": "NETWORK",
+            "vendor": "litellm_proxy",
+            "address": {
+                "instance": "gateway.example.test:4000",
+                "resource_kind": "agent_id",
+                "resource_id": "8e178a0c",
+            },
+        }
+        registered = self._evidence({**caller, "identity_basis": "registered_agent"})
+        claimed = self._evidence({**caller, "identity_basis": "claimed_agent"})
+        assert registered.detection is Detection.OBSERVED
+        assert claimed.detection is Detection.INFERRED
+        assert registered.model_dump()["detection"] is Detection.OBSERVED
+
     def test_new_this_scan_derives_from_first_seen_and_run(self):
         """There is deliberately no `new` status field to fall out of date."""
         run_id = uuid4()
