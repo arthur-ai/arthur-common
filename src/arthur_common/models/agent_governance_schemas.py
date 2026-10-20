@@ -42,6 +42,25 @@ from arthur_common.models.response_schemas import RuleResponse
 MAX_NETWORK_DESTINATIONS = 100
 """Most destinations one network record carries. A connector caps and logs past it."""
 
+RAW_CREDENTIAL_PREFIXES: tuple[str, ...] = (
+    "sk-",
+    "sk_",
+    "rk_",
+    "pk_",
+    "xoxb-",
+    "xoxp-",
+    "ghp_",
+    "github_pat_",
+    "AKIA",
+    "ASIA",
+)
+"""Prefixes of live secrets (provider API keys, Slack, GitHub, AWS access keys).
+
+A gateway caller identified by a credential carries the gateway's id for it -- a hash,
+a consumer id -- never the secret, because the address is stored, served and shown. A
+value starting with one of these is refused as a likely leaked key.
+"""
+
 # Component schemas for agent tools and sub-agents
 
 
@@ -252,6 +271,68 @@ class NetworkHostKind(str, Enum):
     IP = "ip"
     """Only an address. Weakest: a restart can give the host a new one, and a reused
     address can belong to a different workload. Meaningful only within its network."""
+
+
+class NetworkCallerKind(str, Enum):
+    """What a gateway caller record's ``resource_id`` names, in the gateway's terms.
+
+    A gateway (an LLM proxy holding the provider keys) sees the CALLER of a model, not
+    the host it runs on, so its records are a different shape from a network host
+    record and are told apart by this kind.
+    """
+
+    AGENT_ID = "agent_id"
+    """An agent id: issued by the gateway's registry, or sent by the caller."""
+
+    VIRTUAL_KEY = "virtual_key"
+    """A key the gateway issued, carried as the gateway's id or hash for it."""
+
+    CONSUMER = "consumer"
+    """A consumer or token subject the gateway authenticated."""
+
+    CLIENT_ADDRESS = "client_address"
+    """Only the address the calls came from."""
+
+
+class IdentityBasis(str, Enum):
+    """What a gateway caller record's identity rests on. Strongest first.
+
+    Required on every caller record and implied by its kind, except that an agent id
+    is either one the gateway's registry issued or one the caller merely sent. Also
+    what the record's detection follows: a registry row or an issued credential is
+    seen directly, the rest is inferred from traffic.
+    """
+
+    REGISTERED_AGENT = "registered_agent"
+    """An agent id the gateway's own agent registry issued and still lists."""
+
+    CREDENTIAL = "credential"
+    """A credential the gateway issued: a virtual key, a consumer, a token subject.
+
+    Authenticated, but a credential is not an agent. Several agents sharing one key are
+    one record, and one agent rotating keys is several.
+    """
+
+    CLAIMED_AGENT = "claimed_agent"
+    """An agent id the caller sent, not matched to the gateway's registry.
+
+    The most specific identity a call can carry and the least verified: anything able
+    to call the gateway can send any id.
+    """
+
+    CLIENT_ADDRESS = "client_address"
+    """Only the address the calls came from: an unauthenticated gateway, or a log
+    that kept nothing else. Weakest, since one address can front a whole subnet."""
+
+
+_BASES_BY_CALLER_KIND: dict[str, frozenset[IdentityBasis]] = {
+    NetworkCallerKind.AGENT_ID.value: frozenset(
+        {IdentityBasis.REGISTERED_AGENT, IdentityBasis.CLAIMED_AGENT},
+    ),
+    NetworkCallerKind.VIRTUAL_KEY.value: frozenset({IdentityBasis.CREDENTIAL}),
+    NetworkCallerKind.CONSUMER.value: frozenset({IdentityBasis.CREDENTIAL}),
+    NetworkCallerKind.CLIENT_ADDRESS.value: frozenset({IdentityBasis.CLIENT_ADDRESS}),
+}
 
 
 # --- the two halves every record carries ----------------------------------------
@@ -473,6 +554,19 @@ class AgentCreationSourceBase(BaseModel):
     def detection(cls) -> Optional[Detection]:
         """See DETECTION."""
         return cls.DETECTION
+
+    def record_detection(self) -> Optional[Detection]:
+        """How THIS record's source knows the agent is there.
+
+        The class's DETECTION unless a class has records of differing strength, as a
+        network source does once a gateway's registry is involved.
+        """
+        return self.DETECTION
+
+    def record_observable_fields(self) -> frozenset[str]:
+        """Observation fields THIS record's shape can fill: the class's, unless a
+        class holds more than one shape."""
+        return self.OBSERVABLE_FIELDS
 
     @classmethod
     def visibility_ceiling(cls) -> Optional[Visibility]:
@@ -898,9 +992,30 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     of the shared AgentObservations. Empty by default, so a record without it still
     validates.
 
-    An AI gateway's callers (an LLM proxy's keys, consumers or agents) are learned
-    from traffic too, but are a different record with different identity rules, and
-    are not this shape.
+    A GATEWAY CALLER IS THE SECOND SHAPE, told apart by ``resource_kind`` (a
+    NetworkCallerKind rather than a NetworkHostKind). An AI gateway learns of an agent
+    from its traffic too, but sees the caller, not its host:
+
+    =================  ===============  =====  ===============================
+    resource_kind      instance         scope  resource_id
+    =================  ===============  =====  ===============================
+    agent_id           the gateway      --     the agent id
+    virtual_key        the gateway      --     the gateway's id or hash for it
+    consumer           the gateway      --     the consumer id
+    client_address     the gateway      --     the address
+    =================  ===============  =====  ===============================
+
+    - ``identity_basis`` is required and must fit the kind, so a caller record cannot
+      be mistaken for a host record or claim more than its kind allows.
+    - ``scope`` is unset: a team or workspace can change between scans, and anything
+      in the address is identity. The team is observed as ``host_group``.
+    - Detection is per record: a registry row or an issued credential is observed,
+      a claimed id or a bare address is inferred.
+    - A caller fills only ``host_group``. No client addresses, which change on every
+      scan while the creation source does not, and no end user: one agent serves many,
+      often the gateway owner's own customers, and that is personal data no review has
+      covered.
+    - Never a raw credential: a value that looks like a live key is refused.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
@@ -910,7 +1025,14 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
         {"host_name", "host_group"},
     )
 
+    CALLER_OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"host_group"})
+
     type: Literal["NETWORK"] = "NETWORK"
+    identity_basis: Optional[IdentityBasis] = Field(
+        default=None,
+        description="What a gateway caller record's identity rests on; required on "
+        "one, absent on a host record. See IdentityBasis.",
+    )
     destinations: List[NetworkDestination] = Field(
         default_factory=list,
         description="Inference destinations this host called, with who serves each. "
@@ -930,16 +1052,40 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
             raise ValueError("destinations must name each host once")
         return value
 
+    def is_caller(self) -> bool:
+        """Whether this is a gateway caller record rather than a host record."""
+        return self.address.resource_kind in _BASES_BY_CALLER_KIND
+
+    def record_detection(self) -> Optional[Detection]:
+        if self.identity_basis in (
+            IdentityBasis.REGISTERED_AGENT,
+            IdentityBasis.CREDENTIAL,
+        ):
+            return Detection.OBSERVED
+        return Detection.INFERRED
+
+    def record_observable_fields(self) -> frozenset[str]:
+        if self.is_caller():
+            return self.CALLER_OBSERVABLE_FIELDS
+        return self.OBSERVABLE_FIELDS
+
     @model_validator(mode="after")
-    def _the_address_names_the_host(self) -> "NetworkAgentCreationSource":
+    def _the_address_fits_the_shape(self) -> "NetworkAgentCreationSource":
         """Enforce the address rules above, which identity matching depends on."""
+        if self.is_caller():
+            return self._check_caller()
+        return self._check_host()
+
+    def _check_host(self) -> "NetworkAgentCreationSource":
         address = self.address
-        kinds = [k.value for k in NetworkHostKind]
+        kinds = [k.value for k in NetworkHostKind] + list(_BASES_BY_CALLER_KIND)
         if address.resource_kind not in kinds:
             raise ValueError(
                 f"a network record's address.resource_kind must be one of {kinds} "
                 f"(got {address.resource_kind!r})",
             )
+        if self.identity_basis is not None:
+            raise ValueError("a network host record carries no identity_basis")
         if not (address.scope or "").strip():
             raise ValueError(
                 "a network record must carry address.scope: where the host is, its "
@@ -955,6 +1101,39 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
             raise ValueError(
                 "a network record for an address carries its network in "
                 "address.instance, since an address means nothing outside it",
+            )
+        return self
+
+    def _check_caller(self) -> "NetworkAgentCreationSource":
+        address = self.address
+        kind = address.resource_kind or ""
+        allowed = _BASES_BY_CALLER_KIND[kind]
+        if self.identity_basis not in allowed:
+            raise ValueError(
+                f"a {kind} caller record needs identity_basis in "
+                f"{sorted(b.value for b in allowed)} (got {self.identity_basis!r})",
+            )
+        if address.scope is not None:
+            raise ValueError(
+                "a gateway caller record leaves address.scope unset; a team or "
+                "workspace goes in observations.host_group",
+            )
+        if (
+            self.identity_basis is IdentityBasis.CREDENTIAL
+            and address.resource_id.startswith(RAW_CREDENTIAL_PREFIXES)
+        ):
+            raise ValueError(
+                "resource_id looks like a raw credential; use the gateway's id or a "
+                "hash of the key",
+            )
+        extra = {
+            name
+            for name in AgentObservations.model_fields
+            if getattr(self.observations, name) not in (None, [], {})
+        } - self.CALLER_OBSERVABLE_FIELDS
+        if extra:
+            raise ValueError(
+                f"a gateway caller record fills only host_group (got {sorted(extra)})",
             )
         return self
 
@@ -1034,9 +1213,10 @@ can check membership rather than hard-coding a tag.
 def detection_for(source: AgentCreationSource) -> Optional[Detection]:
     """How this source knows the agent is there.
 
-    Unwraps the RootModel so callers do not have to reach through it.
+    Per record, so a class whose records differ in strength answers for each. Unwraps
+    the RootModel so callers do not have to reach through it.
     """
-    return source.root.DETECTION
+    return source.root.record_detection()
 
 
 def visibility_ceiling(source: AgentCreationSource) -> Optional[Visibility]:

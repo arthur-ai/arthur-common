@@ -19,9 +19,11 @@ from arthur_common.models.agent_governance_schemas import (
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
+    IdentityBasis,
     LLMModel,
     ManualAgentCreationSource,
     NetworkAgentCreationSource,
+    NetworkCallerKind,
     NetworkDestination,
     NetworkHostKind,
     OTELAgentCreationSource,
@@ -37,6 +39,7 @@ from arthur_common.models.agent_governance_schemas import (
     Tool,
     ToolArgument,
     Visibility,
+    detection_for,
 )
 
 
@@ -786,10 +789,10 @@ class TestDiscoveryCreationSources:
     def test_host_kinds_are_ordered_strongest_first(self):
         assert [k.value for k in NetworkHostKind] == ["instance", "eni", "ip"]
 
-    @pytest.mark.parametrize("kind", [None, "virtual_key", "consumer", "vpc"])
+    @pytest.mark.parametrize("kind", [None, "account", "vpc"])
     def test_the_host_kind_is_required_and_closed(self, kind):
         """An instance id and an address are otherwise indistinguishable strings, and
-        a record of any other kind is not a host record."""
+        a kind that is neither a host's nor a caller's is refused."""
         with pytest.raises(ValidationError, match="resource_kind"):
             self._host(kind=kind)
 
@@ -900,6 +903,106 @@ class TestDiscoveryCreationSources:
     def test_shared_observations_gain_no_network_field(self):
         """Every other class's records serialize exactly as before."""
         assert "client_addresses" not in AgentObservations.model_fields
+
+    @staticmethod
+    def _caller(kind="agent_id", basis=IdentityBasis.REGISTERED_AGENT, **kw):
+        return NetworkAgentCreationSource(
+            vendor="litellm_proxy",
+            identity_basis=basis,
+            address=SourceAddress(
+                instance="gateway.example.test:4000",
+                scope=kw.pop("scope", None),
+                resource_kind=kind,
+                resource_id=kw.pop("resource_id", "8e178a0c"),
+            ),
+            **kw,
+        )
+
+    def test_caller_kinds_are_the_gateways_namespaces(self):
+        assert [k.value for k in NetworkCallerKind] == [
+            "agent_id",
+            "virtual_key",
+            "consumer",
+            "client_address",
+        ]
+
+    def test_a_gateway_caller_round_trips(self):
+        src = self._caller(observations=AgentObservations(host_group="support"))
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert restored == src
+        assert restored.is_caller()
+
+    @pytest.mark.parametrize(
+        ("kind", "basis"),
+        [
+            ("agent_id", None),
+            ("agent_id", IdentityBasis.CREDENTIAL),
+            ("virtual_key", IdentityBasis.REGISTERED_AGENT),
+            ("consumer", IdentityBasis.CLIENT_ADDRESS),
+            ("client_address", IdentityBasis.CREDENTIAL),
+        ],
+    )
+    def test_the_identity_basis_must_fit_the_kind(self, kind, basis):
+        """A caller that forgets identity_basis, or claims more than its kind allows,
+        is refused rather than read as a host."""
+        with pytest.raises(ValidationError, match="identity_basis"):
+            self._caller(kind=kind, basis=basis)
+
+    def test_a_host_record_carries_no_identity_basis(self):
+        with pytest.raises(ValidationError, match="identity_basis"):
+            self._host(identity_basis=IdentityBasis.CREDENTIAL)
+
+    def test_a_caller_has_no_scope(self):
+        """A team can change between scans; in the address it would split one caller."""
+        with pytest.raises(ValidationError, match="address.scope"):
+            self._caller(scope="support")
+
+    @pytest.mark.parametrize(
+        "observations",
+        [
+            {"host_name": "laptop-1"},
+            {"assigned_user": "someone@example.test"},
+        ],
+    )
+    def test_a_caller_fills_only_its_team(self, observations):
+        with pytest.raises(ValidationError, match="host_group"):
+            self._caller(observations=AgentObservations(**observations))
+
+    @pytest.mark.parametrize(
+        ("basis", "kind", "detection"),
+        [
+            (IdentityBasis.REGISTERED_AGENT, "agent_id", Detection.OBSERVED),
+            (IdentityBasis.CREDENTIAL, "virtual_key", Detection.OBSERVED),
+            (IdentityBasis.CLAIMED_AGENT, "agent_id", Detection.INFERRED),
+            (IdentityBasis.CLIENT_ADDRESS, "client_address", Detection.INFERRED),
+        ],
+    )
+    def test_detection_follows_the_identity_basis(self, basis, kind, detection):
+        src = self._caller(kind=kind, basis=basis)
+        assert detection_for(AgentCreationSource(root=src)) is detection
+
+    def test_a_host_record_is_still_inferred(self):
+        assert detection_for(AgentCreationSource(root=self._host())) is (
+            Detection.INFERRED
+        )
+
+    def test_each_shape_declares_what_it_can_fill(self):
+        assert self._caller().record_observable_fields() == {"host_group"}
+        assert self._host().record_observable_fields() == {"host_name", "host_group"}
+
+    @pytest.mark.parametrize(
+        "secret",
+        ["sk-proj-abcdef0123456789", "sk-ant-api03-abc", "AKIAIOSFODNN7EXAMPLE"],
+    )
+    def test_a_credential_identity_is_never_a_raw_key(self, secret):
+        with pytest.raises(ValidationError, match="raw credential"):
+            self._caller(
+                kind="virtual_key",
+                basis=IdentityBasis.CREDENTIAL,
+                resource_id=secret,
+            )
 
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
