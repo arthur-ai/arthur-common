@@ -1004,6 +1004,12 @@ class TestDiscoveryCreationSources:
                 resource_id=secret,
             )
 
+    @pytest.mark.parametrize("secret", ["sk-proj-abcdef0123456789", " sk-ant-api03"])
+    def test_no_caller_id_is_a_raw_key(self, secret):
+        """A claimed agent id is whatever the caller sent; leading space included."""
+        with pytest.raises(ValidationError, match="raw credential"):
+            self._caller(basis=IdentityBasis.CLAIMED_AGENT, resource_id=secret)
+
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
 

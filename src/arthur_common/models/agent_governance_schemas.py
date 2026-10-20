@@ -1015,7 +1015,8 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
       scan while the creation source does not, and no end user: one agent serves many,
       often the gateway owner's own customers, and that is personal data no review has
       covered.
-    - Never a raw credential: a value that looks like a live key is refused.
+    - Never a raw credential: a caller id that looks like a live key is refused,
+      whatever the identity basis.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
@@ -1118,10 +1119,9 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
                 "a gateway caller record leaves address.scope unset; a team or "
                 "workspace goes in observations.host_group",
             )
-        if (
-            self.identity_basis is IdentityBasis.CREDENTIAL
-            and address.resource_id.startswith(RAW_CREDENTIAL_PREFIXES)
-        ):
+        # Every caller, not only credential-based ones: a claimed agent id is whatever
+        # the caller sent, and could be a key pasted into the wrong header.
+        if address.resource_id.strip().startswith(RAW_CREDENTIAL_PREFIXES):
             raise ValueError(
                 "resource_id looks like a raw credential; use the gateway's id or a "
                 "hash of the key",
