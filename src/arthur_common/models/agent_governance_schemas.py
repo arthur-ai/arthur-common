@@ -1119,6 +1119,13 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
                 "a gateway caller record leaves address.scope unset; a team or "
                 "workspace goes in observations.host_group",
             )
+        if self.destinations:
+            raise ValueError(
+                "a gateway caller record carries no destinations; the models it was "
+                "served go in llm_models on the record",
+            )
+        if address.query is not None:
+            raise ValueError("a gateway caller record carries no address.query")
         # Every caller, not only credential-based ones: a claimed agent id is whatever
         # the caller sent, and could be a key pasted into the wrong header.
         if address.resource_id.strip().startswith(RAW_CREDENTIAL_PREFIXES):

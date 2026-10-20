@@ -954,6 +954,27 @@ class TestDiscoveryCreationSources:
         with pytest.raises(ValidationError, match="identity_basis"):
             self._host(identity_basis=IdentityBasis.CREDENTIAL)
 
+    def test_a_caller_has_no_destinations_or_query(self):
+        """Destinations are a host record's evidence; a caller's is the models it was
+        served, on the record."""
+        with pytest.raises(ValidationError, match="destinations"):
+            self._caller(
+                destinations=[
+                    NetworkDestination(host="api.openai.com", provider="OpenAI"),
+                ],
+            )
+        with pytest.raises(ValidationError, match="address.query"):
+            NetworkAgentCreationSource(
+                vendor="litellm_proxy",
+                identity_basis=IdentityBasis.REGISTERED_AGENT,
+                address=SourceAddress(
+                    instance="gateway.example.test:4000",
+                    resource_kind="agent_id",
+                    resource_id="8e178a0c",
+                    query="select 1",
+                ),
+            )
+
     def test_a_caller_has_no_scope(self):
         """A team can change between scans; in the address it would split one caller."""
         with pytest.raises(ValidationError, match="address.scope"):
