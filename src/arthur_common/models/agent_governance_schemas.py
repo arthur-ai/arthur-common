@@ -1,7 +1,7 @@
 """Schemas for agent task governance: what a task is and how it was found.
 
 Tools and sub-agents, the creation-source union (how an agent came to be known --
-self-instrumented, hand-created, or discovered by one of three source categories),
+self-instrumented, hand-created, or discovered by one of four source categories),
 provenance (where it was found and what it runs on), and the enriched task responses
 built from them.
 
@@ -15,7 +15,16 @@ Shared across app_plane, ML Engine and GenAI Engine, and backing the
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
+from typing import (
+    Annotated,
+    ClassVar,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    get_args,
+)
 from uuid import UUID
 
 from pydantic import (
@@ -29,6 +38,9 @@ from pydantic import (
 )
 
 from arthur_common.models.response_schemas import RuleResponse
+
+MAX_NETWORK_DESTINATIONS = 100
+"""Most destinations one network record carries. A connector caps and logs past it."""
 
 # Component schemas for agent tools and sub-agents
 
@@ -153,6 +165,7 @@ class SourceClass(str, Enum):
     CLOUD = "cloud"
     SIEM = "siem"
     ENDPOINT = "endpoint"
+    NETWORK = "network"
     OTEL = "otel"
     """Not a discovery source: the agent instrumented itself."""
 
@@ -166,14 +179,14 @@ class SourceClass(str, Enum):
 
 
 DISCOVERY_SOURCE_CLASSES: frozenset[SourceClass] = frozenset(
-    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT},
+    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT, SourceClass.NETWORK},
 )
 """The classes a configured discovery source can have.
 
 OTEL and MANUAL are members of SourceClass because a task's provenance has to name
 them, but neither is something anyone configures. Exported as a subset rather than a
 second enum, so there is one vocabulary and app_plane validates against it instead of
-redeclaring three of its five members.
+redeclaring four of its six members.
 """
 
 
@@ -218,6 +231,29 @@ class Visibility(str, Enum):
     """Identity and a little metadata, with no behavioural picture."""
 
 
+class NetworkHostKind(str, Enum):
+    """What a network host record's ``resource_id`` names. Strongest first.
+
+    A network log names the source of a call in whatever terms it kept: an instance id
+    when the platform stamped one, a network interface when only that was logged, else
+    an address. These are identities of very different strength -- an instance outlives
+    its addresses, while containers and functions share and reuse them -- and the
+    record's id is frozen once a task is minted from it, so a consumer has to be able
+    to tell which one it is reading without parsing the string. A connector uses the
+    strongest the line carries.
+    """
+
+    INSTANCE = "instance"
+    """A VM or instance id, e.g. ``i-0abc`` or a Compute Engine instance id."""
+
+    ENI = "eni"
+    """A network interface id, e.g. ``eni-0abc``, when the log names no instance."""
+
+    IP = "ip"
+    """Only an address. Weakest: a restart can give the host a new one, and a reused
+    address can belong to a different workload. Meaningful only within its network."""
+
+
 # --- the two halves every record carries ----------------------------------------
 
 
@@ -234,15 +270,18 @@ class SourceAddress(BaseModel):
     Splunk          instance          index+sourcetype    --          record id
     Sentinel        LA workspace      table               --          record id
     Elastic         deployment        data stream         --          record id
+    CloudWatch      host (VM, ENI,    account/region      instance,   VM, ENI or IP
+                    else network)                         eni, ip
     Jamf / osquery  device key        --                  npm, app…   software key
     Compute Engine  VM instance id    project/zone        deb, npm…   software key
     ==============  ================  ==================  ==========  ============
 
     Only sources that read a machine's software inventory fill ``resource_kind``:
     endpoints, and cloud sources that read a VM's (Compute Engine, and EC2 after it).
-    Their ids come from several namespaces at once. Every other cloud vendor and every
-    SIEM addresses exactly one kind of resource, so the kind is implied by the vendor
-    and stays absent.
+    Their ids come from several namespaces at once. So do network host records, which
+    name a VM, an interface or an address (see NetworkHostKind). Every other cloud
+    vendor and every SIEM addresses exactly one kind of resource, so the kind is
+    implied by the vendor and stays absent.
 
     A VM-hosted cloud record is addressed per (software, VM), like an endpoint: the VM
     in ``instance``, never the project. Records are told apart by ``instance``, so a
@@ -253,7 +292,8 @@ class SourceAddress(BaseModel):
     ``CloudAgentCreationSource`` requires it -- a region, or for a VM where the machine
     is (project and zone; account and region on EC2). For a SIEM it addresses the
     *sighting*, and one agent may surface under two indexes, so it stays optional
-    there. Code comparing addresses across sources has to read `source_class` to know
+    there. A network host record reads it like a VM does -- where the host is, its
+    account and region or its project -- and requires it. Code comparing addresses across sources has to read `source_class` to know
     which it is looking at.
 
     Reused by Provenance rather than re-declared there, so a record and the task it
@@ -576,8 +616,8 @@ class ManualAgentCreationSource(AgentCreationSourceBase):
 # --- discovery sources ------------------------------------------------------------
 #
 # Organised by CATEGORY, not by vendor: a new vendor is an enum member, and only a new
-# category costs a class. The three are the epic's own -- Cloud, SIEM and Endpoint --
-# with Network & Gateway the known fourth.
+# category costs a class. Cloud, SIEM and Endpoint are the epic's own; Network is the
+# fourth.
 
 
 class DiscoveryAgentCreationSource(AgentCreationSourceBase):
@@ -765,8 +805,162 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     type: Literal["ENDPOINT"] = "ENDPOINT"
 
 
-# Union type for creation source. The north star is five members -- CLOUD, SIEM,
-# ENDPOINT, OTEL, MANUAL -- plus deprecated GCP.
+class NetworkDestination(BaseModel):
+    """One inference destination a network source was seen calling.
+
+    Only what stays true of the destination between scans: the host and who serves it.
+    A record's creation source is kept as first reported -- GenAI Engine never rewrites
+    a task's creation source from a later scan -- so a per-scan count or time here
+    would be served unchanged forever. When the source last called anything is the
+    record's provenance ``last_seen``, which moves with every scan. The provider is
+    the connector's name for who serves the host -- its catalog's, or the source's own
+    entry for a host or range it added -- and free text for the same reason ``vendor``
+    is.
+    """
+
+    host: str = Field(
+        min_length=1,
+        description="Destination as the log named it: a hostname, lowercased and "
+        "without a trailing dot, or an IP address.",
+    )
+    provider: str = Field(
+        min_length=1,
+        description="Who serves it, e.g. 'OpenAI', 'Amazon Bedrock', or the source's "
+        "own host or CIDR entry it matched.",
+    )
+
+    @field_validator("host")
+    @classmethod
+    def _host_is_canonical(cls, value: str) -> str:
+        """Lowercase, without a trailing dot, so one destination is one entry.
+
+        `API.OpenAI.com.` and `api.openai.com` are the same host; kept apart, they
+        would list one destination twice and break grouping by host.
+        """
+        host = value.strip().rstrip(".").lower()
+        if not host:
+            raise ValueError("a destination host must not be blank")
+        return host
+
+    @field_validator("provider")
+    @classmethod
+    def _provider_must_not_be_blank(cls, value: str) -> str:
+        provider = value.strip()
+        if not provider:
+            raise ValueError("a destination provider must not be blank")
+        return provider
+
+
+class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
+    """An internal host seen sending traffic to a host that serves model inference.
+
+    Read off network logs -- DNS query logs, flow logs, proxy or firewall logs -- by a
+    connector that extracts a source and a destination from each line and matches the
+    destination against known inference hosts. The record is the SOURCE HOST, not the
+    agent: a network log shows that something called a provider, never which process
+    did or what it is.
+
+    NOT A SIEM, though both read logs. A SIEM source runs the customer's own query and
+    reports whatever columns it projects; a network source owns the matching and reads
+    one fixed kind of evidence, a connection or a lookup, so what it can fill is
+    narrower and fixed by the class: the host it saw and the network that host is in.
+
+    THE ADDRESS IS THE HOST, AND EVERY PART OF IT IS STABLE. The creation source is
+    frozen when a task is minted, and GenAI Engine and the ML engine match a later
+    report to it on the whole address, so a field that differs between two logs of
+    one host would split it in two:
+
+    =============  =======================  ==================  ================
+    resource_kind  instance                 scope               resource_id
+    =============  =======================  ==================  ================
+    instance       the VM id                account/region, or  the VM id
+                                            the project
+    eni            the interface id         same                the interface id
+    ip             the network (VPC) id     same                the address
+    =============  =======================  ==================  ================
+
+    - ``resource_kind`` is required: an instance id and an address are otherwise
+      indistinguishable strings of very different strength (see NetworkHostKind).
+    - ``instance`` is the host itself, as on a VM-hosted cloud record, never the
+      account: records are told apart by ``instance``, so an account there would make
+      every host in it look alike. Only an address, which means nothing outside its
+      network, is placed in its network.
+    - ``scope`` is required and is where the host is -- account and region, or project
+      -- which every log line of the host agrees on. Never the VPC for an instance or
+      an interface: some logs carry it and others do not, and a scope present in one
+      scan and absent in the next makes the same host two records. A line naming only
+      an address and no network cannot be placed, and the connector drops it rather
+      than guess.
+
+    The VPC a host is in is ``host_group``, an observation, so it can be shown without
+    being identity. ``destinations`` is what the source called, which only this class
+    can see and which is the evidence itself, so it is a field of the class rather than
+    of the shared AgentObservations. Empty by default, so a record without it still
+    validates.
+
+    An AI gateway's callers (an LLM proxy's keys, consumers or agents) are learned
+    from traffic too, but are a different record with different identity rules, and
+    are not this shape.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
+    DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"host_name", "host_group"},
+    )
+
+    type: Literal["NETWORK"] = "NETWORK"
+    destinations: List[NetworkDestination] = Field(
+        default_factory=list,
+        description="Inference destinations this host called, with who serves each. "
+        "As first reported; when the host last called is provenance's last_seen.",
+        max_length=MAX_NETWORK_DESTINATIONS,
+    )
+
+    @field_validator("destinations")
+    @classmethod
+    def _one_entry_per_destination(
+        cls,
+        value: List[NetworkDestination],
+    ) -> List[NetworkDestination]:
+        """Destinations are aggregated per host, so a host appears once."""
+        hosts = [d.host for d in value]
+        if len(hosts) != len(set(hosts)):
+            raise ValueError("destinations must name each host once")
+        return value
+
+    @model_validator(mode="after")
+    def _the_address_names_the_host(self) -> "NetworkAgentCreationSource":
+        """Enforce the address rules above, which identity matching depends on."""
+        address = self.address
+        kinds = [k.value for k in NetworkHostKind]
+        if address.resource_kind not in kinds:
+            raise ValueError(
+                f"a network record's address.resource_kind must be one of {kinds} "
+                f"(got {address.resource_kind!r})",
+            )
+        if not (address.scope or "").strip():
+            raise ValueError(
+                "a network record must carry address.scope: where the host is, its "
+                "account and region or its project",
+            )
+        is_address = address.resource_kind == NetworkHostKind.IP.value
+        if not is_address and address.instance != address.resource_id:
+            raise ValueError(
+                "a network record for an instance or interface carries the host in "
+                "address.instance as well as address.resource_id, not the account",
+            )
+        if is_address and address.instance == address.resource_id:
+            raise ValueError(
+                "a network record for an address carries its network in "
+                "address.instance, since an address means nothing outside it",
+            )
+        return self
+
+
+# Union type for creation source. The north star is six members -- CLOUD, SIEM,
+# ENDPOINT, NETWORK, OTEL, MANUAL -- plus deprecated GCP.
 #
 # The discriminator is EXPLICIT. Without it, a payload with an unknown tag, or one
 # whose fields happen to fit a neighbour, validates as the wrong member and silently
@@ -780,6 +974,7 @@ AgentCreationSourceUnion = Annotated[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
@@ -798,16 +993,31 @@ class AgentCreationSource(RootModel[AgentCreationSourceUnion]):
 # every generated client built from it -- states what it accepts. It also keeps the wide
 # union out of request bodies: `AgentCreationSource` carries computed fields, and FastAPI
 # splits a model that holds it into `-Input`/`-Output` variants, renaming a component that
-# an existing endpoint already returns. A fourth discovery category lands here as one more
+# an existing endpoint already returns. A new discovery category lands here as one more
 # member.
 DiscoveryCreationSourceUnion = Annotated[
     Union[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
+
+
+def _creation_source_types() -> dict[SourceClass, str]:
+    members = get_args(get_args(DiscoveryCreationSourceUnion)[0])
+    return {m.SOURCE_CLASS: m.model_fields["type"].default for m in members}
+
+
+CREATION_SOURCE_TYPE_BY_CLASS: dict[SourceClass, str] = _creation_source_types()
+"""The creation-source ``type`` tag each configurable source class reports as.
+
+Derived from DiscoveryCreationSourceUnion, so a consumer that rebuilds a creation
+source from a provenance entry's ``source_class`` reads it here rather than keeping its
+own copy, which would silently drop a class added later.
+"""
 
 
 DEPRECATED_CREATION_SOURCE_TAGS: frozenset[str] = frozenset({"GCP"})
