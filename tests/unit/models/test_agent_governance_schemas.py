@@ -787,7 +787,12 @@ class TestDiscoveryCreationSources:
         )
 
     def test_host_kinds_are_ordered_strongest_first(self):
-        assert [k.value for k in NetworkHostKind] == ["instance", "eni", "ip"]
+        assert [k.value for k in NetworkHostKind] == [
+            "workload",
+            "instance",
+            "eni",
+            "ip",
+        ]
 
     @pytest.mark.parametrize("kind", [None, "account", "vpc"])
     def test_the_host_kind_is_required_and_closed(self, kind):
@@ -810,13 +815,24 @@ class TestDiscoveryCreationSources:
         flow = self._host()
         assert resolver.address == flow.address
 
-    @pytest.mark.parametrize("kind", ["instance", "eni"])
+    @pytest.mark.parametrize("kind", ["workload", "instance", "eni"])
     def test_an_instance_or_interface_is_its_own_instance(self, kind):
         """Never the account: records are told apart by instance, so an account there
         would make every host in it look alike."""
         with pytest.raises(ValidationError, match="address.instance"):
             self._host(kind=kind, instance="111122223333", resource_id="i-0abc")
         assert self._host(kind=kind, instance="eni-1", resource_id="eni-1")
+
+    def test_a_cloud_run_job_is_a_workload_record(self):
+        """GCP flow logs name a Cloud Run job on egress; the job name is the identity,
+        where the project and region are where it is."""
+        src = self._host(
+            kind="workload",
+            instance="run/jobs/claims-agent",
+            resource_id="run/jobs/claims-agent",
+            scope="ag-claims/australia-southeast1",
+        )
+        assert src.address.resource_kind == NetworkHostKind.WORKLOAD.value
 
     def test_an_address_is_placed_in_its_network(self):
         src = self._host(kind="ip", instance="vpc-0a1", resource_id="10.0.1.23")

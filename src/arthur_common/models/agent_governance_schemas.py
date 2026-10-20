@@ -253,13 +253,22 @@ class Visibility(str, Enum):
 class NetworkHostKind(str, Enum):
     """What a network host record's ``resource_id`` names. Strongest first.
 
-    A network log names the source of a call in whatever terms it kept: an instance id
-    when the platform stamped one, a network interface when only that was logged, else
-    an address. These are identities of very different strength -- an instance outlives
+    A network log names the source of a call in whatever terms it kept: the workload
+    when the platform stamped one (a Cloud Run service or job, an ECS service), an
+    instance id, a network interface when only that was logged, else an address.
+    These are identities of very different strength -- an instance outlives
     its addresses, while containers and functions share and reuse them -- and the
     record's id is frozen once a task is minted from it, so a consumer has to be able
     to tell which one it is reading without parsing the string. A connector uses the
     strongest the line carries.
+    """
+
+    WORKLOAD = "workload"
+    """A named workload: a Cloud Run service or job, a GKE workload, an ECS service.
+
+    The name the workload keeps across restarts, never a task, pod or revision id,
+    which change with each one. Strongest, since it outlives every instance and
+    address it runs on.
     """
 
     INSTANCE = "instance"
@@ -967,16 +976,17 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
     =============  =======================  ==================  ================
     resource_kind  instance                 scope               resource_id
     =============  =======================  ==================  ================
-    instance       the VM id                account/region, or  the VM id
+    workload       the workload name        account/region, or  the workload name
                                             the project
+    instance       the VM id                same                the VM id
     eni            the interface id         same                the interface id
     ip             the network (VPC) id     same                the address
     =============  =======================  ==================  ================
 
     - ``resource_kind`` is required: an instance id and an address are otherwise
       indistinguishable strings of very different strength (see NetworkHostKind).
-    - ``instance`` is the host itself, as on a VM-hosted cloud record, never the
-      account: records are told apart by ``instance``, so an account there would make
+    - ``instance`` is the host itself (the workload, VM or interface), as on a
+      VM-hosted cloud record, never the account: records are told apart by ``instance``, so an account there would make
       every host in it look alike. Only an address, which means nothing outside its
       network, is placed in its network.
     - ``scope`` is required and is where the host is -- account and region, or project
@@ -1095,7 +1105,7 @@ class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
         is_address = address.resource_kind == NetworkHostKind.IP.value
         if not is_address and address.instance != address.resource_id:
             raise ValueError(
-                "a network record for an instance or interface carries the host in "
+                "a network record for a workload, instance or interface carries it in "
                 "address.instance as well as address.resource_id, not the account",
             )
         if is_address and address.instance == address.resource_id:
