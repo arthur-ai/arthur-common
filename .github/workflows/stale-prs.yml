@@ -10,6 +10,11 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     permissions:
+      # actions/stale saves its progress in an Actions cache when a run hits
+      # operations-per-run, and must delete the previous cache to save a new one.
+      # Without this the delete 403s (logged only as a warning) and later runs
+      # restart from stale saved state.
+      actions: write
       pull-requests: write
     steps:
       - name: Mark and close stale pull requests
