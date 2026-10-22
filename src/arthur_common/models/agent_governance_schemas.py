@@ -1412,7 +1412,7 @@ class EnrichedTaskResponse(BaseModel):
     )
     last_fetched: Optional[datetime] = Field(
         default=None,
-        description="Last time traces were fetched for this task (from task_polling_state)",
+        description="End time of the newest trace GenAI Engine holds for this task; null if it has none",
     )
     tools: Optional[List[Tool]] = Field(
         default=None,
