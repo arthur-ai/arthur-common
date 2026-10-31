@@ -482,6 +482,18 @@ class TestObservationCapabilities:
         for absent in ("extra", "browser_type", "listen_address"):
             assert absent not in AgentObservations.model_fields
 
+    def test_a_previous_version_is_claimed_wherever_a_version_is(self):
+        """GenAI Engine keeps it across scans rather than a source reading it, so it can
+        exist exactly where a version can, and nowhere else."""
+        for category in (
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+            EndpointAgentCreationSource,
+            NetworkAgentCreationSource,
+        ):
+            observable = category.observable_fields()
+            assert ("previous_version" in observable) == ("version" in observable)
+
     def test_endpoint_sees_the_machine(self):
         """What the collector's six columns plus the MDM device record actually give."""
         observable = EndpointAgentCreationSource.observable_fields()
@@ -1520,3 +1532,31 @@ class TestSiemHostEnrichment:
                 platform=Platform.WINDOWS,
             )
             assert prov.runs_on is RunsOn.GCP
+
+
+class TestProvenanceObservations:
+    """A task's creation source is what the first report saw and is never rewritten, so
+    each provenance entry carries its own record's latest observations."""
+
+    def test_an_entry_carries_what_its_record_saw(self):
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": {
+                    "instance": "m1",
+                    "resource_kind": "vscodeext",
+                    "resource_id": "anthropic.claude-code",
+                },
+                "observations": {"version": "2.1.314", "host_name": "mac-m1"},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+
+        assert entry.observations == source.root.observations
+        assert entry.observations.version == "2.1.314"
+
+    def test_an_entry_recorded_before_observations_were_stored_still_reads(self):
+        entry = ProvenanceSource.model_validate({"source_class": "endpoint"})
+        assert entry.observations is None

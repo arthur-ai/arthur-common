@@ -467,6 +467,13 @@ class AgentObservations(BaseModel):
         default=None,
         description="Version read statically, never by executing the discovered binary.",
     )
+    previous_version: Optional[str] = Field(
+        default=None,
+        description="The version this record reported before its latest change, so an "
+        "upgrade or a downgrade reads off the record itself. Kept across scans by GenAI "
+        "Engine, which sets it when a report carries a version other than the one it "
+        "holds; a source never fills it. Absent until the version first changes.",
+    )
 
     # --- the host it was seen on --------------------------------------------------
     host_name: Optional[str] = Field(
@@ -772,6 +779,8 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
         {
             # an agent runtime's own description of the agent
             "version",
+            # the version before the latest change, kept across scans by GenAI Engine
+            "previous_version",
             "service_names",
             "host_group",
             # a VM's software inventory, and the provider's record of the VM. An agent
@@ -893,6 +902,8 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
             # collector, on disk
             "install_path",
             "version",
+            # the version before the latest change, kept across scans by GenAI Engine
+            "previous_version",
             # MDM device record
             "host_name",
             "host_group",
@@ -1272,6 +1283,13 @@ class ProvenanceSource(BaseModel):
         "carries, so a record and its task address the system identically. Absent for "
         "OTEL and manual agents.",
     )
+    observations: Optional[AgentObservations] = Field(
+        default=None,
+        description="What the source saw of this record at its latest report, with "
+        "`previous_version` kept across reports. The task's creation source holds what "
+        "the first report saw and is never rewritten, so a record's current version is "
+        "read here. Absent from entries recorded before it was stored.",
+    )
     last_seen: Optional[datetime] = Field(
         default=None,
         description="When this source last observed the agent -- the discovered "
@@ -1321,6 +1339,7 @@ class ProvenanceSource(BaseModel):
             source_id=source_id,
             vendor=source.root.vendor,
             address=source.root.address,
+            observations=source.root.observations,
             last_seen=last_seen,
             external_id=external_id,
             last_scanned=last_scanned,
