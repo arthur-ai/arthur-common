@@ -899,6 +899,29 @@ class TestDiscoveredAgentRecord:
         )
         assert record.service_names == ["claw"]
 
+    def test_a_connector_cannot_report_a_previous_version(self):
+        """GenAI Engine keeps it across a record's reports; no source reads it. This
+        record's creation source becomes the task's and is never rewritten, so a value
+        let through here would be served as a version change that never happened."""
+        with pytest.raises(ValidationError, match="previous_version"):
+            self._record(
+                creation_source={
+                    **ENDPOINT_SOURCE,
+                    "observations": {"version": "1.1", "previous_version": "1.0"},
+                },
+            )
+
+    def test_a_creation_source_outside_a_record_still_carries_one(self):
+        """Refused only at the connector's boundary: evidence built from a provenance
+        entry carries the previous version GenAI Engine kept."""
+        source = AgentCreationSource.model_validate(
+            {
+                **ENDPOINT_SOURCE,
+                "observations": {"version": "1.1", "previous_version": "1.0"},
+            },
+        )
+        assert source.root.observations.previous_version == "1.0"
+
     def test_service_names_is_empty_when_the_sensor_saw_none(self):
         """Empty rather than absent: an endpoint sweep sees installation, not telemetry,
         so the common case must not look like a missing value."""
