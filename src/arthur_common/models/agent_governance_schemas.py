@@ -472,7 +472,9 @@ class AgentObservations(BaseModel):
         description="The version this record reported before its latest change, so an "
         "upgrade or a downgrade reads off the record itself. Kept across scans by GenAI "
         "Engine, which sets it when a report carries a version other than the one it "
-        "holds; a source never fills it. Absent until the version first changes.",
+        "holds; a source never fills it, and a discovered record carrying one is "
+        "refused. Absent until the version first changes. See "
+        "ENGINE_KEPT_OBSERVATIONS.",
     )
 
     # --- the host it was seen on --------------------------------------------------
@@ -522,6 +524,17 @@ class AgentObservations(BaseModel):
         "Free text so the catalog can add one without a schema release. Absent for "
         "uncatalogued software, which must still render.",
     )
+
+
+ENGINE_KEPT_OBSERVATIONS: frozenset[str] = frozenset({"previous_version"})
+"""Observation fields GenAI Engine keeps across a record's reports, which no source fills.
+
+In no source's OBSERVABLE_FIELDS, which says what a source can see, and visibility is
+measured against it. Refused on a discovered record, because the record's creation
+source becomes the task's and is never rewritten: a value a connector sent would be
+served as history that never happened. Allowed everywhere else -- a provenance entry
+and the evidence built from it carry the value GenAI Engine kept.
+"""
 
 
 class AgentCreationSourceBase(BaseModel):
@@ -779,8 +792,6 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
         {
             # an agent runtime's own description of the agent
             "version",
-            # the version before the latest change, kept across scans by GenAI Engine
-            "previous_version",
             "service_names",
             "host_group",
             # a VM's software inventory, and the provider's record of the VM. An agent
@@ -902,8 +913,6 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
             # collector, on disk
             "install_path",
             "version",
-            # the version before the latest change, kept across scans by GenAI Engine
-            "previous_version",
             # MDM device record
             "host_name",
             "host_group",
@@ -1333,13 +1342,19 @@ class ProvenanceSource(BaseModel):
         The keyword arguments are what the creation source itself does not carry: the
         configured source, the discovered record's identifier and sighting, and when a
         scan last reported it.
+
+        The observations are copied, not shared: GenAI Engine sets `previous_version`
+        on the entry, and on a shared object that would also rewrite the creation
+        source, which is never rewritten. The entry's `previous_version` is the
+        record's, which is always absent; keeping one across reports means merging
+        against the entry already held, which only the caller has.
         """
         return cls(
             source_class=source.root.SOURCE_CLASS,
             source_id=source_id,
             vendor=source.root.vendor,
             address=source.root.address,
-            observations=source.root.observations,
+            observations=source.root.observations.model_copy(deep=True),
             last_seen=last_seen,
             external_id=external_id,
             last_scanned=last_scanned,

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, get_args
 
 import pytest
 from pydantic import ValidationError
@@ -8,8 +8,10 @@ from arthur_common.models.agent_governance_schemas import (
     CREATION_SOURCE_TYPE_BY_CLASS,
     DEPRECATED_CREATION_SOURCE_TAGS,
     DISCOVERY_SOURCE_CLASSES,
+    ENGINE_KEPT_OBSERVATIONS,
     MAX_NETWORK_DESTINATIONS,
     AgentCreationSource,
+    AgentCreationSourceUnion,
     AgentObservations,
     CloudAgentCreationSource,
     DataSource,
@@ -482,17 +484,13 @@ class TestObservationCapabilities:
         for absent in ("extra", "browser_type", "listen_address"):
             assert absent not in AgentObservations.model_fields
 
-    def test_a_previous_version_is_claimed_wherever_a_version_is(self):
-        """GenAI Engine keeps it across scans rather than a source reading it, so it can
-        exist exactly where a version can, and nowhere else."""
-        for category in (
-            CloudAgentCreationSource,
-            SIEMAgentCreationSource,
-            EndpointAgentCreationSource,
-            NetworkAgentCreationSource,
-        ):
-            observable = category.observable_fields()
-            assert ("previous_version" in observable) == ("version" in observable)
+    def test_no_source_claims_a_field_the_engine_keeps(self):
+        """Visibility is measured against what a source can see, and a field no source
+        fills would count against every record that declared it. Every member of the
+        union, read off the union, so a new category cannot skip the check."""
+        assert ENGINE_KEPT_OBSERVATIONS <= set(AgentObservations.model_fields)
+        for category in get_args(get_args(AgentCreationSourceUnion)[0]):
+            assert not category.observable_fields() & ENGINE_KEPT_OBSERVATIONS, category
 
     def test_endpoint_sees_the_machine(self):
         """What the collector's six columns plus the MDM device record actually give."""
@@ -501,12 +499,13 @@ class TestObservationCapabilities:
         assert {"host_name", "os_version", "assigned_user"} <= observable  # MDM record
 
     def test_no_observation_field_is_unreachable(self):
-        """Every field must be fillable by at least one source.
+        """Every field must be fillable by at least one source, or kept by GenAI Engine.
 
         A field no source declares would be permanently null, which reads as "not
         collected yet" rather than "this source cannot see it" -- the ambiguity the
         declaration exists to remove. Asserted as a set equality rather than against a
-        list of known-bad names, so it catches the next one too.
+        list of known-bad names, so it catches the next one too. A field GenAI Engine
+        keeps across reports is filled, just not by a source.
         """
         declared: set[str] = set()
         for category in (
@@ -519,6 +518,7 @@ class TestObservationCapabilities:
             NetworkAgentCreationSource,
         ):
             declared |= category.observable_fields()
+        declared |= ENGINE_KEPT_OBSERVATIONS
         assert declared == set(AgentObservations.model_fields)
 
     def test_what_a_siem_can_reach_depends_on_what_is_indexed(self):
@@ -1556,6 +1556,25 @@ class TestProvenanceObservations:
 
         assert entry.observations == source.root.observations
         assert entry.observations.version == "2.1.314"
+
+    def test_setting_the_previous_version_leaves_the_creation_source_alone(self):
+        """GenAI Engine sets it on the entry, and the creation source is never
+        rewritten -- so the entry must hold a copy, not the source's own object."""
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"version": "2.1.314", "permissions": ["tabs"]},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+        entry.observations.previous_version = "2.1.312"
+        entry.observations.permissions.append("<all_urls>")
+
+        assert source.root.observations.previous_version is None
+        assert source.root.observations.permissions == ["tabs"]
 
     def test_an_entry_recorded_before_observations_were_stored_still_reads(self):
         entry = ProvenanceSource.model_validate({"source_class": "endpoint"})
