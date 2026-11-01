@@ -228,6 +228,31 @@ class DiscoveredAgentRecord(DiscoveryOutputRecord):
         "IDs. Every record still comes back with one.",
     )
 
+    @field_validator("creation_source")
+    @classmethod
+    def _carries_only_what_the_source_saw(
+        cls,
+        source: governance.DiscoveryAgentCreationSource,
+    ) -> governance.DiscoveryAgentCreationSource:
+        """Refuse an observation GenAI Engine keeps rather than a source fills.
+
+        Refused rather than dropped: a connector sending one has a bug worth hearing
+        about, and this record's creation source becomes the task's, which is never
+        rewritten. Only here, at the connector's boundary -- a provenance entry and the
+        evidence built from it legitimately carry the value GenAI Engine kept.
+        """
+        filled = sorted(
+            name
+            for name in governance.ENGINE_KEPT_OBSERVATIONS
+            if getattr(source.observations, name) not in (None, [], {})
+        )
+        if filled:
+            raise ValueError(
+                f"a discovered record does not fill {filled}; GenAI Engine keeps them "
+                "across a record's reports",
+            )
+        return source
+
     @property
     def task_creation_source(self) -> AgentCreationSource:
         """The creation source in the shape a task stores it."""
