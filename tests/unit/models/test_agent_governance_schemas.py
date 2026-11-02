@@ -10,9 +10,11 @@ from arthur_common.models.agent_governance_schemas import (
     DISCOVERY_SOURCE_CLASSES,
     ENGINE_KEPT_OBSERVATIONS,
     MAX_NETWORK_DESTINATIONS,
+    MAX_OCCURRENCES,
     AgentCreationSource,
     AgentCreationSourceUnion,
     AgentObservations,
+    AgentOccurrence,
     CloudAgentCreationSource,
     DataSource,
     Detection,
@@ -42,6 +44,7 @@ from arthur_common.models.agent_governance_schemas import (
     ToolArgument,
     Visibility,
     detection_for,
+    home_relative_path,
 )
 
 
@@ -1579,3 +1582,188 @@ class TestProvenanceObservations:
     def test_an_entry_recorded_before_observations_were_stored_still_reads(self):
         entry = ProvenanceSource.model_validate({"source_class": "endpoint"})
         assert entry.observations is None
+
+
+class TestHomeRelativePaths:
+    """`install_path` promises no username travels in a path. The model keeps it."""
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/Users/dana/.local/bin/claude", "~/.local/bin/claude"),
+            ("/Users/dana/", "~/"),
+            ("/Users/dana", "~"),
+            ("/home/dana/.claude/", "~/.claude/"),
+            (
+                "C:\\Users\\dana\\AppData\\Roaming\\Claude",
+                "~\\AppData\\Roaming\\Claude",
+            ),
+            ("c:/users/dana/AppData", "~/AppData"),
+        ],
+    )
+    def test_a_persons_home_directory_becomes_a_tilde(self, path, expected):
+        assert home_relative_path(path) == expected
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/Applications/Claude.app",
+            "/opt/homebrew/lib/node_modules/@openai/codex/package.json",
+            "~/.claude",
+            "/Users/Shared/agents/run.sh",
+            "C:\\Users\\Public\\Desktop\\agent.exe",
+            "C:\\Users\\Default User\\AppData",
+            "C:\\Program Files\\Claude\\claude.exe",
+            "/Users/",
+        ],
+    )
+    def test_a_path_outside_any_persons_home_is_unchanged(self, path):
+        assert home_relative_path(path) == path
+
+    def test_root_keeps_its_home(self):
+        """`/root` names no person, and an agent installed as root is worth seeing."""
+        assert home_relative_path("/root/.claude") == "/root/.claude"
+
+    def test_linux_paths_are_case_sensitive(self):
+        """`/Home` is not where home directories live on a case-sensitive filesystem."""
+        assert home_relative_path("/Home/dana/x") == "/Home/dana/x"
+
+    def test_a_folder_named_like_a_shared_one_is_still_a_home(self):
+        assert home_relative_path("/Users/SharedStuff/x") == "~/x"
+
+    def test_rewriting_twice_changes_nothing(self):
+        once = home_relative_path("/Users/dana/.cursor/extensions/x-1.0")
+        assert home_relative_path(once) == once
+
+    def test_install_path_is_rewritten_on_the_way_in(self):
+        observations = AgentObservations(install_path="/Users/nori/.local/bin/claude")
+        assert observations.install_path == "~/.local/bin/claude"
+
+    def test_install_path_is_rewritten_when_a_stored_record_is_read_back(self):
+        """A record stored before the rewrite existed is served without the username,
+        as long as it is read through the model."""
+        stored = {"install_path": "/Users/nori/.claude/", "version": "2.1.314"}
+        assert AgentObservations.model_validate(stored).install_path == "~/.claude/"
+
+    def test_a_creation_source_carries_the_rewritten_path(self):
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"install_path": "/Users/nori/.claude/"},
+            },
+        )
+        assert source.root.observations.install_path == "~/.claude/"
+
+
+CLAUDE_CODE_VERSIONS = ("2.1.306", "2.1.310", "2.1.311", "2.1.312", "2.1.314")
+CLAUDE_CODE_PROCESSES = [
+    {"kind": "proc", "path": f"/Users/nori/.local/share/claude/versions/{version}"}
+    for version in CLAUDE_CODE_VERSIONS
+]
+
+
+class TestOccurrences:
+    """Every row that proved a record, not only the one that speaks for it."""
+
+    def test_every_running_version_is_kept(self):
+        """The case that motivated it: an old session still running after an upgrade
+        is exactly the exposure a bad release creates, and one address hides it."""
+        observations = AgentObservations(occurrences=CLAUDE_CODE_PROCESSES)
+
+        assert [o.path for o in observations.occurrences] == [
+            f"~/.local/share/claude/versions/{version}"
+            for version in CLAUDE_CODE_VERSIONS
+        ]
+        assert {o.kind for o in observations.occurrences} == {"proc"}
+
+    def test_an_agent_record_can_list_rows_of_every_kind(self):
+        """A device's agent record spans every route the agent matched."""
+        extension = "/Users/nori/.cursor/extensions/anthropic.claude-code-2.1.314"
+        observations = AgentObservations(
+            install_path=extension,
+            version="2.1.314",
+            occurrences=[
+                {"kind": "file", "path": "/Users/nori/.local/bin/claude"},
+                {"kind": "file", "path": "/Users/nori/.claude/"},
+                *CLAUDE_CODE_PROCESSES,
+                {"kind": "vscodeext", "path": extension, "version": "2.1.314"},
+            ],
+        )
+
+        assert len(observations.occurrences) == 8
+        assert observations.occurrences[-1] == AgentOccurrence(
+            kind="vscodeext",
+            path="~/.cursor/extensions/anthropic.claude-code-2.1.314",
+            version="2.1.314",
+        )
+
+    def test_two_users_copies_of_one_path_are_one_occurrence(self):
+        """Rewriting home directories makes them equal. That is not a malformed
+        record, so it is collapsed rather than refused, keeping the first."""
+        observations = AgentObservations(
+            occurrences=[
+                {"kind": "file", "path": "/Users/alice/.claude/"},
+                {"kind": "proc", "path": "/Users/alice/.local/bin/claude"},
+                {"kind": "file", "path": "/Users/bob/.claude/"},
+            ],
+        )
+        assert [(o.kind, o.path) for o in observations.occurrences] == [
+            ("file", "~/.claude/"),
+            ("proc", "~/.local/bin/claude"),
+        ]
+
+    def test_one_place_at_two_versions_is_two_occurrences(self):
+        observations = AgentObservations(
+            occurrences=[
+                {"kind": "image", "version": "0.86.1"},
+                {"kind": "image", "version": "0.85.0"},
+            ],
+        )
+        assert len(observations.occurrences) == 2
+
+    def test_none_is_an_empty_list(self):
+        """Like `permissions`: a source that sees only the one place reports none."""
+        assert AgentObservations().occurrences == []
+
+    def test_a_connector_caps_them(self):
+        rows = [
+            {"kind": "proc", "path": f"/opt/agent/{i}"}
+            for i in range(MAX_OCCURRENCES + 1)
+        ]
+        with pytest.raises(ValidationError):
+            AgentObservations(occurrences=rows)
+        capped = AgentObservations(occurrences=rows[:MAX_OCCURRENCES])
+        assert len(capped.occurrences) == MAX_OCCURRENCES
+
+    def test_declared_where_a_collectors_inventory_is_read(self):
+        """Endpoints, and cloud VMs that carry the same inventory. A SIEM or a network
+        log sees no rows on a disk."""
+        assert "occurrences" in EndpointAgentCreationSource.observable_fields()
+        assert "occurrences" in CloudAgentCreationSource.observable_fields()
+        assert "occurrences" not in SIEMAgentCreationSource.observable_fields()
+        assert "occurrences" not in NetworkAgentCreationSource.observable_fields()
+
+    def test_a_provenance_entry_carries_its_own_copy(self):
+        """An entry's observations are copied, so the creation source is never touched."""
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"occurrences": CLAUDE_CODE_PROCESSES[:1]},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+        entry.observations.occurrences.append(AgentOccurrence(kind="proc", path="~/x"))
+
+        assert len(source.root.observations.occurrences) == 1
+
+    def test_round_trips_as_json(self):
+        observations = AgentObservations(occurrences=CLAUDE_CODE_PROCESSES)
+        assert (
+            AgentObservations.model_validate_json(observations.model_dump_json())
+            == observations
+        )
