@@ -50,7 +50,7 @@ _HOME_DIRECTORY = re.compile(
     r"""
     ^(?:
         (?i:/Users/(?!Shared(?:/|$))[^/]+)                     # macOS
-      | /home/[^/]+                                             # Linux
+      | /home/(?!linuxbrew(?:/|$))[^/]+                         # Linux
       | (?i:[a-z]:[\\/]Users[\\/]
             (?!(?:Public|Default|Default\ User|All\ Users)(?:[\\/]|$))
             [^\\/]+)                                            # Windows
@@ -67,8 +67,9 @@ def home_relative_path(path: str) -> str:
     ``/Users/dana/.local/bin/claude`` becomes ``~/.local/bin/claude``, as do
     ``/home/dana/...`` and ``C:\\Users\\dana\\...`` (the separator after ``~`` is kept).
     Directories under the users folder that are not one person's home stay as they are:
-    ``/Users/Shared``, and ``Public``, ``Default`` and ``All Users`` on Windows. So does
-    ``/root``, which names no person, and whose agent running as root is worth seeing.
+    ``/Users/Shared``; ``/home/linuxbrew``, where Homebrew on Linux installs for every
+    user on the machine; and ``Public``, ``Default`` and ``All Users`` on Windows. So
+    does ``/root``: it names no person, and an agent installed as root is worth seeing.
 
     Idempotent, and a path outside any home directory comes back unchanged.
     """

@@ -1609,6 +1609,7 @@ class TestHomeRelativePaths:
         [
             "/Applications/Claude.app",
             "/opt/homebrew/lib/node_modules/@openai/codex/package.json",
+            "/home/linuxbrew/.linuxbrew/bin/claude",
             "~/.claude",
             "/Users/Shared/agents/run.sh",
             "C:\\Users\\Public\\Desktop\\agent.exe",
@@ -1628,8 +1629,9 @@ class TestHomeRelativePaths:
         """`/Home` is not where home directories live on a case-sensitive filesystem."""
         assert home_relative_path("/Home/dana/x") == "/Home/dana/x"
 
-    def test_a_folder_named_like_a_shared_one_is_still_a_home(self):
-        assert home_relative_path("/Users/SharedStuff/x") == "~/x"
+    @pytest.mark.parametrize("path", ["/Users/SharedStuff/x", "/home/linuxbrewer/x"])
+    def test_a_folder_named_like_a_shared_one_is_still_a_home(self, path):
+        assert home_relative_path(path) == "~/x"
 
     def test_rewriting_twice_changes_nothing(self):
         once = home_relative_path("/Users/dana/.cursor/extensions/x-1.0")
