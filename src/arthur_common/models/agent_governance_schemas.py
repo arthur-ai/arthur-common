@@ -13,6 +13,7 @@ Shared across app_plane, ML Engine and GenAI Engine, and backing the
 /api/v2/agent-tasks endpoint.
 """
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import (
@@ -41,6 +42,42 @@ from arthur_common.models.response_schemas import RuleResponse
 
 MAX_NETWORK_DESTINATIONS = 100
 """Most destinations one network record carries. A connector caps and logs past it."""
+
+MAX_OCCURRENCES = 100
+"""Most occurrences one record's observations carry. A connector caps and logs past it."""
+
+_HOME_DIRECTORY = re.compile(
+    r"""
+    ^(?:
+        (?i:/Users/(?!Shared(?:/|$))[^/]+)                     # macOS
+      | /home/(?!linuxbrew(?:/|$))[^/]+                         # Linux
+      | (?i:[a-z]:[\\/]Users[\\/]
+            (?!(?:Public|Default|Default\ User|All\ Users)(?:[\\/]|$))
+            [^\\/]+)                                            # Windows
+    )
+    (?P<rest>[\\/].*)?$
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def home_relative_path(path: str) -> str:
+    """``path`` with a person's home directory written as ``~``, so no username is in it.
+
+    ``/Users/dana/.local/bin/claude`` becomes ``~/.local/bin/claude``, as do
+    ``/home/dana/...`` and ``C:\\Users\\dana\\...`` (the separator after ``~`` is kept).
+    Directories under the users folder that are not one person's home stay as they are:
+    ``/Users/Shared``; ``/home/linuxbrew``, where Homebrew on Linux installs for every
+    user on the machine; and ``Public``, ``Default`` and ``All Users`` on Windows. So
+    does ``/root``: it names no person, and an agent installed as root is worth seeing.
+
+    Idempotent, and a path outside any home directory comes back unchanged.
+    """
+    match = _HOME_DIRECTORY.match(path)
+    if match is None:
+        return path
+    return "~" + (match.group("rest") or "")
+
 
 RAW_CREDENTIAL_PREFIXES: tuple[str, ...] = (
     "sk-",
@@ -449,6 +486,38 @@ class SourceAddress(BaseModel):
     )
 
 
+class AgentOccurrence(BaseModel):
+    """One place a source found an agent on a host: an install, or a running process.
+
+    A record names one agent on one host, but several rows can prove it at once: five
+    versions of Claude Code running from ``~/.local/share/claude/versions/``, one Chrome
+    extension in four profiles. ``install_path`` and ``version`` carry the one row that
+    speaks for the record; an occurrence is each of them.
+    """
+
+    kind: Optional[str] = Field(
+        default=None,
+        description="What kind of row this is, in the vocabulary of "
+        "`SourceAddress.resource_kind`: 'proc' for a running process, 'file', "
+        "'vscodeext', 'npm'. Free text, for the same reason.",
+    )
+    path: Optional[str] = Field(
+        default=None,
+        description="Where it is: the install location, or the executable a process runs "
+        "from. A person's home directory is written as '~', as in `install_path`.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description="Its version, where the row shows one. Read statically, never by "
+        "executing the discovered binary.",
+    )
+
+    @field_validator("path")
+    @classmethod
+    def _no_username_in_the_path(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else home_relative_path(value)
+
+
 class AgentObservations(BaseModel):
     """What a source could see about an agent. Shared across categories, all optional.
 
@@ -460,8 +529,20 @@ class AgentObservations(BaseModel):
     # --- the software on disk -----------------------------------------------------
     install_path: Optional[str] = Field(
         default=None,
-        description="Install location, shaped to '~/...' rather than "
-        "'/Users/<name>/...' so a username does not travel in a path.",
+        description="Install location, with a person's home directory written as '~' "
+        "('~/...' rather than '/Users/<name>/...') so a username does not travel in a "
+        "path. Enforced here: a path under a home directory is rewritten whenever this "
+        "model is validated, so also when a stored record is read back through it.",
+    )
+    occurrences: List[AgentOccurrence] = Field(
+        default_factory=list,
+        max_length=MAX_OCCURRENCES,
+        description="Every place on the host the source found the agent, each with its "
+        "kind, path and version: every running version of a CLI, every browser profile "
+        "an extension is in. `install_path` and `version` are the one occurrence that "
+        "speaks for the record. Empty where the source sees no more than that one. Each "
+        "place appears once: two users' copies of one path collapse into one occurrence "
+        "once their home directories are written as '~'.",
     )
     version: Optional[str] = Field(
         default=None,
@@ -524,6 +605,22 @@ class AgentObservations(BaseModel):
         "Free text so the catalog can add one without a schema release. Absent for "
         "uncatalogued software, which must still render.",
     )
+
+    @field_validator("install_path")
+    @classmethod
+    def _no_username_in_the_install_path(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else home_relative_path(value)
+
+    @field_validator("occurrences")
+    @classmethod
+    def _each_place_once(cls, value: List[AgentOccurrence]) -> List[AgentOccurrence]:
+        """Collapse repeats, keeping the first, rather than refusing them.
+
+        Rewriting home directories makes two users' copies of a path equal, and a record
+        is not malformed because two people on one machine installed the same thing.
+        """
+        unique = {(o.kind, o.path, o.version): o for o in value}
+        return list(unique.values())
 
 
 ENGINE_KEPT_OBSERVATIONS: frozenset[str] = frozenset({"previous_version"})
@@ -798,6 +895,7 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
             # runtime's action groups or service account scopes would be `permissions`
             # too, once a connector is verified to fetch them.
             "install_path",
+            "occurrences",
             "host_name",
             "os_version",
             "permissions",
@@ -896,6 +994,10 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     unit state, listening address) and a field here means one thing for every source.
     The listening address is the one value in it worth its own field eventually.
 
+    The table describes the row that speaks for the record. Every row that proved it --
+    each running version, each profile an extension is in -- is one of
+    ``observations.occurrences``, as its ``kind``, ``loc`` and ``ver``.
+
     ``scan`` rows must never arrive: that kind marks a branch that could not look, not
     an agent that was found.
 
@@ -912,6 +1014,7 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
         {
             # collector, on disk
             "install_path",
+            "occurrences",
             "version",
             # MDM device record
             "host_name",
