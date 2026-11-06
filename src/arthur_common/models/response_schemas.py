@@ -494,6 +494,18 @@ class TaskResponse(BaseModel):
         description="Whether this task is archived",
         default=False,
     )
+    is_disabled: Optional[bool] = Field(
+        description="Whether this task is disabled. A disabled task rejects every prompt and response validation request until it is re-enabled.",
+        default=False,
+    )
+    disabled_reason: Optional[str] = Field(
+        description="Why the task was disabled, when it is disabled.",
+        default=None,
+    )
+    disabled_at: Optional[int] = Field(
+        description="Time the task was disabled in unix milliseconds, when it is disabled.",
+        default=None,
+    )
     agent_metadata: Optional[AgentMetadataResponse] = Field(
         description="Metadata to describe the creation source/provider for registered agents.",
         default=None,

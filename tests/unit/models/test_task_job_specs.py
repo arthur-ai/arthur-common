@@ -1,8 +1,21 @@
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
+from arthur_common.models.agent_governance_schemas import SourceAddress
 from arthur_common.models.enums import MetricType
-from arthur_common.models.request_schemas import NewMetricRequest, NewRuleRequest
-from arthur_common.models.task_job_specs import CreateModelTaskJobSpec
+from arthur_common.models.request_schemas import (
+    DisableTaskRequest,
+    NewMetricRequest,
+    NewRuleRequest,
+)
+from arthur_common.models.task_job_specs import (
+    CreateModelTaskJobSpec,
+    KillAgentJobSpec,
+    KillSwitchCloudTarget,
+    ReenableAgentJobSpec,
+)
 
 
 def _rule() -> NewRuleRequest:
@@ -151,3 +164,46 @@ class TestCreateModelTaskJobSpecLegacyPayloadTolerance:
         spec = CreateModelTaskJobSpec.model_validate(payload)
 
         assert len(spec.initial_metrics) == 1
+
+
+def _foundry_target() -> KillSwitchCloudTarget:
+    return KillSwitchCloudTarget(
+        vendor="azure_ai_foundry",
+        discovery_source_config_id=uuid4(),
+        external_id="https://acct.services.ai.azure.com/api/projects/demo/agents/support-bot",
+        address=SourceAddress(
+            instance="acct/demo",
+            scope="eastus2",
+            resource_id="support-bot",
+        ),
+    )
+
+
+class TestKillSwitchJobSpecs:
+    """The platform hands the data plane everything it needs to turn an agent off
+    and back on: the model whose task to disable, the event to report against, and
+    the cloud resources discovery found behind it.
+    """
+
+    def test_kill_round_trips_with_cloud_targets(self):
+        spec = KillAgentJobSpec(
+            scope_model_id=uuid4(),
+            kill_switch_event_id=uuid4(),
+            reason="Kill switch: prompt injection",
+            cloud_targets=[_foundry_target()],
+        )
+        restored = KillAgentJobSpec.model_validate_json(spec.model_dump_json())
+        assert restored == spec
+        assert restored.job_type == "kill_agent"
+
+    def test_cloud_targets_default_to_none(self):
+        spec = ReenableAgentJobSpec(
+            scope_model_id=uuid4(),
+            kill_switch_event_id=uuid4(),
+        )
+        assert spec.job_type == "reenable_agent"
+        assert spec.cloud_targets == []
+
+    def test_disable_request_needs_a_reason(self):
+        with pytest.raises(ValidationError):
+            DisableTaskRequest(reason="")

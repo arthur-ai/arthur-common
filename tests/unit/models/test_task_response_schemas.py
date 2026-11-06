@@ -65,3 +65,26 @@ class TestTaskResponseIsAgenticDeprecatedButPresent:
         response = _task_response(is_agentic=True)
 
         assert TaskResponse.model_validate_json(response.model_dump_json()) == response
+
+
+class TestTaskResponseDisabledState:
+    """Older engines never send the disabled fields, so a client reading their
+    responses must see an enabled task rather than fail to parse.
+    """
+
+    def test_defaults_to_enabled(self):
+        response = _task_response()
+
+        assert response.is_disabled is False
+        assert response.disabled_reason is None
+        assert response.disabled_at is None
+
+    def test_carries_the_reason_when_disabled(self):
+        response = _task_response(
+            is_disabled=True,
+            disabled_reason="Kill switch: prompt injection",
+            disabled_at=1_700_000_000_000,
+        )
+
+        assert response.is_disabled is True
+        assert response.disabled_reason == "Kill switch: prompt injection"
