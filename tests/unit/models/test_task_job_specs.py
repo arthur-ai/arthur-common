@@ -176,6 +176,9 @@ def _foundry_target() -> KillSwitchCloudTarget:
             scope="eastus2",
             resource_id="support-bot",
         ),
+        source_fields={
+            "project_endpoint": "https://acct.services.ai.azure.com/api/projects/demo",
+        },
     )
 
 
@@ -203,6 +206,13 @@ class TestKillSwitchJobSpecs:
         )
         assert spec.job_type == "reenable_agent"
         assert spec.cloud_targets == []
+
+    def test_source_fields_default_to_empty(self):
+        target = _foundry_target().model_copy(update={"source_fields": {}})
+        restored = KillSwitchCloudTarget.model_validate(
+            target.model_dump(exclude={"source_fields"}),
+        )
+        assert restored.source_fields == {}
 
     def test_disable_request_needs_a_reason(self):
         with pytest.raises(ValidationError):

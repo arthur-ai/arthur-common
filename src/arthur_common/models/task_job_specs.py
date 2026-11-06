@@ -111,6 +111,11 @@ class KillSwitchCloudTarget(BaseModel):
     address: SourceAddress = Field(
         description="Where the resource lives, as the discovery connector reported it.",
     )
+    source_fields: dict[str, str] = Field(
+        default_factory=dict,
+        description="The discovery source's non-sensitive fields (e.g. its endpoint), so the data plane "
+        "can reach the resource. Sensitive fields come from the credentials endpoint, never from here.",
+    )
 
 
 class KillAgentJobSpec(BaseModel):
