@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from arthur_common.models.agent_governance_schemas import SourceAddress
 from arthur_common.models.request_schemas import (
     AgentMetadata,
     NewMetricRequest,
@@ -88,4 +89,61 @@ class RegenerateTaskValidationKeyJobSpec(BaseModel):
     job_type: Literal["regenerate_validation_key"] = "regenerate_validation_key"
     scope_model_id: UUID = Field(
         description="The ID of the model to regenerate the validation key for.",
+    )
+
+
+class KillSwitchCloudTarget(BaseModel):
+    """A cloud resource behind a registered agent that the kill switch turns off too.
+
+    Built by the platform from the agent's discovery evidence, so it names the
+    resource exactly as the discovery connector reported it.
+    """
+
+    vendor: str = Field(
+        description="The discovery vendor that reported the resource, e.g. azure_ai_foundry.",
+    )
+    discovery_source_config_id: UUID = Field(
+        description="The discovery source config whose credentials can reach the resource.",
+    )
+    external_id: str = Field(
+        description="The resource's id, verbatim as the discovery connector reported it.",
+    )
+    address: SourceAddress = Field(
+        description="Where the resource lives, as the discovery connector reported it.",
+    )
+    source_fields: dict[str, str] = Field(
+        default_factory=dict,
+        description="The discovery source's non-sensitive fields (e.g. its endpoint), so the data plane "
+        "can reach the resource. Sensitive fields come from the credentials endpoint, never from here.",
+    )
+
+
+class KillAgentJobSpec(BaseModel):
+    job_type: Literal["kill_agent"] = "kill_agent"
+    scope_model_id: UUID = Field(
+        description="The id of the model whose task the kill switch disables.",
+    )
+    kill_switch_event_id: UUID = Field(
+        description="The kill switch event this job carries out.",
+    )
+    reason: str = Field(
+        description="Why the agent is being turned off. Stored on the disabled task.",
+    )
+    cloud_targets: list[KillSwitchCloudTarget] = Field(
+        default_factory=list,
+        description="The agent's cloud resources to turn off as well as its task.",
+    )
+
+
+class ReenableAgentJobSpec(BaseModel):
+    job_type: Literal["reenable_agent"] = "reenable_agent"
+    scope_model_id: UUID = Field(
+        description="The id of the model whose task is re-enabled.",
+    )
+    kill_switch_event_id: UUID = Field(
+        description="The kill switch event this job reverses.",
+    )
+    cloud_targets: list[KillSwitchCloudTarget] = Field(
+        default_factory=list,
+        description="The agent's cloud resources to turn back on as well as its task.",
     )

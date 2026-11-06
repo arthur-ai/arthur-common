@@ -45,6 +45,15 @@ class UpdateRuleRequest(BaseModel):
     enabled: bool = Field(description="Boolean value to enable or disable the rule. ")
 
 
+class DisableTaskRequest(BaseModel):
+    reason: str = Field(
+        min_length=1,
+        max_length=1024,
+        description="Why the task is being disabled. Returned to every caller whose validation request is rejected.",
+        examples=["Kill switch: prompt injection policy violated"],
+    )
+
+
 # Using the latest version from arthur-common
 class NewRuleRequest(BaseModel):
     name: str = Field(description="Name of the rule", examples=["SSN Regex Rule"])
