@@ -16,9 +16,9 @@ dependencies = [
     "types-python-dateutil>=2.9.0",
     "fsspec>=2024.10.0",
     # SOC-222: litellm < 1.106.3 ships a Rust extension (rust_bridge/_native) that still
-    # trusts the compromised emSign ECC Root CA - G3. 1.106.6 is the newest 1.106.x
-    # outside the exclude-newer window (1.106.7 landed 2026-11-04).
-    "litellm==1.106.6",
+    # trusts the compromised emSign ECC Root CA - G3, so never go below 1.106.3.
+    # Consumers (genai-engine, ml-engine, scope app plane) must pin this same version.
+    "litellm==1.108.3",
     "fastapi>=0.115.8",
     "simple-settings>=1.2.0",
     "openinference-semantic-conventions>=0.1.12,<0.2.0",
