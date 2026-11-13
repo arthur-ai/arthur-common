@@ -20,6 +20,8 @@ class ModelProvider(str, Enum):
     VERTEX_AI = "vertex_ai"
     VLLM = "hosted_vllm"
     AZURE = "azure"
+    # requires a litellm release with the scaledown provider (BerriAI/litellm#44168)
+    SCALEDOWN = "scaledown"
 
     # not supporting for v0
     # SAGEMAKER = "sagemaker"
