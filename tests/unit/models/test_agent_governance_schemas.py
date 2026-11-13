@@ -1,22 +1,35 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, get_args
 
 import pytest
 from pydantic import ValidationError
 
 from arthur_common.models.agent_governance_schemas import (
+    CREATION_SOURCE_TYPE_BY_CLASS,
     DEPRECATED_CREATION_SOURCE_TAGS,
+    DISCOVERY_SOURCE_CLASSES,
+    ENGINE_KEPT_OBSERVATIONS,
+    MAX_NETWORK_DESTINATIONS,
+    MAX_OCCURRENCES,
     AgentCreationSource,
+    AgentCreationSourceUnion,
     AgentObservations,
+    AgentOccurrence,
     CloudAgentCreationSource,
     DataSource,
+    Detection,
     DiscoveryAgentCreationSource,
     EndpointAgentCreationSource,
     EnrichedAgentMetadata,
     EnrichedTaskResponse,
     GCPAgentCreationSource,
+    IdentityBasis,
     LLMModel,
     ManualAgentCreationSource,
+    NetworkAgentCreationSource,
+    NetworkCallerKind,
+    NetworkDestination,
+    NetworkHostKind,
     OTELAgentCreationSource,
     Platform,
     Provenance,
@@ -29,6 +42,9 @@ from arthur_common.models.agent_governance_schemas import (
     TaskMetadata,
     Tool,
     ToolArgument,
+    Visibility,
+    detection_for,
+    home_relative_path,
 )
 
 
@@ -178,6 +194,19 @@ class TestCreationSource:
                 },
                 CloudAgentCreationSource,
             ),
+            (
+                {
+                    "type": "NETWORK",
+                    "vendor": "aws_cloudwatch_logs",
+                    "address": {
+                        "instance": "i-0abc1234def567890",
+                        "resource_kind": "instance",
+                        "resource_id": "i-0abc1234def567890",
+                        "scope": "111122223333/us-east-1",
+                    },
+                },
+                NetworkAgentCreationSource,
+            ),
         ],
     )
     def test_discriminated_union_deserialization(self, json_data, expected_type):
@@ -217,7 +246,7 @@ class TestCreationSource:
         schema = AgentCreationSource.model_json_schema()
         assert schema["discriminator"]["propertyName"] == "type"
         assert "anyOf" not in schema
-        assert len(schema["oneOf"]) == 6
+        assert len(schema["oneOf"]) == 7
 
 
 class TestTaskMetadata:
@@ -430,13 +459,15 @@ class TestObservationCapabilities:
         """
         assert "permissions" in EndpointAgentCreationSource.observable_fields()
 
-    def test_permissions_are_not_claimed_where_unverified(self):
-        """Cloud is where the concept extends next, once a connector fetches them.
+    def test_permissions_are_claimed_where_a_collector_reads_them(self):
+        """Wherever the endpoint collector's inventory is read, and nowhere else.
 
-        A Bedrock agent's action groups answer the same question, but the declaration
-        follows what a connector actually collects, not what it could.
+        A cloud VM carries that inventory, so Cloud declares them. A SIEM query does
+        not read it. A Bedrock agent's action groups would answer the same question,
+        but the declaration follows what a connector actually collects, not what it
+        could.
         """
-        assert "permissions" not in CloudAgentCreationSource.observable_fields()
+        assert "permissions" in CloudAgentCreationSource.observable_fields()
         assert "permissions" not in SIEMAgentCreationSource.observable_fields()
 
     def test_permissions_are_a_list_not_the_collectors_joined_string(self):
@@ -456,6 +487,14 @@ class TestObservationCapabilities:
         for absent in ("extra", "browser_type", "listen_address"):
             assert absent not in AgentObservations.model_fields
 
+    def test_no_source_claims_a_field_the_engine_keeps(self):
+        """Visibility is measured against what a source can see, and a field no source
+        fills would count against every record that declared it. Every member of the
+        union, read off the union, so a new category cannot skip the check."""
+        assert ENGINE_KEPT_OBSERVATIONS <= set(AgentObservations.model_fields)
+        for category in get_args(get_args(AgentCreationSourceUnion)[0]):
+            assert not category.observable_fields() & ENGINE_KEPT_OBSERVATIONS, category
+
     def test_endpoint_sees_the_machine(self):
         """What the collector's six columns plus the MDM device record actually give."""
         observable = EndpointAgentCreationSource.observable_fields()
@@ -463,12 +502,13 @@ class TestObservationCapabilities:
         assert {"host_name", "os_version", "assigned_user"} <= observable  # MDM record
 
     def test_no_observation_field_is_unreachable(self):
-        """Every field must be fillable by at least one source.
+        """Every field must be fillable by at least one source, or kept by GenAI Engine.
 
         A field no source declares would be permanently null, which reads as "not
         collected yet" rather than "this source cannot see it" -- the ambiguity the
         declaration exists to remove. Asserted as a set equality rather than against a
-        list of known-bad names, so it catches the next one too.
+        list of known-bad names, so it catches the next one too. A field GenAI Engine
+        keeps across reports is filled, just not by a source.
         """
         declared: set[str] = set()
         for category in (
@@ -478,8 +518,10 @@ class TestObservationCapabilities:
             CloudAgentCreationSource,
             SIEMAgentCreationSource,
             EndpointAgentCreationSource,
+            NetworkAgentCreationSource,
         ):
             declared |= category.observable_fields()
+        declared |= ENGINE_KEPT_OBSERVATIONS
         assert declared == set(AgentObservations.model_fields)
 
     def test_what_a_siem_can_reach_depends_on_what_is_indexed(self):
@@ -503,9 +545,10 @@ class TestObservationCapabilities:
         assert "assigned_user" not in observable
 
     def test_uncollectable_signals_are_in_no_category(self):
-        """Destination hostname and connection counts are not modelled at all.
+        """Destination hostname and connection counts are not shared observations.
 
-        Reverse DNS is unreliable against CDN and anycast ranges; connection counts
+        A network source reads them straight off its logs and carries them as its own
+        ``destinations``; no other class can fill them. Reverse DNS is unreliable against CDN and anycast ranges; connection counts
         need osqueryd running persistently with the audit subsystem, which puts code
         signing, notarization and PPPC back on the critical path. Neither is a nullable
         field, on purpose -- an always-null column reads as "not collected yet".
@@ -519,6 +562,7 @@ class TestObservationCapabilities:
             CloudAgentCreationSource,
             SIEMAgentCreationSource,
             EndpointAgentCreationSource,
+            NetworkAgentCreationSource,
         ],
     )
     def test_declared_fields_all_exist_on_the_observation_model(self, category):
@@ -651,6 +695,30 @@ class TestDiscoveryCreationSources:
         )
         assert migrated.SOURCE_CLASS is SourceClass.CLOUD
 
+    def test_a_vm_hosted_cloud_finding_is_addressed_per_software_and_vm(self):
+        """Compute Engine: the provider lists the VM, the VM carries its inventory.
+
+        The VM is the instance, never the project -- records are told apart by
+        instance, so a project there would merge every VM in it into one agent.
+        """
+        src = CloudAgentCreationSource(
+            vendor="gcp_compute_engine",
+            address=SourceAddress(
+                instance="4278289283885961105",
+                scope="sandbox-471015/us-central1-a",
+                resource_kind="deb",
+                resource_id="curl",
+            ),
+            observations=AgentObservations(
+                host_name="build-1",
+                version="7.88.1",
+                install_path="/usr/bin/curl",
+            ),
+        )
+        assert src.SOURCE_CLASS is SourceClass.CLOUD
+        assert src.address.resource_kind == "deb"
+        assert {"host_name", "version", "install_path"} <= src.observable_fields()
+
     def test_a_cloud_source_must_carry_its_region(self):
         """Region is identity for a cloud agent, not decoration.
 
@@ -695,15 +763,314 @@ class TestDiscoveryCreationSources:
         )
         assert src.address.scope is None
 
+    @staticmethod
+    def _host(kind="instance", instance="i-0abc", resource_id="i-0abc", **kw):
+        return NetworkAgentCreationSource(
+            vendor="aws_cloudwatch_logs",
+            address=SourceAddress(
+                instance=instance,
+                scope=kw.pop("scope", "111122223333/us-east-1"),
+                resource_kind=kind,
+                resource_id=resource_id,
+            ),
+            **kw,
+        )
+
+    def test_a_network_finding_addresses_the_host_where_it_is(self):
+        """The record is the internal host that called a provider, not the agent: the
+        host in instance and resource_id, where it is in scope, its VPC observed."""
+        src = self._host(
+            observations=AgentObservations(
+                host_name="i-0abc",
+                host_group="vpc-0a1b2c3d",
+            ),
+        )
+        assert src.type == "NETWORK"
+        assert src.SOURCE_CLASS is SourceClass.NETWORK
+        assert src.address.query is None
+
+    def test_a_network_finding_is_inferred_and_limited(self):
+        """A lookup or a connection says something called a provider, not what."""
+        assert NetworkAgentCreationSource.detection() is Detection.INFERRED
+        assert NetworkAgentCreationSource.visibility_ceiling() is Visibility.LIMITED
+
+    def test_a_network_source_sees_the_host_never_the_software(self):
+        observable = NetworkAgentCreationSource.observable_fields()
+        assert observable == {"host_name", "host_group"}
+        assert {"install_path", "version", "os_version", "assigned_user"}.isdisjoint(
+            observable,
+        )
+
+    def test_host_kinds_are_ordered_strongest_first(self):
+        assert [k.value for k in NetworkHostKind] == [
+            "workload",
+            "instance",
+            "eni",
+            "ip",
+        ]
+
+    @pytest.mark.parametrize("kind", [None, "account", "vpc"])
+    def test_the_host_kind_is_required_and_closed(self, kind):
+        """An instance id and an address are otherwise indistinguishable strings, and
+        a kind that is neither a host's nor a caller's is refused."""
+        with pytest.raises(ValidationError, match="resource_kind"):
+            self._host(kind=kind)
+
+    @pytest.mark.parametrize("scope", [None, "", "  "])
+    def test_where_the_host_is_is_required(self, scope):
+        """Part of identity, so it cannot be present in one scan and absent in the
+        next; account and region are on every line, unlike the VPC."""
+        with pytest.raises(ValidationError, match="address.scope"):
+            self._host(scope=scope)
+
+    def test_one_host_seen_in_two_logs_is_one_address(self):
+        """Route 53 resolver logs carry the VPC and default flow logs do not; with the
+        VPC kept out of the address, both report the same identity."""
+        resolver = self._host(observations=AgentObservations(host_group="vpc-0a1"))
+        flow = self._host()
+        assert resolver.address == flow.address
+
+    @pytest.mark.parametrize("kind", ["workload", "instance", "eni"])
+    def test_an_instance_or_interface_is_its_own_instance(self, kind):
+        """Never the account: records are told apart by instance, so an account there
+        would make every host in it look alike."""
+        with pytest.raises(ValidationError, match="address.instance"):
+            self._host(kind=kind, instance="111122223333", resource_id="i-0abc")
+        assert self._host(kind=kind, instance="eni-1", resource_id="eni-1")
+
+    def test_a_cloud_run_job_is_a_workload_record(self):
+        """GCP flow logs name a Cloud Run job on egress; the job name is the identity,
+        where the project and region are where it is."""
+        src = self._host(
+            kind="workload",
+            instance="run/jobs/claims-agent",
+            resource_id="run/jobs/claims-agent",
+            scope="ag-claims/australia-southeast1",
+        )
+        assert src.address.resource_kind == NetworkHostKind.WORKLOAD.value
+
+    def test_an_address_is_placed_in_its_network(self):
+        src = self._host(kind="ip", instance="vpc-0a1", resource_id="10.0.1.23")
+        assert src.address.instance == "vpc-0a1"
+        with pytest.raises(ValidationError, match="address.instance"):
+            self._host(kind="ip", instance="10.0.1.23", resource_id="10.0.1.23")
+
+    def test_a_record_round_trips(self):
+        src = self._host(
+            destinations=[NetworkDestination(host="api.openai.com", provider="OpenAI")],
+        )
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert restored == src
+
+    def test_a_destination_carries_nothing_that_changes_per_scan(self):
+        """The creation source is frozen at the first report, so a count or a time
+        here would be served unchanged forever; recency is provenance's."""
+        assert set(NetworkDestination.model_fields) == {"host", "provider"}
+
+    def test_a_destination_host_is_canonical(self):
+        """`API.OpenAI.com.` and `api.openai.com` are one destination."""
+        d = NetworkDestination(host=" API.OpenAI.com. ", provider=" OpenAI ")
+        assert d.host == "api.openai.com"
+        assert d.provider == "OpenAI"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"host": "", "provider": "OpenAI"},
+            {"host": "   ", "provider": "OpenAI"},
+            {"host": ".", "provider": "OpenAI"},
+            {"host": "api.openai.com", "provider": "  "},
+        ],
+    )
+    def test_a_destination_rejects_blank_text(self, bad):
+        with pytest.raises(ValidationError):
+            NetworkDestination(**bad)
+
+    def test_destinations_name_each_host_once(self):
+        with pytest.raises(ValidationError):
+            self._host(
+                destinations=[
+                    NetworkDestination(host="api.openai.com", provider="OpenAI"),
+                    NetworkDestination(host="API.openai.com.", provider="OpenAI"),
+                ],
+            )
+
+    def test_destinations_are_bounded(self):
+        many = [
+            NetworkDestination(host=f"h{i}.example.test", provider="x")
+            for i in range(MAX_NETWORK_DESTINATIONS + 1)
+        ]
+        with pytest.raises(ValidationError):
+            self._host(destinations=many)
+
+    def test_destinations_default_to_empty(self):
+        src = AgentCreationSource.model_validate(
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {
+                    "instance": "i-0abc",
+                    "scope": "111122223333/us-east-1",
+                    "resource_kind": "instance",
+                    "resource_id": "i-0abc",
+                },
+            },
+        ).root
+        assert src.destinations == []
+
+    def test_each_configurable_class_maps_to_its_creation_source_type(self):
+        """Consumers rebuild a creation source from a provenance entry's class; this is
+        the one table they should read, derived from the union."""
+        assert CREATION_SOURCE_TYPE_BY_CLASS == {
+            SourceClass.CLOUD: "CLOUD",
+            SourceClass.SIEM: "SIEM",
+            SourceClass.ENDPOINT: "ENDPOINT",
+            SourceClass.NETWORK: "NETWORK",
+        }
+        assert set(CREATION_SOURCE_TYPE_BY_CLASS) == DISCOVERY_SOURCE_CLASSES
+
+    def test_shared_observations_gain_no_network_field(self):
+        """Every other class's records serialize exactly as before."""
+        assert "client_addresses" not in AgentObservations.model_fields
+
+    @staticmethod
+    def _caller(kind="agent_id", basis=IdentityBasis.REGISTERED_AGENT, **kw):
+        return NetworkAgentCreationSource(
+            vendor="litellm_proxy",
+            identity_basis=basis,
+            address=SourceAddress(
+                instance="gateway.example.test:4000",
+                scope=kw.pop("scope", None),
+                resource_kind=kind,
+                resource_id=kw.pop("resource_id", "8e178a0c"),
+            ),
+            **kw,
+        )
+
+    def test_caller_kinds_are_the_gateways_namespaces(self):
+        assert [k.value for k in NetworkCallerKind] == [
+            "agent_id",
+            "virtual_key",
+            "consumer",
+            "client_address",
+        ]
+
+    def test_a_gateway_caller_round_trips(self):
+        src = self._caller(observations=AgentObservations(host_group="support"))
+        restored = AgentCreationSource.model_validate_json(
+            AgentCreationSource(root=src).model_dump_json(),
+        ).root
+        assert restored == src
+        assert restored.is_caller()
+
+    @pytest.mark.parametrize(
+        ("kind", "basis"),
+        [
+            ("agent_id", None),
+            ("agent_id", IdentityBasis.CREDENTIAL),
+            ("virtual_key", IdentityBasis.REGISTERED_AGENT),
+            ("consumer", IdentityBasis.CLIENT_ADDRESS),
+            ("client_address", IdentityBasis.CREDENTIAL),
+        ],
+    )
+    def test_the_identity_basis_must_fit_the_kind(self, kind, basis):
+        """A caller that forgets identity_basis, or claims more than its kind allows,
+        is refused rather than read as a host."""
+        with pytest.raises(ValidationError, match="identity_basis"):
+            self._caller(kind=kind, basis=basis)
+
+    def test_a_host_record_carries_no_identity_basis(self):
+        with pytest.raises(ValidationError, match="identity_basis"):
+            self._host(identity_basis=IdentityBasis.CREDENTIAL)
+
+    def test_a_caller_has_no_destinations_or_query(self):
+        """Destinations are a host record's evidence; a caller's is the models it was
+        served, on the record."""
+        with pytest.raises(ValidationError, match="destinations"):
+            self._caller(
+                destinations=[
+                    NetworkDestination(host="api.openai.com", provider="OpenAI"),
+                ],
+            )
+        with pytest.raises(ValidationError, match="address.query"):
+            NetworkAgentCreationSource(
+                vendor="litellm_proxy",
+                identity_basis=IdentityBasis.REGISTERED_AGENT,
+                address=SourceAddress(
+                    instance="gateway.example.test:4000",
+                    resource_kind="agent_id",
+                    resource_id="8e178a0c",
+                    query="select 1",
+                ),
+            )
+
+    def test_a_caller_has_no_scope(self):
+        """A team can change between scans; in the address it would split one caller."""
+        with pytest.raises(ValidationError, match="address.scope"):
+            self._caller(scope="support")
+
+    @pytest.mark.parametrize(
+        "observations",
+        [
+            {"host_name": "laptop-1"},
+            {"assigned_user": "someone@example.test"},
+        ],
+    )
+    def test_a_caller_fills_only_its_team(self, observations):
+        with pytest.raises(ValidationError, match="host_group"):
+            self._caller(observations=AgentObservations(**observations))
+
+    @pytest.mark.parametrize(
+        ("basis", "kind", "detection"),
+        [
+            (IdentityBasis.REGISTERED_AGENT, "agent_id", Detection.OBSERVED),
+            (IdentityBasis.CREDENTIAL, "virtual_key", Detection.OBSERVED),
+            (IdentityBasis.CLAIMED_AGENT, "agent_id", Detection.INFERRED),
+            (IdentityBasis.CLIENT_ADDRESS, "client_address", Detection.INFERRED),
+        ],
+    )
+    def test_detection_follows_the_identity_basis(self, basis, kind, detection):
+        src = self._caller(kind=kind, basis=basis)
+        assert detection_for(AgentCreationSource(root=src)) is detection
+
+    def test_a_host_record_is_still_inferred(self):
+        assert detection_for(AgentCreationSource(root=self._host())) is (
+            Detection.INFERRED
+        )
+
+    def test_each_shape_declares_what_it_can_fill(self):
+        assert self._caller().record_observable_fields() == {"host_group"}
+        assert self._host().record_observable_fields() == {"host_name", "host_group"}
+
+    @pytest.mark.parametrize(
+        "secret",
+        ["sk-proj-abcdef0123456789", "sk-ant-api03-abc", "AKIAIOSFODNN7EXAMPLE"],
+    )
+    def test_a_credential_identity_is_never_a_raw_key(self, secret):
+        with pytest.raises(ValidationError, match="raw credential"):
+            self._caller(
+                kind="virtual_key",
+                basis=IdentityBasis.CREDENTIAL,
+                resource_id=secret,
+            )
+
+    @pytest.mark.parametrize("secret", ["sk-proj-abcdef0123456789", " sk-ant-api03"])
+    def test_no_caller_id_is_a_raw_key(self, secret):
+        """A claimed agent id is whatever the caller sent; leading space included."""
+        with pytest.raises(ValidationError, match="raw credential"):
+            self._caller(basis=IdentityBasis.CLAIMED_AGENT, resource_id=secret)
+
     def test_there_is_no_per_vendor_creation_source_class(self):
         """The extensibility property, asserted rather than assumed.
 
-        Six union members cover every vendor, present and future, because the vendor is
-        a string. A Jamf- or Splunk-specific class would mean a schema release and a
+        Seven union members cover every vendor, present and future, because the vendor
+        is a string. A Jamf- or Splunk-specific class would mean a schema release and a
         regeneration of every generated client per vendor.
         """
         members = AgentCreationSource.model_json_schema()["oneOf"]
-        assert len(members) == 6
+        assert len(members) == 7
         assert DiscoveryAgentCreationSource.model_fields["vendor"].annotation is str
 
     @pytest.mark.parametrize(
@@ -733,6 +1100,20 @@ class TestDiscoveryCreationSources:
                 "vendor": "jamf_pro",
                 "address": {"instance": "serial:X", "resource_id": "openclaw"},
                 "observations": {"assigned_user": "someone@arthur.ai"},
+            },
+            {
+                "type": "NETWORK",
+                "vendor": "aws_cloudwatch_logs",
+                "address": {
+                    "instance": "vpc-0a1b2c3d",
+                    "resource_kind": "ip",
+                    "resource_id": "10.0.1.23",
+                    "scope": "111122223333/us-east-1",
+                },
+                "observations": {
+                    "host_name": "10.0.1.23",
+                    "host_group": "vpc-0a1b2c3d",
+                },
             },
         ],
     )
@@ -768,11 +1149,16 @@ class TestPersonalData:
         docstring to keep in step.
         """
         assert "assigned_user" in AgentObservations.model_fields
-        for category in (CloudAgentCreationSource, SIEMAgentCreationSource):
+        for category in (
+            CloudAgentCreationSource,
+            SIEMAgentCreationSource,
+        ):
             assert "assigned_user" not in category.observable_fields()
 
     def test_only_endpoint_sources_can_attribute_to_a_person(self):
+        """An MDM's assigned user. A network log names a host, never its owner."""
         assert "assigned_user" in EndpointAgentCreationSource.observable_fields()
+        assert "assigned_user" not in NetworkAgentCreationSource.observable_fields()
 
 
 ALL_SOURCE_PAYLOADS = [
@@ -820,6 +1206,19 @@ ALL_SOURCE_PAYLOADS = [
             "address": {"instance": "serial:X", "resource_id": "openclaw"},
         },
         id="ENDPOINT",
+    ),
+    pytest.param(
+        {
+            "type": "NETWORK",
+            "vendor": "aws_cloudwatch_logs",
+            "address": {
+                "instance": "i-0abc",
+                "resource_kind": "instance",
+                "resource_id": "i-0abc",
+                "scope": "111122223333/us-east-1",
+            },
+        },
+        id="NETWORK",
     ),
 ]
 
@@ -1006,6 +1405,7 @@ class TestDeprecations:
             "CloudAgentCreationSource",
             "SIEMAgentCreationSource",
             "EndpointAgentCreationSource",
+            "NetworkAgentCreationSource",
             "OTELAgentCreationSource",
             "ManualAgentCreationSource",
         ):
@@ -1135,3 +1535,237 @@ class TestSiemHostEnrichment:
                 platform=Platform.WINDOWS,
             )
             assert prov.runs_on is RunsOn.GCP
+
+
+class TestProvenanceObservations:
+    """A task's creation source is what the first report saw and is never rewritten, so
+    each provenance entry carries its own record's latest observations."""
+
+    def test_an_entry_carries_what_its_record_saw(self):
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": {
+                    "instance": "m1",
+                    "resource_kind": "vscodeext",
+                    "resource_id": "anthropic.claude-code",
+                },
+                "observations": {"version": "2.1.314", "host_name": "mac-m1"},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+
+        assert entry.observations == source.root.observations
+        assert entry.observations.version == "2.1.314"
+
+    def test_setting_the_previous_version_leaves_the_creation_source_alone(self):
+        """GenAI Engine sets it on the entry, and the creation source is never
+        rewritten -- so the entry must hold a copy, not the source's own object."""
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"version": "2.1.314", "permissions": ["tabs"]},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+        entry.observations.previous_version = "2.1.312"
+        entry.observations.permissions.append("<all_urls>")
+
+        assert source.root.observations.previous_version is None
+        assert source.root.observations.permissions == ["tabs"]
+
+    def test_an_entry_recorded_before_observations_were_stored_still_reads(self):
+        entry = ProvenanceSource.model_validate({"source_class": "endpoint"})
+        assert entry.observations is None
+
+
+class TestHomeRelativePaths:
+    """`install_path` promises no username travels in a path. The model keeps it."""
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/Users/dana/.local/bin/claude", "~/.local/bin/claude"),
+            ("/Users/dana/", "~/"),
+            ("/Users/dana", "~"),
+            ("/home/dana/.claude/", "~/.claude/"),
+            (
+                "C:\\Users\\dana\\AppData\\Roaming\\Claude",
+                "~\\AppData\\Roaming\\Claude",
+            ),
+            ("c:/users/dana/AppData", "~/AppData"),
+        ],
+    )
+    def test_a_persons_home_directory_becomes_a_tilde(self, path, expected):
+        assert home_relative_path(path) == expected
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/Applications/Claude.app",
+            "/opt/homebrew/lib/node_modules/@openai/codex/package.json",
+            "/home/linuxbrew/.linuxbrew/bin/claude",
+            "~/.claude",
+            "/Users/Shared/agents/run.sh",
+            "C:\\Users\\Public\\Desktop\\agent.exe",
+            "C:\\Users\\Default User\\AppData",
+            "C:\\Program Files\\Claude\\claude.exe",
+            "/Users/",
+        ],
+    )
+    def test_a_path_outside_any_persons_home_is_unchanged(self, path):
+        assert home_relative_path(path) == path
+
+    def test_root_keeps_its_home(self):
+        """`/root` names no person, and an agent installed as root is worth seeing."""
+        assert home_relative_path("/root/.claude") == "/root/.claude"
+
+    def test_linux_paths_are_case_sensitive(self):
+        """`/Home` is not where home directories live on a case-sensitive filesystem."""
+        assert home_relative_path("/Home/dana/x") == "/Home/dana/x"
+
+    @pytest.mark.parametrize("path", ["/Users/SharedStuff/x", "/home/linuxbrewer/x"])
+    def test_a_folder_named_like_a_shared_one_is_still_a_home(self, path):
+        assert home_relative_path(path) == "~/x"
+
+    def test_rewriting_twice_changes_nothing(self):
+        once = home_relative_path("/Users/dana/.cursor/extensions/x-1.0")
+        assert home_relative_path(once) == once
+
+    def test_install_path_is_rewritten_on_the_way_in(self):
+        observations = AgentObservations(install_path="/Users/nori/.local/bin/claude")
+        assert observations.install_path == "~/.local/bin/claude"
+
+    def test_install_path_is_rewritten_when_a_stored_record_is_read_back(self):
+        """A record stored before the rewrite existed is served without the username,
+        as long as it is read through the model."""
+        stored = {"install_path": "/Users/nori/.claude/", "version": "2.1.314"}
+        assert AgentObservations.model_validate(stored).install_path == "~/.claude/"
+
+    def test_a_creation_source_carries_the_rewritten_path(self):
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"install_path": "/Users/nori/.claude/"},
+            },
+        )
+        assert source.root.observations.install_path == "~/.claude/"
+
+
+CLAUDE_CODE_VERSIONS = ("2.1.306", "2.1.310", "2.1.311", "2.1.312", "2.1.314")
+CLAUDE_CODE_PROCESSES = [
+    {"kind": "proc", "path": f"/Users/nori/.local/share/claude/versions/{version}"}
+    for version in CLAUDE_CODE_VERSIONS
+]
+
+
+class TestOccurrences:
+    """Every row that proved a record, not only the one that speaks for it."""
+
+    def test_every_running_version_is_kept(self):
+        """The case that motivated it: an old session still running after an upgrade
+        is exactly the exposure a bad release creates, and one address hides it."""
+        observations = AgentObservations(occurrences=CLAUDE_CODE_PROCESSES)
+
+        assert [o.path for o in observations.occurrences] == [
+            f"~/.local/share/claude/versions/{version}"
+            for version in CLAUDE_CODE_VERSIONS
+        ]
+        assert {o.kind for o in observations.occurrences} == {"proc"}
+
+    def test_an_agent_record_can_list_rows_of_every_kind(self):
+        """A device's agent record spans every route the agent matched."""
+        extension = "/Users/nori/.cursor/extensions/anthropic.claude-code-2.1.314"
+        observations = AgentObservations(
+            install_path=extension,
+            version="2.1.314",
+            occurrences=[
+                {"kind": "file", "path": "/Users/nori/.local/bin/claude"},
+                {"kind": "file", "path": "/Users/nori/.claude/"},
+                *CLAUDE_CODE_PROCESSES,
+                {"kind": "vscodeext", "path": extension, "version": "2.1.314"},
+            ],
+        )
+
+        assert len(observations.occurrences) == 8
+        assert observations.occurrences[-1] == AgentOccurrence(
+            kind="vscodeext",
+            path="~/.cursor/extensions/anthropic.claude-code-2.1.314",
+            version="2.1.314",
+        )
+
+    def test_two_users_copies_of_one_path_are_one_occurrence(self):
+        """Rewriting home directories makes them equal. That is not a malformed
+        record, so it is collapsed rather than refused, keeping the first."""
+        observations = AgentObservations(
+            occurrences=[
+                {"kind": "file", "path": "/Users/alice/.claude/"},
+                {"kind": "proc", "path": "/Users/alice/.local/bin/claude"},
+                {"kind": "file", "path": "/Users/bob/.claude/"},
+            ],
+        )
+        assert [(o.kind, o.path) for o in observations.occurrences] == [
+            ("file", "~/.claude/"),
+            ("proc", "~/.local/bin/claude"),
+        ]
+
+    def test_one_place_at_two_versions_is_two_occurrences(self):
+        observations = AgentObservations(
+            occurrences=[
+                {"kind": "image", "version": "0.86.1"},
+                {"kind": "image", "version": "0.85.0"},
+            ],
+        )
+        assert len(observations.occurrences) == 2
+
+    def test_none_is_an_empty_list(self):
+        """Like `permissions`: a source that sees only the one place reports none."""
+        assert AgentObservations().occurrences == []
+
+    def test_a_connector_caps_them(self):
+        rows = [
+            {"kind": "proc", "path": f"/opt/agent/{i}"}
+            for i in range(MAX_OCCURRENCES + 1)
+        ]
+        with pytest.raises(ValidationError):
+            AgentObservations(occurrences=rows)
+        capped = AgentObservations(occurrences=rows[:MAX_OCCURRENCES])
+        assert len(capped.occurrences) == MAX_OCCURRENCES
+
+    def test_declared_where_a_collectors_inventory_is_read(self):
+        """Endpoints, and cloud VMs that carry the same inventory. A SIEM or a network
+        log sees no rows on a disk."""
+        assert "occurrences" in EndpointAgentCreationSource.observable_fields()
+        assert "occurrences" in CloudAgentCreationSource.observable_fields()
+        assert "occurrences" not in SIEMAgentCreationSource.observable_fields()
+        assert "occurrences" not in NetworkAgentCreationSource.observable_fields()
+
+    def test_a_provenance_entry_carries_its_own_copy(self):
+        """An entry's observations are copied, so the creation source is never touched."""
+        source = AgentCreationSource.model_validate(
+            {
+                "type": "ENDPOINT",
+                "vendor": "jamf_pro",
+                "address": ENDPOINT_ADDRESS,
+                "observations": {"occurrences": CLAUDE_CODE_PROCESSES[:1]},
+            },
+        )
+
+        entry = ProvenanceSource.from_creation_source(source)
+        entry.observations.occurrences.append(AgentOccurrence(kind="proc", path="~/x"))
+
+        assert len(source.root.observations.occurrences) == 1
+
+    def test_round_trips_as_json(self):
+        observations = AgentObservations(occurrences=CLAUDE_CODE_PROCESSES)
+        assert (
+            AgentObservations.model_validate_json(observations.model_dump_json())
+            == observations
+        )

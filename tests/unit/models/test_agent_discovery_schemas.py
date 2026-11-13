@@ -63,6 +63,16 @@ CLOUD_SOURCE = {
     "vendor": "aws_bedrock",
     "address": {"instance": "1", "resource_id": "a", "scope": "us-east-1"},
 }
+NETWORK_SOURCE = {
+    "type": "NETWORK",
+    "vendor": "aws_cloudwatch_logs",
+    "address": {
+        "instance": "i-0abc",
+        "resource_id": "i-0abc",
+        "resource_kind": "instance",
+        "scope": "1/us-east-1",
+    },
+}
 
 
 class TestDetectionAndVisibility:
@@ -98,6 +108,12 @@ class TestDetectionAndVisibility:
         assert detection_for(AgentCreationSource.model_validate(SPLUNK_SOURCE)) is (
             Detection.INFERRED
         )
+
+    def test_a_network_finding_is_inferred_too(self):
+        """A lookup of a provider's host says something called it, not what."""
+        source = AgentCreationSource.model_validate(NETWORK_SOURCE)
+        assert detection_for(source) is Detection.INFERRED
+        assert visibility_ceiling(source) is Visibility.LIMITED
 
     def test_neither_axis_carries_staleness(self):
         """`is_stale` is the third independent fact, not a value on either scale."""
@@ -216,6 +232,7 @@ class TestProvenanceFromCreationSource:
             (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
             (SPLUNK_SOURCE, SourceClass.SIEM),
             (CLOUD_SOURCE, SourceClass.CLOUD),
+            (NETWORK_SOURCE, SourceClass.NETWORK),
             (OTEL_SOURCE, SourceClass.OTEL),
             (MANUAL_SOURCE, SourceClass.MANUAL),
             (GCP_SOURCE, SourceClass.CLOUD),
@@ -344,7 +361,7 @@ class TestProvenanceRecordIdentity:
                     source_class=SourceClass.SIEM,
                     external_id="splunk-rec-9",
                     last_scanned=NOW,
-                )
+                ),
             ],
         )
         dumped = prov.model_dump()["sources"][0]
@@ -373,6 +390,7 @@ class TestSourceClassDerivation:
         [
             (ENDPOINT_SOURCE, SourceClass.ENDPOINT),
             (SPLUNK_SOURCE, SourceClass.SIEM),
+            (NETWORK_SOURCE, SourceClass.NETWORK),
             (OTEL_SOURCE, SourceClass.OTEL),
             (MANUAL_SOURCE, SourceClass.MANUAL),
         ],
@@ -396,8 +414,14 @@ class TestSourceClassDerivation:
             member["$ref"].rsplit("/", 1)[-1]
             for member in AgentCreationSource.model_json_schema()["oneOf"]
         }
-        assert len(tags) == 6
-        for payload in (ENDPOINT_SOURCE, SPLUNK_SOURCE, OTEL_SOURCE, MANUAL_SOURCE):
+        assert len(tags) == 7
+        for payload in (
+            ENDPOINT_SOURCE,
+            SPLUNK_SOURCE,
+            NETWORK_SOURCE,
+            OTEL_SOURCE,
+            MANUAL_SOURCE,
+        ):
             SourceClass.for_creation_source(AgentCreationSource.model_validate(payload))
 
 
@@ -410,6 +434,7 @@ class TestVisibilityCeiling:
             (ENDPOINT_SOURCE, Visibility.LIMITED),
             (SPLUNK_SOURCE, Visibility.LIMITED),
             (CLOUD_SOURCE, Visibility.LIMITED),
+            (NETWORK_SOURCE, Visibility.LIMITED),
             (GCP_SOURCE, Visibility.LIMITED),
             (OTEL_SOURCE, Visibility.FULL),
         ],
@@ -537,6 +562,24 @@ class TestEvidence:
         assert endpoint.last_scanned is None
         assert splunk.detection is Detection.INFERRED
         assert splunk.last_scanned == NOW - timedelta(days=3)
+
+    def test_a_gateway_callers_detection_is_its_own(self):
+        """Evidence reads the record, not only its class: a registry-listed caller is
+        observed, a caller that only claimed an id is inferred."""
+        caller = {
+            "type": "NETWORK",
+            "vendor": "litellm_proxy",
+            "address": {
+                "instance": "gateway.example.test:4000",
+                "resource_kind": "agent_id",
+                "resource_id": "8e178a0c",
+            },
+        }
+        registered = self._evidence({**caller, "identity_basis": "registered_agent"})
+        claimed = self._evidence({**caller, "identity_basis": "claimed_agent"})
+        assert registered.detection is Detection.OBSERVED
+        assert claimed.detection is Detection.INFERRED
+        assert registered.model_dump()["detection"] is Detection.OBSERVED
 
     def test_new_this_scan_derives_from_first_seen_and_run(self):
         """There is deliberately no `new` status field to fall out of date."""
@@ -856,6 +899,29 @@ class TestDiscoveredAgentRecord:
         )
         assert record.service_names == ["claw"]
 
+    def test_a_connector_cannot_report_a_previous_version(self):
+        """GenAI Engine keeps it across a record's reports; no source reads it. This
+        record's creation source becomes the task's and is never rewritten, so a value
+        let through here would be served as a version change that never happened."""
+        with pytest.raises(ValidationError, match="previous_version"):
+            self._record(
+                creation_source={
+                    **ENDPOINT_SOURCE,
+                    "observations": {"version": "1.1", "previous_version": "1.0"},
+                },
+            )
+
+    def test_a_creation_source_outside_a_record_still_carries_one(self):
+        """Refused only at the connector's boundary: evidence built from a provenance
+        entry carries the previous version GenAI Engine kept."""
+        source = AgentCreationSource.model_validate(
+            {
+                **ENDPOINT_SOURCE,
+                "observations": {"version": "1.1", "previous_version": "1.0"},
+            },
+        )
+        assert source.root.observations.previous_version == "1.0"
+
     def test_service_names_is_empty_when_the_sensor_saw_none(self):
         """Empty rather than absent: an endpoint sweep sees installation, not telemetry,
         so the common case must not look like a missing value."""
@@ -870,11 +936,11 @@ class TestDiscoveredAgentRecord:
 
         DISCOVERY_SOURCE_CLASSES already says which classes a configured source can
         have, and says in its own docstring that it exists "so there is one vocabulary
-        and app_plane validates against it instead of redeclaring three of its five
+        and app_plane validates against it instead of redeclaring four of its six
         members". A pydantic union cannot BE a frozenset -- parsing a request body and
         generating an OpenAPI schema need model classes, which is why genai-engine spelled
         the members out rather than validating after the fact. So the union stays, and
-        this asserts it agrees. A fourth discovery category that lands in one and not the
+        this asserts it agrees. A new discovery category that lands in one and not the
         other fails here rather than in whichever consumer notices first.
         """
         import typing

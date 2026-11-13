@@ -358,8 +358,11 @@ class LLMBaseConfigSettings(BaseModel):
 class LLMConfigSettings(LLMBaseConfigSettings):
     model_config = {"extra": "forbid"}
 
+    # A distinct title keeps openapi-generator from naming this inline anyOf
+    # "ToolChoice", which overwrites the ToolChoice model in generated clients.
     tool_choice: Optional[Union[ToolChoiceEnum, ToolChoice]] = Field(
         None,
+        title="LLM Config Tool Choice",
         description="Tool choice configuration ('auto', 'none', 'required', or a specific tool selection)",
     )
     response_format: Optional[Union[LLMResponseFormat, Type[BaseModel]]] = Field(

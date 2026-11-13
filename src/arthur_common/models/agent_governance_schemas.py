@@ -1,7 +1,7 @@
 """Schemas for agent task governance: what a task is and how it was found.
 
 Tools and sub-agents, the creation-source union (how an agent came to be known --
-self-instrumented, hand-created, or discovered by one of three source categories),
+self-instrumented, hand-created, or discovered by one of four source categories),
 provenance (where it was found and what it runs on), and the enriched task responses
 built from them.
 
@@ -13,9 +13,19 @@ Shared across app_plane, ML Engine and GenAI Engine, and backing the
 /api/v2/agent-tasks endpoint.
 """
 
+import re
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, ClassVar, List, Literal, Optional, TypedDict, Union
+from typing import (
+    Annotated,
+    ClassVar,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    get_args,
+)
 from uuid import UUID
 
 from pydantic import (
@@ -29,6 +39,64 @@ from pydantic import (
 )
 
 from arthur_common.models.response_schemas import RuleResponse
+
+MAX_NETWORK_DESTINATIONS = 100
+"""Most destinations one network record carries. A connector caps and logs past it."""
+
+MAX_OCCURRENCES = 100
+"""Most occurrences one record's observations carry. A connector caps and logs past it."""
+
+_HOME_DIRECTORY = re.compile(
+    r"""
+    ^(?:
+        (?i:/Users/(?!Shared(?:/|$))[^/]+)                     # macOS
+      | /home/(?!linuxbrew(?:/|$))[^/]+                         # Linux
+      | (?i:[a-z]:[\\/]Users[\\/]
+            (?!(?:Public|Default|Default\ User|All\ Users)(?:[\\/]|$))
+            [^\\/]+)                                            # Windows
+    )
+    (?P<rest>[\\/].*)?$
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def home_relative_path(path: str) -> str:
+    """``path`` with a person's home directory written as ``~``, so no username is in it.
+
+    ``/Users/dana/.local/bin/claude`` becomes ``~/.local/bin/claude``, as do
+    ``/home/dana/...`` and ``C:\\Users\\dana\\...`` (the separator after ``~`` is kept).
+    Directories under the users folder that are not one person's home stay as they are:
+    ``/Users/Shared``; ``/home/linuxbrew``, where Homebrew on Linux installs for every
+    user on the machine; and ``Public``, ``Default`` and ``All Users`` on Windows. So
+    does ``/root``: it names no person, and an agent installed as root is worth seeing.
+
+    Idempotent, and a path outside any home directory comes back unchanged.
+    """
+    match = _HOME_DIRECTORY.match(path)
+    if match is None:
+        return path
+    return "~" + (match.group("rest") or "")
+
+
+RAW_CREDENTIAL_PREFIXES: tuple[str, ...] = (
+    "sk-",
+    "sk_",
+    "rk_",
+    "pk_",
+    "xoxb-",
+    "xoxp-",
+    "ghp_",
+    "github_pat_",
+    "AKIA",
+    "ASIA",
+)
+"""Prefixes of live secrets (provider API keys, Slack, GitHub, AWS access keys).
+
+A gateway caller identified by a credential carries the gateway's id for it -- a hash,
+a consumer id -- never the secret, because the address is stored, served and shown. A
+value starting with one of these is refused as a likely leaked key.
+"""
 
 # Component schemas for agent tools and sub-agents
 
@@ -153,6 +221,7 @@ class SourceClass(str, Enum):
     CLOUD = "cloud"
     SIEM = "siem"
     ENDPOINT = "endpoint"
+    NETWORK = "network"
     OTEL = "otel"
     """Not a discovery source: the agent instrumented itself."""
 
@@ -166,14 +235,14 @@ class SourceClass(str, Enum):
 
 
 DISCOVERY_SOURCE_CLASSES: frozenset[SourceClass] = frozenset(
-    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT},
+    {SourceClass.CLOUD, SourceClass.SIEM, SourceClass.ENDPOINT, SourceClass.NETWORK},
 )
 """The classes a configured discovery source can have.
 
 OTEL and MANUAL are members of SourceClass because a task's provenance has to name
 them, but neither is something anyone configures. Exported as a subset rather than a
 second enum, so there is one vocabulary and app_plane validates against it instead of
-redeclaring three of its five members.
+redeclaring four of its six members.
 """
 
 
@@ -218,6 +287,100 @@ class Visibility(str, Enum):
     """Identity and a little metadata, with no behavioural picture."""
 
 
+class NetworkHostKind(str, Enum):
+    """What a network host record's ``resource_id`` names. Strongest first.
+
+    A network log names the source of a call in whatever terms it kept: the workload
+    when the platform stamped one (a Cloud Run service or job, an ECS service), an
+    instance id, a network interface when only that was logged, else an address.
+    These are identities of very different strength -- an instance outlives
+    its addresses, while containers and functions share and reuse them -- and the
+    record's id is frozen once a task is minted from it, so a consumer has to be able
+    to tell which one it is reading without parsing the string. A connector uses the
+    strongest the line carries.
+    """
+
+    WORKLOAD = "workload"
+    """A named workload: a Cloud Run service or job, a GKE workload, an ECS service.
+
+    The name the workload keeps across restarts, never a task, pod or revision id,
+    which change with each one. Strongest, since it outlives every instance and
+    address it runs on.
+    """
+
+    INSTANCE = "instance"
+    """A VM or instance id, e.g. ``i-0abc`` or a Compute Engine instance id."""
+
+    ENI = "eni"
+    """A network interface id, e.g. ``eni-0abc``, when the log names no instance."""
+
+    IP = "ip"
+    """Only an address. Weakest: a restart can give the host a new one, and a reused
+    address can belong to a different workload. Meaningful only within its network."""
+
+
+class NetworkCallerKind(str, Enum):
+    """What a gateway caller record's ``resource_id`` names, in the gateway's terms.
+
+    A gateway (an LLM proxy holding the provider keys) sees the CALLER of a model, not
+    the host it runs on, so its records are a different shape from a network host
+    record and are told apart by this kind.
+    """
+
+    AGENT_ID = "agent_id"
+    """An agent id: issued by the gateway's registry, or sent by the caller."""
+
+    VIRTUAL_KEY = "virtual_key"
+    """A key the gateway issued, carried as the gateway's id or hash for it."""
+
+    CONSUMER = "consumer"
+    """A consumer or token subject the gateway authenticated."""
+
+    CLIENT_ADDRESS = "client_address"
+    """Only the address the calls came from."""
+
+
+class IdentityBasis(str, Enum):
+    """What a gateway caller record's identity rests on. Strongest first.
+
+    Required on every caller record and implied by its kind, except that an agent id
+    is either one the gateway's registry issued or one the caller merely sent. Also
+    what the record's detection follows: a registry row or an issued credential is
+    seen directly, the rest is inferred from traffic.
+    """
+
+    REGISTERED_AGENT = "registered_agent"
+    """An agent id the gateway's own agent registry issued and still lists."""
+
+    CREDENTIAL = "credential"
+    """A credential the gateway issued: a virtual key, a consumer, a token subject.
+
+    Authenticated, but a credential is not an agent. Several agents sharing one key are
+    one record, and one agent rotating keys is several.
+    """
+
+    CLAIMED_AGENT = "claimed_agent"
+    """An agent id the caller sent, not matched to the gateway's registry.
+
+    The most specific identity a call can carry and the least verified: anything able
+    to call the gateway can send any id.
+    """
+
+    CLIENT_ADDRESS = "client_address"
+    """Only the address the calls came from: an unauthenticated gateway, or a log
+    that kept nothing else. Weakest, since one address can front a whole subnet."""
+
+
+_BASES_BY_CALLER_KIND: dict[str, frozenset[IdentityBasis]] = {
+    NetworkCallerKind.AGENT_ID.value: frozenset(
+        {IdentityBasis.REGISTERED_AGENT, IdentityBasis.CLAIMED_AGENT},
+    ),
+    NetworkCallerKind.VIRTUAL_KEY.value: frozenset({IdentityBasis.CREDENTIAL}),
+    NetworkCallerKind.CONSUMER.value: frozenset({IdentityBasis.CREDENTIAL}),
+    NetworkCallerKind.CLIENT_ADDRESS.value: frozenset({IdentityBasis.CLIENT_ADDRESS}),
+}
+
+
 # --- the two halves every record carries ----------------------------------------
 
 
@@ -234,19 +397,31 @@ class SourceAddress(BaseModel):
     Splunk          instance          index+sourcetype    --          record id
     Sentinel        LA workspace      table               --          record id
     Elastic         deployment        data stream         --          record id
+    CloudWatch      host (VM, ENI,    account/region      instance,   VM, ENI or IP
+                    else network)                         eni, ip
     Jamf / osquery  device key        --                  npm, app…   software key
+    Compute Engine  VM instance id    project/zone        deb, npm…   software key
     ==============  ================  ==================  ==========  ============
 
-    Only endpoints fill ``resource_kind``: they are the one source whose ids come from
-    several namespaces at once. Every cloud and SIEM vendor addresses exactly one kind
-    of resource, so the kind is implied by the vendor and stays absent.
+    Only sources that read a machine's software inventory fill ``resource_kind``:
+    endpoints, and cloud sources that read a VM's (Compute Engine, and EC2 after it).
+    Their ids come from several namespaces at once. So do network host records, which
+    name a VM, an interface or an address (see NetworkHostKind). Every other cloud
+    vendor and every SIEM addresses exactly one kind of resource, so the kind is
+    implied by the vendor and stays absent.
+
+    A VM-hosted cloud record is addressed per (software, VM), like an endpoint: the VM
+    in ``instance``, never the project. Records are told apart by ``instance``, so a
+    project there would make every VM in it one agent.
 
     ``scope`` carries two readings this one name does not separate. For a cloud source
     it addresses the *agent*: us-east-1 and us-west-2 hold different agents, so
-    ``CloudAgentCreationSource`` requires it. For a SIEM it addresses the *sighting*,
-    and one agent may surface under two indexes, so it stays optional there. Code
-    comparing addresses across sources has to read `source_class` to know which it is
-    looking at.
+    ``CloudAgentCreationSource`` requires it -- a region, or for a VM where the machine
+    is (project and zone; account and region on EC2). For a SIEM it addresses the
+    *sighting*, and one agent may surface under two indexes, so it stays optional
+    there. A network host record reads it like a VM does -- where the host is, its
+    account and region or its project -- and requires it. Code comparing addresses across sources has to read `source_class` to know
+    which it is looking at.
 
     Reused by Provenance rather than re-declared there, so a record and the task it
     resolves to address the upstream system identically. A vendor needing to address a
@@ -256,16 +431,17 @@ class SourceAddress(BaseModel):
 
     instance: str = Field(
         min_length=1,
-        description="Instance that was scanned: an account, project, SIEM workspace or "
-        "device. Part of the address, so two instances of one vendor stay distinct.",
+        description="Instance that was scanned: an account, project, SIEM workspace, "
+        "device or cloud VM. Part of the address, so two instances of one vendor stay "
+        "distinct.",
     )
     scope: Optional[str] = Field(
         default=None,
-        description="Subdivision queried, where the source has one: a cloud region, a "
-        "Splunk index, a Sentinel table, an Elastic data stream. Optional here because "
-        "endpoints have no subdivision and a SIEM query may span every index, but "
-        "required for CLOUD sources, which enforce it: there the region is part of the "
-        "agent's identity rather than of the query.",
+        description="Subdivision queried, where the source has one: a cloud region (a "
+        "VM's project and zone), a Splunk index, a Sentinel table, an Elastic data "
+        "stream. Optional here because endpoints have no subdivision and a SIEM query "
+        "may span every index, but required for CLOUD sources, which enforce it: there "
+        "it is part of the agent's identity rather than of the query.",
     )
     resource_kind: Optional[str] = Field(
         default=None,
@@ -273,15 +449,16 @@ class SourceAddress(BaseModel):
         "launchd label, listening port, browser extension id. Identity rather than "
         "observation, and needed because '8788' and 'openclaw' are otherwise "
         "indistinguishable strings from colliding namespaces. Absent for sources with "
-        "one kind of resource, which is every cloud and SIEM vendor -- there the vendor "
-        "implies the kind, so carrying it would duplicate `vendor`. Free text: the "
-        "vocabulary belongs to the collector's route registry, not to this schema.",
+        "one kind of resource, which is every SIEM and every cloud vendor except those "
+        "reading a VM's software inventory -- there the vendor implies the kind, so "
+        "carrying it would duplicate `vendor`. Free text: the vocabulary belongs to the "
+        "collector's route registry, not to this schema.",
     )
     resource_id: str = Field(
         min_length=1,
         description="The resource within that instance, in the namespace `resource_kind` "
-        "names. For endpoints this is the software, with the device in `instance` -- "
-        "the grain is per (software, device).",
+        "names. For endpoints and cloud VMs this is the software, with the machine in "
+        "`instance` -- the grain is per (software, machine).",
     )
 
     @field_validator("instance", "resource_id")
@@ -309,6 +486,38 @@ class SourceAddress(BaseModel):
     )
 
 
+class AgentOccurrence(BaseModel):
+    """One place a source found an agent on a host: an install, or a running process.
+
+    A record names one agent on one host, but several rows can prove it at once: five
+    versions of Claude Code running from ``~/.local/share/claude/versions/``, one Chrome
+    extension in four profiles. ``install_path`` and ``version`` carry the one row that
+    speaks for the record; an occurrence is each of them.
+    """
+
+    kind: Optional[str] = Field(
+        default=None,
+        description="What kind of row this is, in the vocabulary of "
+        "`SourceAddress.resource_kind`: 'proc' for a running process, 'file', "
+        "'vscodeext', 'npm'. Free text, for the same reason.",
+    )
+    path: Optional[str] = Field(
+        default=None,
+        description="Where it is: the install location, or the executable a process runs "
+        "from. A person's home directory is written as '~', as in `install_path`.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description="Its version, where the row shows one. Read statically, never by "
+        "executing the discovered binary.",
+    )
+
+    @field_validator("path")
+    @classmethod
+    def _no_username_in_the_path(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else home_relative_path(value)
+
+
 class AgentObservations(BaseModel):
     """What a source could see about an agent. Shared across categories, all optional.
 
@@ -320,12 +529,33 @@ class AgentObservations(BaseModel):
     # --- the software on disk -----------------------------------------------------
     install_path: Optional[str] = Field(
         default=None,
-        description="Install location, shaped to '~/...' rather than "
-        "'/Users/<name>/...' so a username does not travel in a path.",
+        description="Install location, with a person's home directory written as '~' "
+        "('~/...' rather than '/Users/<name>/...') so a username does not travel in a "
+        "path. Enforced here: a path under a home directory is rewritten whenever this "
+        "model is validated, so also when a stored record is read back through it.",
+    )
+    occurrences: List[AgentOccurrence] = Field(
+        default_factory=list,
+        max_length=MAX_OCCURRENCES,
+        description="Every place on the host the source found the agent, each with its "
+        "kind, path and version: every running version of a CLI, every browser profile "
+        "an extension is in. `install_path` and `version` are the one occurrence that "
+        "speaks for the record. Empty where the source sees no more than that one. Each "
+        "place appears once: two users' copies of one path collapse into one occurrence "
+        "once their home directories are written as '~'.",
     )
     version: Optional[str] = Field(
         default=None,
         description="Version read statically, never by executing the discovered binary.",
+    )
+    previous_version: Optional[str] = Field(
+        default=None,
+        description="The version this record reported before its latest change, so an "
+        "upgrade or a downgrade reads off the record itself. Kept across scans by GenAI "
+        "Engine, which sets it when a report carries a version other than the one it "
+        "holds; a source never fills it, and a discovered record carrying one is "
+        "refused. Absent until the version first changes. See "
+        "ENGINE_KEPT_OBSERVATIONS.",
     )
 
     # --- the host it was seen on --------------------------------------------------
@@ -376,6 +606,33 @@ class AgentObservations(BaseModel):
         "uncatalogued software, which must still render.",
     )
 
+    @field_validator("install_path")
+    @classmethod
+    def _no_username_in_the_install_path(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else home_relative_path(value)
+
+    @field_validator("occurrences")
+    @classmethod
+    def _each_place_once(cls, value: List[AgentOccurrence]) -> List[AgentOccurrence]:
+        """Collapse repeats, keeping the first, rather than refusing them.
+
+        Rewriting home directories makes two users' copies of a path equal, and a record
+        is not malformed because two people on one machine installed the same thing.
+        """
+        unique = {(o.kind, o.path, o.version): o for o in value}
+        return list(unique.values())
+
+
+ENGINE_KEPT_OBSERVATIONS: frozenset[str] = frozenset({"previous_version"})
+"""Observation fields GenAI Engine keeps across a record's reports, which no source fills.
+
+In no source's OBSERVABLE_FIELDS, which says what a source can see, and visibility is
+measured against it. Refused on a discovered record, because the record's creation
+source becomes the task's and is never rewritten: a value a connector sent would be
+served as history that never happened. Allowed everywhere else -- a provenance entry
+and the evidence built from it carry the value GenAI Engine kept.
+"""
+
 
 class AgentCreationSourceBase(BaseModel):
     """Base for every creation source, discovery or not.
@@ -423,6 +680,19 @@ class AgentCreationSourceBase(BaseModel):
     def detection(cls) -> Optional[Detection]:
         """See DETECTION."""
         return cls.DETECTION
+
+    def record_detection(self) -> Optional[Detection]:
+        """How THIS record's source knows the agent is there.
+
+        The class's DETECTION unless a class has records of differing strength, as a
+        network source does once a gateway's registry is involved.
+        """
+        return self.DETECTION
+
+    def record_observable_fields(self) -> frozenset[str]:
+        """Observation fields THIS record's shape can fill: the class's, unless a
+        class holds more than one shape."""
+        return self.OBSERVABLE_FIELDS
 
     @classmethod
     def visibility_ceiling(cls) -> Optional[Visibility]:
@@ -566,8 +836,8 @@ class ManualAgentCreationSource(AgentCreationSourceBase):
 # --- discovery sources ------------------------------------------------------------
 #
 # Organised by CATEGORY, not by vendor: a new vendor is an enum member, and only a new
-# category costs a class. The three are the epic's own -- Cloud, SIEM and Endpoint --
-# with Network & Gateway the known fourth.
+# category costs a class. Cloud, SIEM and Endpoint are the epic's own; Network is the
+# fourth.
 
 
 class DiscoveryAgentCreationSource(AgentCreationSourceBase):
@@ -596,19 +866,41 @@ class DiscoveryAgentCreationSource(AgentCreationSourceBase):
 
 
 class CloudAgentCreationSource(DiscoveryAgentCreationSource):
-    """An agent read out of a cloud provider's agent runtime.
+    """An agent a cloud provider enumerates: in its agent runtime, or on one of its VMs.
 
-    Enumerated rather than searched, so ``address.query`` is absent. Account and region
-    are part of the address because scanning is multi-account and multi-region.
+    - AN AGENT RUNTIME (Bedrock, Vertex AI Agent Engine) lists the agents themselves:
+      account or project in ``instance``, region in ``scope``, the agent's id in
+      ``resource_id``.
+    - A VM (Compute Engine, and EC2 after it) is listed by the provider and carries its
+      own software inventory, the payload an endpoint's collector writes, decoded the
+      same way. The VM is in ``instance``, where it is (project and zone) in ``scope``,
+      and the software in ``resource_kind`` and ``resource_id``: per (software, VM),
+      as on an endpoint, so two VMs are never one agent.
+
+    Enumerated rather than searched, so ``address.query`` is absent. Where the agent is
+    within the provider is part of the address because scanning is multi-account and
+    multi-region.
     """
 
     SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.CLOUD
     DETECTION: ClassVar[Optional[Detection]] = Detection.OBSERVED
     VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
     OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        # `permissions` is where this category extends next -- action groups, service
-        # account scopes -- once a connector is verified to fetch them.
-        {"version", "service_names", "host_group"},
+        {
+            # an agent runtime's own description of the agent
+            "version",
+            "service_names",
+            "host_group",
+            # a VM's software inventory, and the provider's record of the VM. An agent
+            # runtime's action groups or service account scopes would be `permissions`
+            # too, once a connector is verified to fetch them.
+            "install_path",
+            "occurrences",
+            "host_name",
+            "os_version",
+            "permissions",
+            "classification",
+        },
     )
 
     type: Literal["CLOUD"] = "CLOUD"
@@ -619,6 +911,7 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
 
         A cloud agent has no identity without its region -- two regions of one account
         hold two different agents -- and no provider API can be re-called without it.
+        A VM's scope is its project and zone, for the same reason.
         Leaving it merely optional moved the problem downstream rather than removing
         it: genai-engine had to paper a missing region over with ``or ""`` to satisfy
         a legacy response model whose ``region`` is a required str. An empty string is
@@ -630,7 +923,8 @@ class CloudAgentCreationSource(DiscoveryAgentCreationSource):
         """
         if not (self.address.scope or "").strip():
             raise ValueError(
-                "a CLOUD source must carry its region in address.scope "
+                "a CLOUD source must carry its region (a VM's project and zone) in "
+                "address.scope "
                 f"(vendor={self.vendor!r}, instance={self.address.instance!r})",
             )
         return self
@@ -700,6 +994,10 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     unit state, listening address) and a field here means one thing for every source.
     The listening address is the one value in it worth its own field eventually.
 
+    The table describes the row that speaks for the record. Every row that proved it --
+    each running version, each profile an extension is in -- is one of
+    ``observations.occurrences``, as its ``kind``, ``loc`` and ``ver``.
+
     ``scan`` rows must never arrive: that kind marks a branch that could not look, not
     an agent that was found.
 
@@ -716,6 +1014,7 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
         {
             # collector, on disk
             "install_path",
+            "occurrences",
             "version",
             # MDM device record
             "host_name",
@@ -732,8 +1031,255 @@ class EndpointAgentCreationSource(DiscoveryAgentCreationSource):
     type: Literal["ENDPOINT"] = "ENDPOINT"
 
 
-# Union type for creation source. The north star is five members -- CLOUD, SIEM,
-# ENDPOINT, OTEL, MANUAL -- plus deprecated GCP.
+class NetworkDestination(BaseModel):
+    """One inference destination a network source was seen calling.
+
+    Only what stays true of the destination between scans: the host and who serves it.
+    A record's creation source is kept as first reported -- GenAI Engine never rewrites
+    a task's creation source from a later scan -- so a per-scan count or time here
+    would be served unchanged forever. When the source last called anything is the
+    record's provenance ``last_seen``, which moves with every scan. The provider is
+    the connector's name for who serves the host -- its catalog's, or the source's own
+    entry for a host or range it added -- and free text for the same reason ``vendor``
+    is.
+    """
+
+    host: str = Field(
+        min_length=1,
+        description="Destination as the log named it: a hostname, lowercased and "
+        "without a trailing dot, or an IP address.",
+    )
+    provider: str = Field(
+        min_length=1,
+        description="Who serves it, e.g. 'OpenAI', 'Amazon Bedrock', or the source's "
+        "own host or CIDR entry it matched.",
+    )
+
+    @field_validator("host")
+    @classmethod
+    def _host_is_canonical(cls, value: str) -> str:
+        """Lowercase, without a trailing dot, so one destination is one entry.
+
+        `API.OpenAI.com.` and `api.openai.com` are the same host; kept apart, they
+        would list one destination twice and break grouping by host.
+        """
+        host = value.strip().rstrip(".").lower()
+        if not host:
+            raise ValueError("a destination host must not be blank")
+        return host
+
+    @field_validator("provider")
+    @classmethod
+    def _provider_must_not_be_blank(cls, value: str) -> str:
+        provider = value.strip()
+        if not provider:
+            raise ValueError("a destination provider must not be blank")
+        return provider
+
+
+class NetworkAgentCreationSource(DiscoveryAgentCreationSource):
+    """An internal host seen sending traffic to a host that serves model inference.
+
+    Read off network logs -- DNS query logs, flow logs, proxy or firewall logs -- by a
+    connector that extracts a source and a destination from each line and matches the
+    destination against known inference hosts. The record is the SOURCE HOST, not the
+    agent: a network log shows that something called a provider, never which process
+    did or what it is.
+
+    NOT A SIEM, though both read logs. A SIEM source runs the customer's own query and
+    reports whatever columns it projects; a network source owns the matching and reads
+    one fixed kind of evidence, a connection or a lookup, so what it can fill is
+    narrower and fixed by the class: the host it saw and the network that host is in.
+
+    THE ADDRESS IS THE HOST, AND EVERY PART OF IT IS STABLE. The creation source is
+    frozen when a task is minted, and GenAI Engine and the ML engine match a later
+    report to it on the whole address, so a field that differs between two logs of
+    one host would split it in two:
+
+    =============  =======================  ==================  ================
+    resource_kind  instance                 scope               resource_id
+    =============  =======================  ==================  ================
+    workload       the workload name        account/region, or  the workload name
+                                            the project
+    instance       the VM id                same                the VM id
+    eni            the interface id         same                the interface id
+    ip             the network (VPC) id     same                the address
+    =============  =======================  ==================  ================
+
+    - ``resource_kind`` is required: an instance id and an address are otherwise
+      indistinguishable strings of very different strength (see NetworkHostKind).
+    - ``instance`` is the host itself (the workload, VM or interface), as on a
+      VM-hosted cloud record, never the account: records are told apart by ``instance``, so an account there would make
+      every host in it look alike. Only an address, which means nothing outside its
+      network, is placed in its network.
+    - ``scope`` is required and is where the host is -- account and region, or project
+      -- which every log line of the host agrees on. Never the VPC for an instance or
+      an interface: some logs carry it and others do not, and a scope present in one
+      scan and absent in the next makes the same host two records. A line naming only
+      an address and no network cannot be placed, and the connector drops it rather
+      than guess.
+
+    The VPC a host is in is ``host_group``, an observation, so it can be shown without
+    being identity. ``destinations`` is what the source called, which only this class
+    can see and which is the evidence itself, so it is a field of the class rather than
+    of the shared AgentObservations. Empty by default, so a record without it still
+    validates.
+
+    A GATEWAY CALLER IS THE SECOND SHAPE, told apart by ``resource_kind`` (a
+    NetworkCallerKind rather than a NetworkHostKind). An AI gateway learns of an agent
+    from its traffic too, but sees the caller, not its host:
+
+    =================  ===============  =====  ===============================
+    resource_kind      instance         scope  resource_id
+    =================  ===============  =====  ===============================
+    agent_id           the gateway      --     the agent id
+    virtual_key        the gateway      --     the gateway's id or hash for it
+    consumer           the gateway      --     the consumer id
+    client_address     the gateway      --     the address
+    =================  ===============  =====  ===============================
+
+    - ``identity_basis`` is required and must fit the kind, so a caller record cannot
+      be mistaken for a host record or claim more than its kind allows.
+    - ``scope`` is unset: a team or workspace can change between scans, and anything
+      in the address is identity. The team is observed as ``host_group``.
+    - Detection is per record: a registry row or an issued credential is observed,
+      a claimed id or a bare address is inferred.
+    - A caller fills only ``host_group``. No client addresses, which change on every
+      scan while the creation source does not, and no end user: one agent serves many,
+      often the gateway owner's own customers, and that is personal data no review has
+      covered.
+    - Never a raw credential: a caller id that looks like a live key is refused,
+      whatever the identity basis.
+    """
+
+    SOURCE_CLASS: ClassVar[SourceClass] = SourceClass.NETWORK
+    DETECTION: ClassVar[Optional[Detection]] = Detection.INFERRED
+    VISIBILITY_CEILING: ClassVar[Optional[Visibility]] = Visibility.LIMITED
+    OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"host_name", "host_group"},
+    )
+
+    CALLER_OBSERVABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"host_group"})
+
+    type: Literal["NETWORK"] = "NETWORK"
+    identity_basis: Optional[IdentityBasis] = Field(
+        default=None,
+        description="What a gateway caller record's identity rests on; required on "
+        "one, absent on a host record. See IdentityBasis.",
+    )
+    destinations: List[NetworkDestination] = Field(
+        default_factory=list,
+        description="Inference destinations this host called, with who serves each. "
+        "As first reported; when the host last called is provenance's last_seen.",
+        max_length=MAX_NETWORK_DESTINATIONS,
+    )
+
+    @field_validator("destinations")
+    @classmethod
+    def _one_entry_per_destination(
+        cls,
+        value: List[NetworkDestination],
+    ) -> List[NetworkDestination]:
+        """Destinations are aggregated per host, so a host appears once."""
+        hosts = [d.host for d in value]
+        if len(hosts) != len(set(hosts)):
+            raise ValueError("destinations must name each host once")
+        return value
+
+    def is_caller(self) -> bool:
+        """Whether this is a gateway caller record rather than a host record."""
+        return self.address.resource_kind in _BASES_BY_CALLER_KIND
+
+    def record_detection(self) -> Optional[Detection]:
+        if self.identity_basis in (
+            IdentityBasis.REGISTERED_AGENT,
+            IdentityBasis.CREDENTIAL,
+        ):
+            return Detection.OBSERVED
+        return Detection.INFERRED
+
+    def record_observable_fields(self) -> frozenset[str]:
+        if self.is_caller():
+            return self.CALLER_OBSERVABLE_FIELDS
+        return self.OBSERVABLE_FIELDS
+
+    @model_validator(mode="after")
+    def _the_address_fits_the_shape(self) -> "NetworkAgentCreationSource":
+        """Enforce the address rules above, which identity matching depends on."""
+        if self.is_caller():
+            return self._check_caller()
+        return self._check_host()
+
+    def _check_host(self) -> "NetworkAgentCreationSource":
+        address = self.address
+        kinds = [k.value for k in NetworkHostKind] + list(_BASES_BY_CALLER_KIND)
+        if address.resource_kind not in kinds:
+            raise ValueError(
+                f"a network record's address.resource_kind must be one of {kinds} "
+                f"(got {address.resource_kind!r})",
+            )
+        if self.identity_basis is not None:
+            raise ValueError("a network host record carries no identity_basis")
+        if not (address.scope or "").strip():
+            raise ValueError(
+                "a network record must carry address.scope: where the host is, its "
+                "account and region or its project",
+            )
+        is_address = address.resource_kind == NetworkHostKind.IP.value
+        if not is_address and address.instance != address.resource_id:
+            raise ValueError(
+                "a network record for a workload, instance or interface carries it in "
+                "address.instance as well as address.resource_id, not the account",
+            )
+        if is_address and address.instance == address.resource_id:
+            raise ValueError(
+                "a network record for an address carries its network in "
+                "address.instance, since an address means nothing outside it",
+            )
+        return self
+
+    def _check_caller(self) -> "NetworkAgentCreationSource":
+        address = self.address
+        kind = address.resource_kind or ""
+        allowed = _BASES_BY_CALLER_KIND[kind]
+        if self.identity_basis not in allowed:
+            raise ValueError(
+                f"a {kind} caller record needs identity_basis in "
+                f"{sorted(b.value for b in allowed)} (got {self.identity_basis!r})",
+            )
+        if address.scope is not None:
+            raise ValueError(
+                "a gateway caller record leaves address.scope unset; a team or "
+                "workspace goes in observations.host_group",
+            )
+        if self.destinations:
+            raise ValueError(
+                "a gateway caller record carries no destinations; the models it was "
+                "served go in llm_models on the record",
+            )
+        if address.query is not None:
+            raise ValueError("a gateway caller record carries no address.query")
+        # Every caller, not only credential-based ones: a claimed agent id is whatever
+        # the caller sent, and could be a key pasted into the wrong header.
+        if address.resource_id.strip().startswith(RAW_CREDENTIAL_PREFIXES):
+            raise ValueError(
+                "resource_id looks like a raw credential; use the gateway's id or a "
+                "hash of the key",
+            )
+        extra = {
+            name
+            for name in AgentObservations.model_fields
+            if getattr(self.observations, name) not in (None, [], {})
+        } - self.CALLER_OBSERVABLE_FIELDS
+        if extra:
+            raise ValueError(
+                f"a gateway caller record fills only host_group (got {sorted(extra)})",
+            )
+        return self
+
+
+# Union type for creation source. The north star is six members -- CLOUD, SIEM,
+# ENDPOINT, NETWORK, OTEL, MANUAL -- plus deprecated GCP.
 #
 # The discriminator is EXPLICIT. Without it, a payload with an unknown tag, or one
 # whose fields happen to fit a neighbour, validates as the wrong member and silently
@@ -747,6 +1293,7 @@ AgentCreationSourceUnion = Annotated[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
@@ -765,16 +1312,31 @@ class AgentCreationSource(RootModel[AgentCreationSourceUnion]):
 # every generated client built from it -- states what it accepts. It also keeps the wide
 # union out of request bodies: `AgentCreationSource` carries computed fields, and FastAPI
 # splits a model that holds it into `-Input`/`-Output` variants, renaming a component that
-# an existing endpoint already returns. A fourth discovery category lands here as one more
+# an existing endpoint already returns. A new discovery category lands here as one more
 # member.
 DiscoveryCreationSourceUnion = Annotated[
     Union[
         CloudAgentCreationSource,
         SIEMAgentCreationSource,
         EndpointAgentCreationSource,
+        NetworkAgentCreationSource,
     ],
     Field(discriminator="type"),
 ]
+
+
+def _creation_source_types() -> dict[SourceClass, str]:
+    members = get_args(get_args(DiscoveryCreationSourceUnion)[0])
+    return {m.SOURCE_CLASS: m.model_fields["type"].default for m in members}
+
+
+CREATION_SOURCE_TYPE_BY_CLASS: dict[SourceClass, str] = _creation_source_types()
+"""The creation-source ``type`` tag each configurable source class reports as.
+
+Derived from DiscoveryCreationSourceUnion, so a consumer that rebuilds a creation
+source from a provenance entry's ``source_class`` reads it here rather than keeping its
+own copy, which would silently drop a class added later.
+"""
 
 
 DEPRECATED_CREATION_SOURCE_TAGS: frozenset[str] = frozenset({"GCP"})
@@ -791,9 +1353,10 @@ can check membership rather than hard-coding a tag.
 def detection_for(source: AgentCreationSource) -> Optional[Detection]:
     """How this source knows the agent is there.
 
-    Unwraps the RootModel so callers do not have to reach through it.
+    Per record, so a class whose records differ in strength answers for each. Unwraps
+    the RootModel so callers do not have to reach through it.
     """
-    return source.root.DETECTION
+    return source.root.record_detection()
 
 
 def visibility_ceiling(source: AgentCreationSource) -> Optional[Visibility]:
@@ -831,6 +1394,13 @@ class ProvenanceSource(BaseModel):
         description="Where upstream this came from -- the same type the creation source "
         "carries, so a record and its task address the system identically. Absent for "
         "OTEL and manual agents.",
+    )
+    observations: Optional[AgentObservations] = Field(
+        default=None,
+        description="What the source saw of this record at its latest report, with "
+        "`previous_version` kept across reports. The task's creation source holds what "
+        "the first report saw and is never rewritten, so a record's current version is "
+        "read here. Absent from entries recorded before it was stored.",
     )
     last_seen: Optional[datetime] = Field(
         default=None,
@@ -875,12 +1445,19 @@ class ProvenanceSource(BaseModel):
         The keyword arguments are what the creation source itself does not carry: the
         configured source, the discovered record's identifier and sighting, and when a
         scan last reported it.
+
+        The observations are copied, not shared: GenAI Engine sets `previous_version`
+        on the entry, and on a shared object that would also rewrite the creation
+        source, which is never rewritten. The entry's `previous_version` is the
+        record's, which is always absent; keeping one across reports means merging
+        against the entry already held, which only the caller has.
         """
         return cls(
             source_class=source.root.SOURCE_CLASS,
             source_id=source_id,
             vendor=source.root.vendor,
             address=source.root.address,
+            observations=source.root.observations.model_copy(deep=True),
             last_seen=last_seen,
             external_id=external_id,
             last_scanned=last_scanned,
@@ -972,7 +1549,7 @@ class EnrichedTaskResponse(BaseModel):
     )
     last_fetched: Optional[datetime] = Field(
         default=None,
-        description="Last time traces were fetched for this task (from task_polling_state)",
+        description="End time of the newest trace GenAI Engine holds for this task; null if it has none",
     )
     tools: Optional[List[Tool]] = Field(
         default=None,

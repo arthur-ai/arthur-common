@@ -106,20 +106,20 @@ class Evidence(BaseModel):
     def detection(self) -> Optional[Detection]:
         """How this source knows the agent is there.
 
-        Derived from the creation source, not stored: the source class fixes it, so a
-        stored copy would be a second answer that could disagree. Serialized because it
-        is a column and a filter.
+        Derived from the creation source, not stored: the record fixes it (its class,
+        or for a gateway caller its identity basis), so a stored copy would be a second
+        answer that could disagree. Serialized because it is a column and a filter.
         """
-        return self.creation_source.root.DETECTION
+        return self.creation_source.root.record_detection()
 
 
 class DiscoveryOutputRecord(BaseModel):
     """The output contract every discovery source must satisfy, whatever its category.
 
-    IDENTICAL across Cloud, SIEM and Endpoint. The query text itself is never parsed or
-    validated -- only that what it returns has these columns. The optional columns are
-    populated only where the source can genuinely supply them, and stay absent
-    otherwise: an always-null column reads as "not collected yet" rather than "this
+    IDENTICAL across Cloud, SIEM, Endpoint and Network. The query text itself is never
+    parsed or validated -- only that what it returns has these columns. The optional
+    columns are populated only where the source can genuinely supply them, and stay
+    absent otherwise: an always-null column reads as "not collected yet" rather than "this
     source cannot see it", which is the distinction the whole evidence model rests on.
     """
 
@@ -227,6 +227,31 @@ class DiscoveredAgentRecord(DiscoveryOutputRecord):
         "knows it. Optional HERE AND ONLY HERE -- a SIEM does not know Arthur's task "
         "IDs. Every record still comes back with one.",
     )
+
+    @field_validator("creation_source")
+    @classmethod
+    def _carries_only_what_the_source_saw(
+        cls,
+        source: governance.DiscoveryAgentCreationSource,
+    ) -> governance.DiscoveryAgentCreationSource:
+        """Refuse an observation GenAI Engine keeps rather than a source fills.
+
+        Refused rather than dropped: a connector sending one has a bug worth hearing
+        about, and this record's creation source becomes the task's, which is never
+        rewritten. Only here, at the connector's boundary -- a provenance entry and the
+        evidence built from it legitimately carry the value GenAI Engine kept.
+        """
+        filled = sorted(
+            name
+            for name in governance.ENGINE_KEPT_OBSERVATIONS
+            if getattr(source.observations, name) not in (None, [], {})
+        )
+        if filled:
+            raise ValueError(
+                f"a discovered record does not fill {filled}; GenAI Engine keeps them "
+                "across a record's reports",
+            )
+        return source
 
     @property
     def task_creation_source(self) -> AgentCreationSource:

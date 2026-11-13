@@ -1,5 +1,6 @@
 import pytest
 from duckdb import DuckDBPyConnection
+from litellm import cost_per_token
 
 from arthur_common.aggregations.functions.shield_aggregations import (
     ShieldInferenceTokenCountAggregation,
@@ -9,45 +10,28 @@ from arthur_common.models.metrics import DatasetReference
 from .helpers import *
 
 
-@pytest.mark.parametrize(
-    "model_name,expected_prompt_tokens,expected_response_tokens,expected_prompt_cost,expected_response_cost",
-    [
-        (
-            "claude-opus-4-6",
-            100,  # prompt tokens
-            150,  # response tokens
-            0.0005,  # prompt cost (litellm pricing)
-            0.00375,  # response cost (litellm pricing)
-        ),
-        (
-            "gpt-5.2",
-            100,
-            150,
-            0.000175,  # prompt cost (litellm pricing)
-            0.0021,  # response cost (litellm pricing)
-        ),
-    ],
-)
+def litellm_cost(
+    model: str, prompt_tokens: int = 0, completion_tokens: int = 0
+) -> float:
+    prompt_cost, completion_cost = cost_per_token(
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+    return prompt_cost + completion_cost
+
+
+def get_metric(metrics: list[NumericMetric], name: str) -> NumericMetric:
+    matching = [m for m in metrics if m.name == name]
+    assert len(matching) == 1
+    return matching[0]
+
+
 def test_shield_token_count(
     get_shield_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
-    model_name: str,
-    expected_prompt_tokens: int,
-    expected_response_tokens: int,
-    expected_prompt_cost: float,
-    expected_response_cost: float,
     monkeypatch,
 ):
-    """Test the Shield token count aggregation function.
-
-    Args:
-        get_shield_dataset_conn: Fixture providing connection and dataset reference
-        model_name: Name of the model to test costs for
-        expected_prompt_tokens: Expected number of tokens in prompts
-        expected_response_tokens: Expected number of tokens in responses
-        expected_prompt_cost: Expected cost for prompt tokens
-        expected_response_cost: Expected cost for response tokens
-        monkeypatch: Pytest fixture for patching
-    """
+    """Tokens are counted for every inference, and cost is priced for each inference's own model."""
     # Enable segmentation for this test
     monkeypatch.setenv("INFERENCE_USER_CONVERSATION_SEGMENTATION", "true")
 
@@ -60,96 +44,53 @@ def test_shield_token_count(
         shield_response_column="shield_response",
     )
     validate_expected_metric_names(token_count_aggregator, metrics)
+    assert sorted(m.name for m in metrics) == ["token_cost", "token_count"]
 
-    # Check for a single token count metric, and two token count series within those metrics
-    token_count_metrics = [m for m in metrics if m.name == "token_count"]
-    assert len(token_count_metrics) == 1
+    token_count_metric = get_metric(metrics, "token_count")
+    # 2 locations * 3 conversation_id/user_id combinations
+    assert len(token_count_metric.numeric_series) == 6
 
-    # With user_id and conversation_id grouping, we expect more series
-    # Each combination of location, conversation_id, and user_id creates a separate series
-    assert (
-        len(token_count_metrics[0].numeric_series) == 6
-    )  # 2 locations * 3 conversation_id/user_id combinations
-
-    # Find prompt and response series
     token_count_series = get_count_metrics_splitted_by_prompt_and_response(
-        token_count_metrics,
+        [token_count_metric],
     )
+    assert sum(v.value for v in token_count_series["prompt"]) == 100
+    assert sum(v.value for v in token_count_series["response"]) == 150
 
-    # Check token counts
-    total_prompt_tokens = sum(v.value for v in token_count_series["prompt"])
-    total_response_tokens = sum(v.value for v in token_count_series["response"])
-    assert total_prompt_tokens == expected_prompt_tokens
-    assert total_response_tokens == expected_response_tokens
-
-    # Verify that conversation_id and user_id dimensions are present
-    for series in token_count_metrics[0].numeric_series:
-        conversation_id_dim = next(
-            (d for d in series.dimensions if d.name == "conversation_id"),
-            None,
-        )
-        user_id_dim = next((d for d in series.dimensions if d.name == "user_id"), None)
-        assert conversation_id_dim is not None, "Expected conversation_id dimension"
-        assert user_id_dim is not None, "Expected user_id dimension"
-        assert conversation_id_dim.value in [
+    for series in token_count_metric.numeric_series:
+        assert get_dimension_value(series.dimensions, "conversation_id") in [
             "conversation_id_1",
             "conversation_id_2",
             "conversation_id_3",
         ]
-        assert user_id_dim.value in ["user_id_1", "user_id_2"]
+        assert get_dimension_value(series.dimensions, "user_id") in [
+            "user_id_1",
+            "user_id_2",
+        ]
 
-    # Check that the token cost metric exists
-    token_cost_metrics = [m for m in metrics if m.name == f"token_cost.{model_name}"]
-    assert len(token_cost_metrics) == 1
+    token_cost_metric = get_metric(metrics, "token_cost")
+    assert len(token_cost_metric.numeric_series) == 6
+    assert {
+        get_dimension_value(s.dimensions, "model_name")
+        for s in token_cost_metric.numeric_series
+    } == {"gpt-4o", "gpt-4o-mini"}
 
-    cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
+    # gpt-4o: 70 prompt / 110 response tokens, gpt-4o-mini: 30 prompt / 40 response tokens
+    cost_series = get_count_metrics_splitted_by_prompt_and_response([token_cost_metric])
+    assert sum(v.value for v in cost_series["prompt"]) == pytest.approx(
+        litellm_cost("gpt-4o", prompt_tokens=70)
+        + litellm_cost("gpt-4o-mini", prompt_tokens=30),
+    )
+    assert sum(v.value for v in cost_series["response"]) == pytest.approx(
+        litellm_cost("gpt-4o", completion_tokens=110)
+        + litellm_cost("gpt-4o-mini", completion_tokens=40),
+    )
 
-    # Check costs (using 6 decimal places for better precision with litellm)
-    total_prompt_cost = sum(v.value for v in cost_series["prompt"])
-    total_response_cost = sum(v.value for v in cost_series["response"])
-    assert round(total_prompt_cost, 6) == round(expected_prompt_cost, 6)
-    assert round(total_response_cost, 6) == round(expected_response_cost, 6)
 
-
-@pytest.mark.parametrize(
-    "model_name,expected_prompt_tokens,expected_response_tokens,expected_prompt_cost,expected_response_cost",
-    [
-        (
-            "claude-opus-4-6",
-            30,  # prompt tokens
-            50,  # response tokens
-            0.00015,  # prompt cost (litellm pricing)
-            0.00125,  # response cost (litellm pricing)
-        ),
-        (
-            "gpt-5.2",
-            30,
-            50,
-            0.0000525,  # prompt cost (litellm pricing: 5.25e-05)
-            0.0007,  # response cost (litellm pricing)
-        ),
-    ],
-)
 def test_shield_empty_token_count(
     get_shield_dataset_conn_no_tokens: tuple[DuckDBPyConnection, DatasetReference],
-    model_name: str,
-    expected_prompt_tokens: int,
-    expected_response_tokens: int,
-    expected_prompt_cost: float,
-    expected_response_cost: float,
     monkeypatch,
 ):
-    """Test the Shield token count aggregation function.
-
-    Args:
-        get_shield_dataset_conn: Fixture providing connection and dataset reference
-        model_name: Name of the model to test costs for
-        expected_prompt_tokens: Expected number of tokens in prompts
-        expected_response_tokens: Expected number of tokens in responses
-        expected_prompt_cost: Expected cost for prompt tokens
-        expected_response_cost: Expected cost for response tokens
-        monkeypatch: Pytest fixture for patching
-    """
+    """NULL tokens are counted as 0 and cost nothing."""
     # Enable segmentation for this test
     monkeypatch.setenv("INFERENCE_USER_CONVERSATION_SEGMENTATION", "true")
 
@@ -163,51 +104,85 @@ def test_shield_empty_token_count(
     )
     validate_expected_metric_names(token_count_aggregator, metrics)
 
-    # Check for a single token count metric, and two token count series within those metrics
-    token_count_metrics = [m for m in metrics if m.name == "token_count"]
-    assert len(token_count_metrics) == 1
+    token_count_metric = get_metric(metrics, "token_count")
+    # 2 locations * 3 conversation_id/user_id combinations
+    assert len(token_count_metric.numeric_series) == 6
 
-    # With user_id and conversation_id grouping, we expect more series
-    # Each combination of location, conversation_id, and user_id creates a separate series
-    assert (
-        len(token_count_metrics[0].numeric_series) == 6
-    )  # 2 locations * 3 conversation_id/user_id combinations
-
-    # Find prompt and response series
     token_count_series = get_count_metrics_splitted_by_prompt_and_response(
-        token_count_metrics,
+        [token_count_metric],
+    )
+    assert sum(v.value for v in token_count_series["prompt"]) == 30
+    assert sum(v.value for v in token_count_series["response"]) == 50
+
+    # the 30 prompt tokens are gpt-4o-mini, the 50 response tokens are gpt-4o
+    cost_series = get_count_metrics_splitted_by_prompt_and_response(
+        [get_metric(metrics, "token_cost")],
+    )
+    assert sum(v.value for v in cost_series["prompt"]) == pytest.approx(
+        litellm_cost("gpt-4o-mini", prompt_tokens=30),
+    )
+    assert sum(v.value for v in cost_series["response"]) == pytest.approx(
+        litellm_cost("gpt-4o", completion_tokens=50),
     )
 
-    # Check token counts
-    total_prompt_tokens = sum(v.value for v in token_count_series["prompt"])
-    total_response_tokens = sum(v.value for v in token_count_series["response"])
-    assert total_prompt_tokens == expected_prompt_tokens
-    assert total_response_tokens == expected_response_tokens
 
-    # Verify that conversation_id and user_id dimensions are present
-    for series in token_count_metrics[0].numeric_series:
-        conversation_id_dim = next(
-            (d for d in series.dimensions if d.name == "conversation_id"),
-            None,
-        )
-        user_id_dim = next((d for d in series.dimensions if d.name == "user_id"), None)
-        assert conversation_id_dim is not None, "Expected conversation_id dimension"
-        assert user_id_dim is not None, "Expected user_id dimension"
-        assert conversation_id_dim.value in [
-            "conversation_id_1",
-            "conversation_id_2",
-            "conversation_id_3",
-        ]
-        assert user_id_dim.value in ["user_id_1", "user_id_2"]
+@pytest.mark.parametrize("model_name", [None, "", "custom-finetuned-model"])
+def test_shield_token_cost_skips_unpriced_models(
+    get_shield_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    model_name: str | None,
+):
+    """Inferences without a model or with a model litellm can't price are counted but not priced."""
+    conn, dataset_ref = get_shield_dataset_conn
+    conn.execute(
+        f"UPDATE {dataset_ref.dataset_table_name} SET model_name = ? WHERE model_name = 'gpt-4o-mini'",
+        [model_name],
+    )
 
-    # Check that the token cost metric exists
-    token_cost_metrics = [m for m in metrics if m.name == f"token_cost.{model_name}"]
-    assert len(token_cost_metrics) == 1
+    metrics = ShieldInferenceTokenCountAggregation().aggregate(
+        conn,
+        dataset_ref,
+        shield_response_column="shield_response",
+    )
 
-    cost_series = get_count_metrics_splitted_by_prompt_and_response(token_cost_metrics)
+    token_count_series = get_count_metrics_splitted_by_prompt_and_response(
+        [get_metric(metrics, "token_count")],
+    )
+    assert sum(v.value for v in token_count_series["prompt"]) == 100
 
-    # Check costs (using 6 decimal places for better precision with litellm)
-    total_prompt_cost = sum(v.value for v in cost_series["prompt"])
-    total_response_cost = sum(v.value for v in cost_series["response"])
-    assert round(total_prompt_cost, 6) == round(expected_prompt_cost, 6)
-    assert round(total_response_cost, 6) == round(expected_response_cost, 6)
+    token_cost_metric = get_metric(metrics, "token_cost")
+    assert {
+        get_dimension_value(s.dimensions, "model_name")
+        for s in token_cost_metric.numeric_series
+    } == {"gpt-4o"}
+    cost_series = get_count_metrics_splitted_by_prompt_and_response([token_cost_metric])
+    assert sum(v.value for v in cost_series["prompt"]) == pytest.approx(
+        litellm_cost("gpt-4o", prompt_tokens=70),
+    )
+
+
+def test_shield_token_cost_prices_prefixed_model_names(
+    get_shield_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+):
+    """Route and region prefixes on the model name don't stop it from being priced."""
+    conn, dataset_ref = get_shield_dataset_conn
+    conn.sql(
+        f"UPDATE {dataset_ref.dataset_table_name} SET model_name = 'bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0' WHERE model_name = 'gpt-4o-mini'",
+    )
+
+    metrics = ShieldInferenceTokenCountAggregation().aggregate(
+        conn,
+        dataset_ref,
+        shield_response_column="shield_response",
+    )
+
+    token_cost_metric = get_metric(metrics, "token_cost")
+    cost_series = get_count_metrics_splitted_by_prompt_and_response([token_cost_metric])
+    assert sum(v.value for v in cost_series["prompt"]) == pytest.approx(
+        litellm_cost("gpt-4o", prompt_tokens=70)
+        + litellm_cost("anthropic.claude-3-5-sonnet-20240620-v1:0", prompt_tokens=30),
+    )
+    # the dimension keeps the name the inference reported
+    assert "bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0" in {
+        get_dimension_value(s.dimensions, "model_name")
+        for s in token_cost_metric.numeric_series
+    }

@@ -8,6 +8,11 @@ from arthur_common.aggregations.aggregator import (
     NumericAggregationFunction,
     SketchAggregationFunction,
 )
+from arthur_common.aggregations.functions.ingest_bytes import (
+    INGEST_BYTES_METRIC_NAME,
+    INGEST_SOURCE_DIMENSION,
+    INGEST_SOURCE_GENAI_TRACES,
+)
 from arthur_common.models.enums import ModelProblemType
 from arthur_common.models.metrics import (
     BaseReportedAggregation,
@@ -74,6 +79,74 @@ class AgenticTraceCountAggregation(NumericAggregationFunction):
             results,
             "count",
             ["user_id"],
+            "ts",
+        )
+        metric = self.series_to_metric(self.METRIC_NAME, series)
+        return [metric]
+
+
+class AgenticIngestBytesAggregation(NumericAggregationFunction):
+    """Ingest volume of agentic traces, in bytes.
+
+    Sums the OTLP payload bytes the GenAI Engine received for each trace
+    (trace metadata's ingest_bytes). Traces ingested before the engine recorded
+    ingest bytes have no value and count as 0.
+    """
+
+    METRIC_NAME = INGEST_BYTES_METRIC_NAME
+
+    @staticmethod
+    def id() -> UUID:
+        return UUID("3c9d2e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f")
+
+    @staticmethod
+    def display_name() -> str:
+        return "Ingest Volume (GenAI Traces)"
+
+    @staticmethod
+    def description() -> str:
+        return (
+            "Metric that sums the ingest volume, in bytes, of agentic traces over "
+            "time: the OTLP payload bytes the GenAI Engine received for them."
+        )
+
+    @staticmethod
+    def reported_aggregations() -> list[BaseReportedAggregation]:
+        return [
+            BaseReportedAggregation(
+                metric_name=AgenticIngestBytesAggregation.METRIC_NAME,
+                description=AgenticIngestBytesAggregation.description(),
+            ),
+        ]
+
+    def aggregate(
+        self,
+        ddb_conn: DuckDBPyConnection,
+        dataset: Annotated[
+            DatasetReference,
+            MetricDatasetParameterAnnotation(
+                friendly_name="Dataset",
+                description="The agentic trace metadata dataset containing trace-level metrics.",
+                model_problem_type=ModelProblemType.AGENTIC_TRACE,
+            ),
+        ],
+    ) -> list[NumericMetric]:
+        results = ddb_conn.sql(
+            f"""
+            SELECT
+                time_bucket(INTERVAL '5 minutes', start_time) as ts,
+                SUM(COALESCE(ingest_bytes, 0)) as ingest_bytes,
+                '{INGEST_SOURCE_GENAI_TRACES}' as {INGEST_SOURCE_DIMENSION}
+            FROM {dataset.dataset_table_name}
+            GROUP BY ts
+            ORDER BY ts DESC;
+            """,
+        ).df()
+
+        series = self.group_query_results_to_numeric_metrics(
+            results,
+            "ingest_bytes",
+            [INGEST_SOURCE_DIMENSION],
             "ts",
         )
         metric = self.series_to_metric(self.METRIC_NAME, series)
