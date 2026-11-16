@@ -279,7 +279,7 @@ class SketchAggregationFunction(AggregationFunction, ABC):
 
         # Group query results into 5min buckets
         group[timestamp_col] = pd.to_datetime(group[timestamp_col])
-        group.set_index(timestamp_col, inplace=True)
+        group = group.set_index(timestamp_col)
         # make sure dropna is False or rows with "null" as a dimension value will be dropped
         time_bucketed_groups = group.groupby(pd.Grouper(freq="5min"), dropna=False)
 
