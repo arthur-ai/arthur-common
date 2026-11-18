@@ -314,6 +314,10 @@ class TestEnrichedTaskResponse:
         assert response.creation_source is None
         assert response.tools is None
         assert response.rules == []
+        # an engine that does not compute the activity figures reports them as unknown
+        assert response.trace_count is None
+        assert response.inference_count is None
+        assert response.last_activity_at is None
 
     def test_full_construction(self):
         now = datetime.now(tz=timezone.utc)
@@ -352,12 +356,29 @@ class TestEnrichedTaskResponse:
             updated_at=now,
             creation_source=OTELAgentCreationSource(service_names=["my-svc"]),
             num_spans=5,
+            trace_count=3,
+            inference_count=0,
+            last_activity_at=now,
         )
         dumped = original.model_dump(mode="json")
         restored = EnrichedTaskResponse.model_validate(dumped)
         assert isinstance(restored.creation_source.root, OTELAgentCreationSource)
         assert restored.creation_source.root.service_names == ["my-svc"]
         assert restored.num_spans == 5
+        assert (restored.trace_count, restored.inference_count) == (3, 0)
+        assert restored.last_activity_at == now
+
+    @pytest.mark.parametrize("field", ["trace_count", "inference_count"])
+    def test_activity_counts_cannot_be_negative(self, field):
+        now = datetime.now(tz=timezone.utc)
+        with pytest.raises(ValidationError):
+            EnrichedTaskResponse(
+                id="task-4",
+                name="Agent",
+                created_at=now,
+                updated_at=now,
+                **{field: -1},
+            )
 
 
 ENDPOINT_ADDRESS = SourceAddress(

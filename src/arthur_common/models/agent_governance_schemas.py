@@ -1571,6 +1571,24 @@ class EnrichedTaskResponse(BaseModel):
         default=None,
         description="Number of spans associated with this task",
     )
+    trace_count: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of traces GenAI Engine holds for this task; null if not computed",
+    )
+    inference_count: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of inferences GenAI Engine holds for this task; null if not computed",
+    )
+    last_activity_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "The later of the newest trace's end time and the newest inference's creation "
+            "time for this task; null if it has neither, or if not computed. The counts "
+            "tell the two apart"
+        ),
+    )
     rules: List[RuleResponse] = Field(
         default_factory=list,
         description="Rules associated with this task",
