@@ -20,7 +20,10 @@ from arthur_common.models.schema_definitions import (
     ScalarType,
     ScopeSchemaTag,
 )
-from arthur_common.tools.duckdb_data_loader import escape_str_literal
+from arthur_common.tools.duckdb_data_loader import (
+    bind_value_placeholder,
+    escape_str_literal,
+)
 
 
 class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFunction(
@@ -195,8 +198,8 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
             WITH normalized_data AS (
                     SELECT
                         {timestamp_col} AS timestamp,
-                        {prediction_normalization_case.replace('value', prediction_col)} AS prediction,
-                        {gt_normalization_case.replace('value', gt_values_col)} AS actual_value
+                        {bind_value_placeholder(prediction_normalization_case, prediction_col)} AS prediction,
+                        {bind_value_placeholder(gt_normalization_case, gt_values_col)} AS actual_value
                     FROM {dataset.dataset_table_name}
                     WHERE {timestamp_col} IS NOT NULL
                 )
@@ -215,8 +218,8 @@ class MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFuncti
         # build query components with segmentation columns
         first_subquery_select_cols = [
             f"{timestamp_col} AS timestamp",
-            f"{prediction_normalization_case.replace('value', prediction_col)} AS prediction",
-            f"{gt_normalization_case.replace('value', gt_values_col)} AS actual_value",
+            f"{bind_value_placeholder(prediction_normalization_case, prediction_col)} AS prediction",
+            f"{bind_value_placeholder(gt_normalization_case, gt_values_col)} AS actual_value",
         ] + segmentation_cols
         second_subquery_select_cols = [
             "time_bucket(INTERVAL '5 minutes', timestamp) AS ts",

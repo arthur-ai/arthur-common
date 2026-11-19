@@ -399,3 +399,19 @@ def escape_str_literal(literal: str) -> str:
     escaped = literal.replace("'", "''")
     # Wrap the entire identifier in single quotes and return
     return f"'{escaped}'"
+
+
+_SQL_STRING_LITERAL_OR_VALUE = re.compile(r"'(?:[^']|'')*'|\bvalue\b")
+
+
+def bind_value_placeholder(case_sql: str, column: str) -> str:
+    """
+    Put `column` where a CASE template uses the placeholder `value`.
+
+    String literals in the template (e.g. a class label such as 'high_value')
+    are left untouched, so a label that contains the word "value" still matches.
+    """
+    return _SQL_STRING_LITERAL_OR_VALUE.sub(
+        lambda m: m.group(0) if m.group(0).startswith("'") else column,
+        case_sql,
+    )
