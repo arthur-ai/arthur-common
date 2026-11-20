@@ -4,6 +4,7 @@ import pytest
 
 from arthur_common.models.llm_model_providers import (
     LLMConfigSettings,
+    ModelProvider,
     ToolChoice,
     ToolChoiceEnum,
 )
@@ -37,3 +38,15 @@ def test_tool_choice_accepts_enum_and_specific_function(
     settings = LLMConfigSettings.model_validate({"tool_choice": value})
 
     assert isinstance(settings.tool_choice, expected_type)
+
+class TestScaleDownProvider:
+    """`ModelProvider` values are passed to litellm as the provider prefix, so
+    the ScaleDown value must match the provider name litellm registers
+    (BerriAI/litellm#44168).
+    """
+
+    def test_scaledown_value_matches_litellm_provider_name(self):
+        assert ModelProvider.SCALEDOWN.value == "scaledown"
+
+    def test_scaledown_round_trips_from_string(self):
+        assert ModelProvider("scaledown") is ModelProvider.SCALEDOWN
