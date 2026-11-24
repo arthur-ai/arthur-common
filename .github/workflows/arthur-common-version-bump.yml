@@ -16,11 +16,16 @@ on:
   # Dependency-only sweep. The job's message denylist keeps Renovate merges from
   # each cutting a release, which otherwise means a dependency change can sit on
   # main unreleased indefinitely — and for a published library the dependency
-  # constraints ARE part of what consumers install. This weekly run bumps only
-  # if main has commits the last release tag does not, so dependency updates
-  # ship within a bounded window without a release per PR.
+  # constraints ARE part of what consumers install. This daily run bumps only
+  # if main has commits the last release tag does not (and CI is green on the
+  # tip), so dependency updates reach PyPI within ~24h without a release per
+  # PR. Daily rather than weekly because arthur-engine pins arthur-common and
+  # shares its dependencies (litellm, pydantic, pandas, ...): arthur-common has
+  # to publish a bump before arthur-engine's Renovate can move the same
+  # dependency without a resolver conflict. A day with nothing unreleased is a
+  # no-op — no commit, no tag, no publish.
   schedule:
-    - cron: "0 9 * * 1" # Mondays 09:00 UTC (05:00 ET)
+    - cron: "0 9 * * *" # Daily 09:00 UTC (05:00 ET)
   # Still available for major/minor bumps, which are never automatic.
   workflow_dispatch:
     inputs:
@@ -60,14 +65,17 @@ jobs:
     #                     release with no human in the loop.
     #                     `contains 'renovate/'` is the primary check — it matches
     #                     the branch ref in a merge commit's first line, which is
-    #                     why renovate.json pins automergeStrategy to "merge".
+    #                     why renovate.json pins automergeStrategy to
+    #                     "merge-commit" (GitHub's "Merge pull request #N from
+    #                     arthur-ai/renovate/..." title, per the repo's
+    #                     merge_commit_title=MERGE_MESSAGE setting).
     #                     The startsWith entries are defence in depth for squash
     #                     and rebase merges, where the message is the PR title
     #                     instead. Note the grouped title ("Update python minor
     #                     and patch") is NOT of the form "Update dependency X",
     #                     so it needs its own entry.
     # Dependency bumps still ship — either batched into the next release that
-    # carries a source change, or by the weekly `schedule` sweep above if no such
+    # carries a source change, or by the daily `schedule` sweep above if no such
     # change arrives first.
     if: >-
       (github.event_name == 'workflow_dispatch' && github.event.inputs.intent == 'bump_version') ||
@@ -84,6 +92,11 @@ jobs:
        !startsWith(github.event.workflow_run.head_commit.message, 'chore(deps)') &&
        !startsWith(github.event.workflow_run.head_commit.message, 'fix(deps)'))
     runs-on: ubuntu-latest
+    # The push uses the app token persisted by checkout; GITHUB_TOKEN only needs
+    # to read CI run results for the schedule gate.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Generate Arthur GitHub Automator App Token
         id: generate-token
@@ -112,6 +125,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -150,7 +164,21 @@ jobs:
                 UNRELEASED=$(git rev-list --count "$LAST_TAG"..HEAD)
                 echo "$UNRELEASED commit(s) on main since $LAST_TAG."
                 if [ "$UNRELEASED" -gt 0 ]; then
-                  echo "proceed=true" >> "$GITHUB_OUTPUT"
+                  # The sweep has no workflow_run to vouch for the tip, so look
+                  # up "Arthur Common CI" on it directly: a red or still-running
+                  # build must not reach PyPI. Skipping is safe — tomorrow's
+                  # sweep (or the next workflow_run bump) picks it up.
+                  TIP=$(git rev-parse HEAD)
+                  CI=$(gh run list --repo "$GITHUB_REPOSITORY" \
+                         --workflow "Arthur Common CI" --event push \
+                         --commit "$TIP" --limit 1 \
+                         --json conclusion --jq '.[0].conclusion // ""')
+                  if [ "$CI" = "success" ]; then
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "proceed=false" >> "$GITHUB_OUTPUT"
+                    echo "::notice::CI on $TIP is '${CI:-not found}', not success; skipping until it is green."
+                  fi
                 else
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
                   echo "::notice::main is already released at $LAST_TAG; nothing to do."

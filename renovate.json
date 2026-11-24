@@ -12,7 +12,7 @@
   "prConcurrentLimit": 10,
   "prHourlyLimit": 6,
   "platformAutomerge": true,
-  "automergeStrategy": "merge",
+  "automergeStrategy": "merge-commit",
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "labels": ["security"],
