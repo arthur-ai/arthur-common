@@ -17,13 +17,15 @@ on:
   # each cutting a release, which otherwise means a dependency change can sit on
   # main unreleased indefinitely — and for a published library the dependency
   # constraints ARE part of what consumers install. This daily run bumps only
-  # if main has commits the last release tag does not (and CI is green on the
-  # tip), so dependency updates reach PyPI within ~24h without a release per
-  # PR. Daily rather than weekly because arthur-engine pins arthur-common and
-  # shares its dependencies (litellm, pydantic, pandas, ...): arthur-common has
-  # to publish a bump before arthur-engine's Renovate can move the same
-  # dependency without a resolver conflict. A day with nothing unreleased is a
-  # no-op — no commit, no tag, no publish.
+  # if pyproject.toml or src/ changed since the last "Bump version" commit (and
+  # CI is green on the tip), so dependency updates reach PyPI within ~24h
+  # without a release per PR. Daily rather than weekly because arthur-engine
+  # pins arthur-common and shares its dependencies (litellm, pydantic, pandas,
+  # ...): arthur-common has to publish a bump before arthur-engine's Renovate
+  # can move the same dependency without a resolver conflict. A day with
+  # nothing new to publish is a no-op — no commit, no tag, no publish. That
+  # includes days whose only merge is Renovate's nightly lock file maintenance:
+  # uv.lock is not part of the wheel.
   schedule:
     - cron: "0 9 * * *" # Daily 09:00 UTC (05:00 ET)
   # Still available for major/minor bumps, which are never automatic.
@@ -63,17 +65,17 @@ jobs:
     #                     PRs unattended now (see renovate-auto-approve.yml), so
     #                     this list is load-bearing: anything it misses ships a
     #                     release with no human in the loop.
-    #                     `contains 'renovate/'` is the primary check — it matches
-    #                     the branch ref in a merge commit's first line, which is
-    #                     why renovate.json pins automergeStrategy to
-    #                     "merge-commit" (GitHub's "Merge pull request #N from
-    #                     arthur-ai/renovate/..." title, per the repo's
-    #                     merge_commit_title=MERGE_MESSAGE setting).
-    #                     The startsWith entries are defence in depth for squash
-    #                     and rebase merges, where the message is the PR title
-    #                     instead. Note the grouped title ("Update python minor
-    #                     and patch") is NOT of the form "Update dependency X",
-    #                     so it needs its own entry.
+    #                     The startsWith entries are the primary check. Renovate's
+    #                     auto-merges land as "<PR title> (#N)" merge commits,
+    #                     whatever the repo's merge_commit_title setting (every
+    #                     one in Sep-Oct 2026 did), so the message carries no
+    #                     branch ref and each title form Renovate can produce
+    #                     needs an entry. Note the grouped title ("Update python
+    #                     minor and patch") is NOT of the form "Update
+    #                     dependency X", so it needs its own.
+    #                     `contains 'renovate/'` only catches a Renovate PR that
+    #                     a person merges by hand, which gets GitHub's "Merge
+    #                     pull request #N from arthur-ai/renovate/..." title.
     # Dependency bumps still ship — either batched into the next release that
     # carries a source change, or by the daily `schedule` sweep above if no such
     # change arrives first.
@@ -106,8 +108,8 @@ jobs:
           private-key: ${{ secrets.ARTHUR_GH_AUTOMATOR_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v5
         with:
-          # Full history + tags: the schedule gate below compares main against
-          # the most recent release tag.
+          # Full history + tags: the schedule gate below diffs main against
+          # the most recent "Bump version" commit and checks it was tagged.
           fetch-depth: 0
           # workflow_run checks out the triggering SHA by default; bump from the
           # tip of main so the push is a fast-forward. The gate step then
@@ -151,19 +153,31 @@ jobs:
               fi
               ;;
             schedule)
-              # Release only if there is something unreleased. Release tags are
-              # bare versions ("2.4.68"); the -lts / -lts-patch-* tags that
-              # arthur-common-release.yml also publishes are excluded so an LTS
-              # tag cannot be mistaken for the mainline release point.
-              LAST_TAG=$(git tag --list --sort=-v:refname \
-                         | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-              if [ -z "$LAST_TAG" ]; then
-                echo "proceed=true" >> "$GITHUB_OUTPUT"
-                echo "::notice::No release tag found; bumping."
+              # Release only if what gets published has changed since the last
+              # release was cut.
+              #
+              # The release point is the newest "Bump version" commit on main —
+              # the same marker arthur-common-release.yml keys off — not the
+              # newest tag. That workflow pushes the tag only after PyPI publish
+              # succeeds, so measuring from the tag would count a failed or
+              # still-running release's own bump commit as unreleased work and
+              # cut another version on every sweep.
+              RELEASE_POINT=$(git log --first-parent -1 --format=%H \
+                                --grep='^Bump version: [0-9]' HEAD)
+              if [ -z "$RELEASE_POINT" ]; then
+                echo "proceed=false" >> "$GITHUB_OUTPUT"
+                echo "::warning::No 'Bump version' commit found on main, so there is no release point to compare against; skipping. Dispatch a bump manually."
               else
-                UNRELEASED=$(git rev-list --count "$LAST_TAG"..HEAD)
-                echo "$UNRELEASED commit(s) on main since $LAST_TAG."
-                if [ "$UNRELEASED" -gt 0 ]; then
+                RELEASE=$(git log -1 --format='%s (%h)' "$RELEASE_POINT")
+                # Only pyproject.toml (dependency constraints, metadata) and
+                # src/ (the package) reach the wheel. Everything else — above
+                # all uv.lock, which Renovate's lock file maintenance rewrites
+                # most nights — changes nothing a consumer installs, so it must
+                # not cut a release on its own.
+                CHANGED=$(git diff --name-only "$RELEASE_POINT" HEAD -- pyproject.toml src/)
+                if [ -n "$CHANGED" ]; then
+                  echo "Published inputs changed since $RELEASE:"
+                  echo "$CHANGED"
                   # The sweep has no workflow_run to vouch for the tip, so look
                   # up "Arthur Common CI" on it directly: a red or still-running
                   # build must not reach PyPI. Skipping is safe — tomorrow's
@@ -181,7 +195,15 @@ jobs:
                   fi
                 else
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
-                  echo "::notice::main is already released at $LAST_TAG; nothing to do."
+                  echo "::notice::Nothing published has changed since $RELEASE; nothing to do."
+                  # A release point without a tag means its release failed or
+                  # is still running. Bumping again here would cut one more
+                  # version every day it stays stuck — a duplicate of what is
+                  # already on PyPI if only the tag step failed — so flag it
+                  # for a human instead.
+                  if [ -z "$(git tag --points-at "$RELEASE_POINT")" ]; then
+                    echo "::warning::$RELEASE has no release tag: its 'Arthur Common Release' run failed or is still running. Not bumping again; re-run that release if it failed."
+                  fi
                 fi
               fi
               ;;
