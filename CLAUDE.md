@@ -65,13 +65,13 @@ pre-commit run --all-files    # Run all pre-commit hooks manually
 
 ### Release Process
 
-1. Merge changes to `main` branch
-2. Trigger GitHub Actions: **Arthur Common Version Bump**
-3. Select bump type (patch/minor/major)
-4. Workflow automatically:
-   - Bumps version in pyproject.toml
-   - Creates git tag
-   - Pushes to PyPI
+Releases are automatic: merging to `main` publishes a patch version.
+
+1. **Arthur Common CI** runs on the merge commit.
+2. When it passes, **Arthur Common Version Bump** runs `bump2version patch` and pushes a "Bump version" commit to `main`. Renovate merges are skipped; a weekly scheduled run (Mondays 09:00 UTC) releases them if nothing else has.
+3. The "Bump version" commit starts **Arthur Common Release**, which publishes to PyPI and creates the tag.
+
+Minor and major bumps are never automatic: run **Arthur Common Version Bump** manually (`workflow_dispatch`) with the bump type.
 
 ### CODEOWNERS
 
@@ -250,10 +250,10 @@ pre-commit run --all-files
 **GitHub Actions Workflows:**
 - [arthur-common-workflow.yml](.github/workflows/arthur-common-workflow.yml) - Linting and unit tests on push/PR
 - [arthur-common-release.yml](.github/workflows/arthur-common-release.yml) - PyPI build and publish
-- [arthur-common-version-bump.yml](.github/workflows/arthur-common-version-bump.yml) - Manual version bump (patch/minor/major)
+- [arthur-common-version-bump.yml](.github/workflows/arthur-common-version-bump.yml) - Patch bump after green CI on `main`, a weekly run for unreleased Renovate merges, or a manual minor/major bump
 
 **Workflow Trigger:**
-- Commits to `main` trigger CI/CD
+- Commits to `main` trigger CI; a green CI run on `main` triggers the version bump
 - "Bump version" commits trigger PyPI release
 
 ## Important Patterns
