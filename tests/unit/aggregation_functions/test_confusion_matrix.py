@@ -231,3 +231,56 @@ def test_prediction_threshold_confusion_matrix(
         segmentation_cols=[escape_identifier("packet type")],
     )
     assert_dimension_in_metric(metrics[0], "packet type")
+
+
+@pytest.mark.parametrize(
+    "prediction_col,tp,fp,tn,fn",
+    [
+        ("pred high accuracy malicious", *HIGH_ACCURACY_COUNTS),
+        ("pred low accuracy malicious", *LOW_ACCURACY_COUNTS),
+    ],
+)
+def test_str_label_confusion_matrix_labels_containing_value(
+    get_networking_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    prediction_col: str,
+    tp: int,
+    fp: int,
+    tn: int,
+    fn: int,
+):
+    # Labels that contain the word "value" must not be rewritten when the
+    # column name is bound into the normalization CASE expression.
+    conn, dataset_ref = get_networking_dataset_conn
+    conn.sql(
+        f"""
+        ALTER TABLE {dataset_ref.dataset_table_name} ADD COLUMN "malicious value label" VARCHAR;
+        UPDATE {dataset_ref.dataset_table_name}
+        SET "malicious value label" = CASE
+            WHEN malicious = true THEN 'high_value'
+            ELSE 'low_value'
+        END;
+        ALTER TABLE {dataset_ref.dataset_table_name} ADD COLUMN "{prediction_col} value label" VARCHAR;
+        UPDATE {dataset_ref.dataset_table_name}
+        SET "{prediction_col} value label" = CASE
+            WHEN "{prediction_col}" = true THEN 'high_value'
+            ELSE 'low_value'
+        END;
+    """,
+    )
+
+    cm_aggregator = BinaryClassifierStringLabelConfusionMatrixAggregationFunction()
+    metrics = cm_aggregator.aggregate(
+        conn,
+        dataset_ref,
+        timestamp_col=escape_identifier("sent timestamp"),
+        prediction_col=escape_identifier(f"{prediction_col} value label"),
+        gt_values_col=escape_identifier("malicious value label"),
+        true_label="high_value",
+        false_label="low_value",
+    )
+    validate_expected_metric_names(cm_aggregator, metrics)
+    assert len(metrics) == 4
+    assert sum([v.value for v in metrics[0].numeric_series[0].values]) == tp
+    assert sum([v.value for v in metrics[1].numeric_series[0].values]) == fp
+    assert sum([v.value for v in metrics[2].numeric_series[0].values]) == fn
+    assert sum([v.value for v in metrics[3].numeric_series[0].values]) == tn

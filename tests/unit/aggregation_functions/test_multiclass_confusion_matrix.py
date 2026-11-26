@@ -92,3 +92,47 @@ def test_multiclass_with_segmentation(
     )
     assert_dimension_in_metric(metrics[0], "prompt_version_id")
     validate_expected_metric_names(cm_aggregator, metrics)
+
+
+@pytest.mark.parametrize(
+    "positive_label,expected_tp,expected_fp,expected_tn,expected_fn",
+    [
+        ("Truck", 10, 15, 172, 3),
+        ("Car", 141, 1, 27, 31),
+        ("Motorcycle", 15, 18, 167, 0),
+    ],
+)
+def test_multiclass_single_class_confusion_matrix_labels_containing_value(
+    get_vehicle_dataset_conn: tuple[DuckDBPyConnection, DatasetReference],
+    positive_label: str,
+    expected_tp: int,
+    expected_fp: int,
+    expected_tn: int,
+    expected_fn: int,
+):
+    # Same counts as above when every label ends in "_value", e.g. "Truck_value".
+    conn, dataset_ref = get_vehicle_dataset_conn
+    conn.sql(
+        f"""
+        UPDATE {dataset_ref.dataset_table_name}
+        SET "TrueLabel" = "TrueLabel" || '_value',
+            "PredictedLabel" = "PredictedLabel" || '_value';
+    """,
+    )
+    cm_aggregator = (
+        MulticlassClassifierStringLabelSingleClassConfusionMatrixAggregationFunction()
+    )
+    metrics = cm_aggregator.aggregate(
+        conn,
+        dataset_ref,
+        timestamp_col=escape_identifier("Timestamp"),
+        prediction_col=escape_identifier("PredictedLabel"),
+        gt_values_col=escape_identifier("TrueLabel"),
+        positive_class_label=f"{positive_label}_value",
+    )
+    validate_expected_metric_names(cm_aggregator, metrics)
+    assert len(metrics) == 4
+    assert sum([v.value for v in metrics[0].numeric_series[0].values]) == expected_tp
+    assert sum([v.value for v in metrics[1].numeric_series[0].values]) == expected_fp
+    assert sum([v.value for v in metrics[2].numeric_series[0].values]) == expected_fn
+    assert sum([v.value for v in metrics[3].numeric_series[0].values]) == expected_tn
