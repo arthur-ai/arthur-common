@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 from arthur_common.models.enums import ModelProblemType
 
-
 STATIC_DATASET_TIMESTAMP_COL = "__arthur_calculated_at"
 
 
@@ -406,6 +405,11 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
             ),
             DatasetColumn(
                 id=uuid4(),
+                source_name="unpriced_span_count",
+                definition=create_dataset_scalar_type(DType.INT),
+            ),
+            DatasetColumn(
+                id=uuid4(),
                 source_name="trace_id",
                 definition=create_dataset_scalar_type(DType.STRING),
             ),
@@ -479,25 +483,25 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                             "annotation_type": create_dataset_scalar_type(DType.STRING),
                             "trace_id": create_dataset_scalar_type(DType.STRING),
                             "continuous_eval_id": create_dataset_scalar_type(
-                                DType.UUID
+                                DType.UUID,
                             ),
                             "continuous_eval_name": create_dataset_scalar_type(
-                                DType.STRING
+                                DType.STRING,
                             ),
                             "eval_name": create_dataset_scalar_type(DType.STRING),
                             "eval_version": create_dataset_scalar_type(DType.INT),
                             "annotation_score": create_dataset_scalar_type(DType.INT),
                             "annotation_description": create_dataset_scalar_type(
-                                DType.STRING
+                                DType.STRING,
                             ),
                             "input_variables": create_dataset_list_type(
                                 create_dataset_object_type(
                                     {
                                         "name": create_dataset_scalar_type(
-                                            DType.STRING
+                                            DType.STRING,
                                         ),
                                         "value": create_dataset_scalar_type(
-                                            DType.STRING
+                                            DType.STRING,
                                         ),
                                     },
                                 ),
@@ -519,16 +523,19 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                             # Token count/cost fields from TokenCountCostSchema
                             "prompt_token_count": create_dataset_scalar_type(DType.INT),
                             "completion_token_count": create_dataset_scalar_type(
-                                DType.INT
+                                DType.INT,
                             ),
                             "total_token_count": create_dataset_scalar_type(DType.INT),
                             "prompt_token_cost": create_dataset_scalar_type(
-                                DType.FLOAT
+                                DType.FLOAT,
                             ),
                             "completion_token_cost": create_dataset_scalar_type(
-                                DType.FLOAT
+                                DType.FLOAT,
                             ),
                             "total_token_cost": create_dataset_scalar_type(DType.FLOAT),
+                            "unpriced_span_count": create_dataset_scalar_type(
+                                DType.INT,
+                            ),
                             # SpanWithMetricsResponse fields
                             "id": create_dataset_scalar_type(DType.UUID),
                             "trace_id": create_dataset_scalar_type(DType.STRING),
@@ -552,37 +559,37 @@ def AGENTIC_TRACE_SCHEMA() -> DatasetSchema:
                                     {
                                         "id": create_dataset_scalar_type(DType.UUID),
                                         "metric_type": create_dataset_scalar_type(
-                                            DType.STRING
+                                            DType.STRING,
                                         ),
                                         "details": create_dataset_scalar_type(
-                                            DType.STRING
+                                            DType.STRING,
                                         ),
                                         "prompt_tokens": create_dataset_scalar_type(
-                                            DType.INT
+                                            DType.INT,
                                         ),
                                         "completion_tokens": create_dataset_scalar_type(
-                                            DType.INT
+                                            DType.INT,
                                         ),
                                         "latency_ms": create_dataset_scalar_type(
-                                            DType.INT
+                                            DType.INT,
                                         ),
                                         "span_id": create_dataset_scalar_type(
-                                            DType.UUID
+                                            DType.UUID,
                                         ),
                                         "metric_id": create_dataset_scalar_type(
-                                            DType.UUID
+                                            DType.UUID,
                                         ),
                                         "created_at": create_dataset_scalar_type(
-                                            DType.TIMESTAMP
+                                            DType.TIMESTAMP,
                                         ),
                                         "updated_at": create_dataset_scalar_type(
-                                            DType.TIMESTAMP
+                                            DType.TIMESTAMP,
                                         ),
-                                    }
-                                )
+                                    },
+                                ),
                             ),
-                        }
-                    )
+                        },
+                    ),
                 ),
             ),
         ],

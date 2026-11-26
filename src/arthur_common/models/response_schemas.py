@@ -661,8 +661,8 @@ class MetricResultResponse(BaseModel):
 class TokenCountCostSchema(BaseModel):
     """Base schema for responses that include token count and cost information.
 
-    These fields represent LLM token usage and associated costs.
-    None values indicate data is not available.
+    These fields represent LLM token usage and associated costs. Costs are estimates
+    in USD, from the model's list prices. None values indicate data is not available.
     """
 
     prompt_token_count: Optional[int] = Field(
@@ -679,15 +679,19 @@ class TokenCountCostSchema(BaseModel):
     )
     prompt_token_cost: Optional[float] = Field(
         default=None,
-        description="Cost of prompt tokens in USD",
+        description="Estimated cost of prompt tokens, in USD",
     )
     completion_token_cost: Optional[float] = Field(
         default=None,
-        description="Cost of completion tokens in USD",
+        description="Estimated cost of completion tokens, in USD",
     )
     total_token_cost: Optional[float] = Field(
         default=None,
-        description="Total cost in USD",
+        description="Estimated total cost, in USD",
+    )
+    unpriced_span_count: Optional[int] = Field(
+        default=None,
+        description="Number of LLM spans whose cost couldn't be estimated because their model's pricing is unknown. Their cost is left out of the cost fields. None when not reported.",
     )
 
 
@@ -801,7 +805,7 @@ class AgenticAnnotationResponse(BaseModel):
     )
     cost: Optional[float] = Field(
         default=None,
-        description="Cost of the continuous eval run",
+        description="Estimated cost of the continuous eval run, in USD",
     )
     created_at: datetime = Field(description="Time the annotation was created")
     updated_at: datetime = Field(description="Time the annotation was last updated")
