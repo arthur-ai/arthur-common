@@ -37,8 +37,12 @@ uv run pytest
 ```
 
 ## Release process
-1. Merge changes into `main` branch
-2. Go to **Actions** -> **Arthur Common Version Bump**
-3. Click **Run workflow**. The workflow will create a new commit with the version bump, push it back to the same branch it is triggered on (default `main`), and start the release process
-4. Watch in [GitHub Actions](https://github.com/arthur-ai/arthur-common/actions) for Arthur Common Release to run
-5. Update package version in your project (arthur-engine)
+Releases are automatic. Merging into `main` publishes a new patch version once CI passes:
+1. **Arthur Common CI** runs on the merge commit.
+2. When it passes, **Arthur Common Version Bump** bumps the patch version and pushes a "Bump version" commit to `main`.
+3. That commit starts **Arthur Common Release**, which publishes to PyPI and tags the release.
+4. Update the package version in the projects that use it (arthur-engine, arthur-scope).
+
+Renovate merges don't release on their own; a weekly run (Mondays 09:00 UTC) releases them if nothing else has.
+
+For a minor or major release, go to **Actions** -> **Arthur Common Version Bump**, click **Run workflow** and pick the bump type.
